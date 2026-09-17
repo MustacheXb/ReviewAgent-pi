@@ -4,6 +4,8 @@
 
 本项目同时是一个 AI4SE 研究项目：以 VUL4J 单缺陷 MR 为基准，对五种上下文策略配置做受控实验（真实网关、三侧数据、四层判定链），论文主数据与分析报告见 [`docs/report/`](docs/report/)。
 
+> **分支注记（`pi-kernel`，2026-09-17 起）**：本分支以 [pi](https://github.com/earendil-works/pi) 代码仓为基础做全源码定制（vendor fork，锚定 commit `6671c604` / v0.85.1+11d），vendored 了 `packages/{ai,agent,chord,telemetry}` 四个包——后续 Pi 内核适配均在本分支讨论。DSH 内核（`packages/review-dsh`）与全部评测数据/报告原样保留。基线决策、接线分歧清单与验证结果见《[Pi 内核定制基线方案](docs/design/Pi 内核定制基线方案.md)》，第三方声明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
+
 ## 研究设计一览
 
 **受测配置**（A–E，同一模型同一判定链，只变上下文策略）：
@@ -26,6 +28,9 @@
 src/                    POC1 薄 harness 主链（experiment / judge / metrics / sampling /
                         codeintel / zoneb / tools / gate / dataset / …）
 packages/review-dsh/    DSH 内核侧（阶段 1 迁移；独立包 + 确定性纪律门）
+packages/{ai,agent,chord,telemetry}/
+                        Pi 内核 vendor 基座（pi-kernel 分支；@earendil-works/*，
+                        `pnpm build:pi` 拓扑构建，见《Pi 内核定制基线方案》）
 scripts/                实验 / 门 / 分析 / 物化脚本入口（tsc 即编即跑，产物落 .tmp-gen/）
 data/                   数据集清单与 MR 物化（vul4j / defects4j / msb-java / clean-mr）
 runs/                   实验产物（不入库；*/REPORT.md 作为结论文档例外入库）
@@ -39,7 +44,7 @@ reference_project/      外部参考项目（不入库，见下节）
 ```bash
 # 前置：Node >= 22，pnpm 10.30.3（corepack enable 即可）
 pnpm install
-pnpm test          # 全量回归（约 1080 项）
+pnpm test          # 全量回归（约 1170 项）
 pnpm typecheck     # 根包类型检查
 ```
 
@@ -51,6 +56,7 @@ CI（push / PR）跑两层门：`discipline-gate`（确定性纪律门 · 零网
 |---|---|
 | `pnpm test` / `pnpm test:e2e` / `pnpm test:coverage` | 回归 / E2E / 覆盖率 |
 | `pnpm typecheck` | 根包类型检查 |
+| `pnpm build:pi` | Pi 四包拓扑构建（telemetry → chord → ai → agent，pi-kernel 分支） |
 | `pnpm experiment -- --id <id> --cases-file <file> --configs A,B,C,D,E --reps 3 --judge --judge-model <model>` | 实验运行器（真实网关；产物落 `runs/<id>/`） |
 | `pnpm alignment-gate` | 指标对齐门 v2 复算（gate JSON 留痕） |
 | `pnpm analyze:phase2` | Phase 2 六面分析一键复算（读 `runs/phase2-*`） |

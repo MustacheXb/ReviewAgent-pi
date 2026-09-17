@@ -16,6 +16,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+# pi 内核包工具产物（packages/ai generate-model-catalog 输出目标 ../../.artifacts/）
+.artifacts/
 
 # 检视运行审计痕迹（runReview 默认落盘目录；数据/记录不入库，
 # 但目录本身保持可扫描——评测报告 REPORT.md 作为结论文档例外入库）

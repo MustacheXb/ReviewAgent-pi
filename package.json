@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.config.e2e.ts",
     "typecheck": "tsc --noEmit",
+    "build:pi": "pnpm --filter @earendil-works/pi-telemetry run build && pnpm --filter @earendil-works/chord run build && pnpm --filter @earendil-works/pi-ai run build && pnpm --filter @earendil-works/pi-agent-core run build",
     "experiment": "pnpm --filter review-llm build && pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/run-experiment.ts && node .tmp-gen/scripts/run-experiment.js",
     "alignment-gate": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/run-alignment-gate.ts && node .tmp-gen/scripts/run-alignment-gate.js",
     "reference": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/run-claude-code-reference.ts && node .tmp-gen/scripts/run-claude-code-reference.js",
