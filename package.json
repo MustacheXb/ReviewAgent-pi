@@ -28,7 +28,6 @@
     "vitest": "^2.1.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-sdk-protocol": "0.1.2-rc.1",
     "@vscode/ripgrep": "1.18.0",
     "review-llm": "workspace:*",
     "tree-sitter-java": "0.23.5",

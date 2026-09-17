@@ -7,8 +7,6 @@ import type { MRCase } from "../contracts/mr-case.js";
 import type { RunResult } from "../contracts/run.js";
 import { addUsage } from "../loop/usage.js";
 import { DEFAULT_EFFORT, runReview } from "../run/run-review.js";
-import { RETIRED_MODEL_IDS } from "review-llm";
-import type { DshKernelDriver } from "./dsh-kernel.js";
 import type { ExperimentPlan, ExpandedPlan, RunUnit } from "./plan.js";
 import { expandPlan } from "./plan.js";
 import type { RunRecord, RunSnapshot } from "./run-store.js";
@@ -34,13 +32,6 @@ export interface RunnerPaths {
 
 export interface ExperimentDeps {
   readonly llmClient: LlmClient;
-  /**
-   * DSH 内核驱动（#27，可选）：在场时检视单元改经长驻内核 host 进程执行
-   * （SDK JSON-RPC wire），llmClient 仅服务核外工具链（Verifier 二遍）。
-   * model 经 runUnit 请求参数透传内核（#45）：自由 id 放行（画像序列化在
-   * 内核 wire 层），退役 id 启动即拒，回传 model 与 plan 漂移即失败单元。
-   */
-  readonly dshKernel?: DshKernelDriver;
   readonly now?: () => Date;
   /** 单元级进度回调（CLI 打印 / 测试观测；异常由运行器捕获后继续） */
   readonly onUnit?: (event: UnitEvent) => void;
@@ -95,15 +86,6 @@ export async function runExperiment(
   paths: RunnerPaths,
 ): Promise<ExperimentOutcome> {
   const expanded = expandPlan(plan, cases);
-  if (deps.dshKernel !== undefined && RETIRED_MODEL_IDS.includes(plan.model)) {
-    // 退役 id 门（#45）：清单单源在 review-llm（与 DSH adapter / POC1 客户端
-    // 同表）——启动即报错不烧任何单元；其余自由 id 透传内核，由回传漂移
-    // 断言兜底口径诚实
-    throw new Error(
-      `experiment "${plan.experimentId}" runs on the DSH kernel, which rejects retired model ids ` +
-        `(plan.model = "${plan.model}"; deepseek-chat / deepseek-reasoner were retired on 2026-07-24 and must not be used, ADR-0002): pick a live model id.`,
-    );
-  }
   const store = new RunStore(path.join(paths.experimentRoot, "runs"));
   await persistPlanAndCases(paths.experimentRoot, plan, expanded.cases);
   const existing = await loadCompatibleRecords(store, plan, expanded.units);
@@ -147,7 +129,7 @@ export async function runExperiment(
   };
 }
 
-/** 单元执行：检视（DSH 内核 / POC1 基线，RunResult 同构）→ 可选二遍 Verifier → 记录落盘；失败留痕不拖垮整批 */
+/** 单元执行：检视（runReview，RunResult 同构）→ 可选二遍 Verifier → 记录落盘；失败留痕不拖垮整批 */
 async function executeUnit(
   unit: RunUnit,
   mrCase: MRCase,
@@ -166,30 +148,17 @@ async function executeUnit(
     `rep-${unit.rep}`,
   );
   try {
-    // DSH 路径（#27）：单元经长驻 host 进程执行（review/run；configId 逐单元切
-    // preset，审计由 host 落盘、auditPath 随响应回传）——返回 POC1 RunResult，
-    // 下游 composeRecord / store 零改动。model 随请求透传（#45）；回传 model
-    // 与 plan 漂移 = 记录会撒谎 → 拒绝落盘（口径诚实护栏，单元失败留痕）
-    const baseline =
-      deps.dshKernel !== undefined
-        ? await deps.dshKernel.runUnit({
-            configId: unit.configId,
-            caseId: mrCase.caseId,
-            issueDescription: mrCase.issueDescription,
-            diff: mrCase.diff,
-            repoPath: mrCase.repoPath,
-            auditDir,
-            model: plan.model,
-          })
-        : await runReview(CONFIGS[unit.configId], mrCase, deps.llmClient, {
-            auditDir,
-            model: plan.model,
-            effort: DEFAULT_EFFORT,
-          });
+    // 检视基线（runReview；pi 内核接入后此处成为可替换执行缝，RunResult 同构）
+    const baseline = await runReview(CONFIGS[unit.configId], mrCase, deps.llmClient, {
+      auditDir,
+      model: plan.model,
+      effort: DEFAULT_EFFORT,
+    });
     if (baseline.model !== plan.model) {
+      // 口径诚实护栏（#45 语义保留）：记录会撒谎 → 拒绝落盘
       throw new Error(
-        `DSH kernel returned a different model than the plan claims (plan.model = "${plan.model}", ` +
-          `kernel result.model = ${JSON.stringify(baseline.model)}): persisting the record would be dishonest — fix the kernel model route before rerunning`,
+        `review returned a different model than the plan claims (plan.model = "${plan.model}", ` +
+          `result.model = ${JSON.stringify(baseline.model)}): persisting the record would be dishonest — fix the model route before rerunning`,
       );
     }
     const { record } = await composeRecord(unit, mrCase, plan, baseline, deps, now);

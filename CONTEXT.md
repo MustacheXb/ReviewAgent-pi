@@ -1,6 +1,6 @@
 # Review Agent
 
-基于 DeepSeek Harness 的低 Token、高质量代码检视 Agent：用最小充分上下文与缓存稳定循环，以 20~30% 的 Token 成本获得接近全量上下文的检视质量。终点是落地到企业内部代码托管平台的 MR 检视。
+低 Token、高质量代码检视 Agent：用最小充分上下文与缓存稳定循环，以 20~30% 的 Token 成本获得接近全量上下文的检视质量。终点是落地到企业内部代码托管平台的 MR 检视。（内核基座：pi 代码仓 fork，Review Runtime 从 0 重写，ADR-0009；DSH 线历史见 ADR-0005/0006。）
 
 ## Language
 
@@ -64,15 +64,15 @@ _Avoid_: 评论、告警、issue（泛化）
 ### 运行时边界
 
 **核内（Review Runtime）**:
-检视会话运行时的全部行为：loop 策略、`review.*` 工具、C0–C3 上下文决策、缓存纪律、检视政策与 Evidence Gate；以 DSH 插件形态挂在 DSH 插件树。
-_Avoid_: DSH 组件（粒度混淆）、全部组件插件化（核外不入树）
+检视会话运行时的全部行为：loop 策略、`review.*` 工具、C0–C3 上下文决策、缓存纪律、检视政策与 Evidence Gate；在 pi 内核上从 0 重写（`packages/review-pi`，ADR-0009）。
+_Avoid_: 通用 Coding Runtime 复用、把核内当插件树挂接点（DSH 线历史形态，已随内核移除）
 
 **策略驱动器（Review Driver）**:
-核内 review-runtime 插件中代码级强制六阶段骨架的组件：只有它能推进阶段（一阶段 = 一回合），回合边界执行 Evidence Gate 与轮次调度。
-_Avoid_: 自定义 Loop（指 setFactory 替换内核 loop，已否）、提示词纪律（骨架不是提示词约定）
+核内 Review Runtime 中代码级强制六阶段骨架的组件：只有它能推进阶段（一阶段 = 一回合），回合边界执行 Evidence Gate 与轮次调度。
+_Avoid_: 自定义 Loop（替换内核 loop 的机制，DSH 线已否；pi 线以 agent-loop 钩子实现同等骨架）、提示词纪律（骨架不是提示词约定）
 
 **核外（研究工具链）**:
-服务于实验而非检视会话的层：数据集构造、判定链、指标聚合、实验运行器、外部参照；普通库被 CLI 调用，不进 DSH 插件树。
+服务于实验而非检视会话的层：数据集构造、判定链、指标聚合、实验运行器、外部参照；普通库被 CLI 调用，不进内核。
 _Avoid_: 实验插件
 
 ### 知识
@@ -96,7 +96,7 @@ _Avoid_: 把上界当真实成本混比（无计量侧方向已知偏高）
 ### 模型接入
 
 **被测模型（reviewer）**:
-实验的自变量侧 LLM：model id 走请求参数双路径（POC1/实验 CLI `--model`（`flash`/`pro` 别名保留）；DSH 内核经 JSON-RPC `review/run` 参数 / `review-agent` CLI `--model` 旗标，#45），无 model 环境变量；url / key 经角色命名环境变量（`REVIEWER_*` > 旧 `DEEPSEEK_*`，`.env.local` 自动装载且双 CLI 同语义——已有环境变量优先，#46）；进 manifest / 审计留痕（model + baseUrl，绝不记 key，ADR-0008）。自定义网关换端点/模型先用 `review-agent smoke` 冒烟自证（双探针 + 人话诊断，#46）。
+实验的自变量侧 LLM：model id 走请求参数（实验 CLI `--model`，`flash`/`pro` 别名保留；pi 内核线接缝见 ADR-0009），无 model 环境变量；url / key 经角色命名环境变量（`REVIEWER_*` > 旧 `DEEPSEEK_*`，`.env.local` 自动装载——已有环境变量优先，#46）；进 manifest / 审计留痕（model + baseUrl，绝不记 key，ADR-0008）。自定义网关换端点/模型先冒烟自证（双探针 + 人话诊断形态，随 pi 线回归）。
 _Avoid_: 检视模型（与 judge 混淆）、白名单模型（准入白名单已由画像表取代）、model 走环境变量（实验数据走请求，秘密才走环境）
 
 **参数画像（Provider Profile）**:

@@ -1,7 +1,0 @@
-{
-  "extends": "./tsconfig.cli.json",
-  "compilerOptions": {
-    "outDir": ".tmp-gen-host"
-  },
-  "include": ["src/kernel-host/main.ts"]
-}

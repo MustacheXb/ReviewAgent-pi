@@ -1,10 +1,10 @@
 # ReviewAgent
 
-基于 DeepSeek Harness 的低 Token、高质量代码检视 Agent：用**最小充分上下文**（Minimal Sufficient Context）与**缓存稳定循环**（Cache-Stable Review Loop），以 20~30% 的 Token 成本获得接近全量上下文的检视质量。终点是落地到企业内部代码托管平台的 MR 检视。
+低 Token、高质量代码检视 Agent：用**最小充分上下文**（Minimal Sufficient Context）与**缓存稳定循环**（Cache-Stable Review Loop），以 20~30% 的 Token 成本获得接近全量上下文的检视质量。终点是落地到企业内部代码托管平台的 MR 检视。内核基座：pi 代码仓 fork（ADR-0009）。
 
 本项目同时是一个 AI4SE 研究项目：以 VUL4J 单缺陷 MR 为基准，对五种上下文策略配置做受控实验（真实网关、三侧数据、四层判定链），论文主数据与分析报告见 [`docs/report/`](docs/report/)。
 
-> **分支注记（`pi-kernel`，2026-09-17 起）**：本分支以 [pi](https://github.com/earendil-works/pi) 代码仓为基础做全源码定制（vendor fork，锚定 commit `6671c604` / v0.85.1+11d），vendored 了 `packages/{ai,agent,chord,telemetry}` 四个包——后续 Pi 内核适配均在本分支讨论。DSH 内核（`packages/review-dsh`）与全部评测数据/报告原样保留。基线决策、接线分歧清单与验证结果见《[Pi 内核定制基线方案](docs/design/Pi 内核定制基线方案.md)》，第三方声明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
+> **分支注记（`pi-kernel`，2026-09-17 起）**：本分支以 [pi](https://github.com/earendil-works/pi) 代码仓为基础做全源码定制（vendor fork，锚定 commit `6671c604` / v0.85.1+11d），vendored 了 `packages/{ai,agent,chord,telemetry}` 四个包——后续 Pi 内核适配均在本分支讨论。**方向拍板（2026-09-18，ADR-0009）：Review Runtime 在 pi fork 上从 0 重写（`packages/review-pi`，仪器冻结平移），最终评测与 DSH 内核数据（`runs/phase2-dsh`，450 单元）按同口径对照**；DSH 内核（`packages/review-dsh`）已随之移除，全部评测数据/报告保留。方案见《[Pi 内核从零实现方案](docs/design/Pi 内核从零实现方案.md)》，fork 接线事实见《[Pi 内核定制基线方案](docs/design/Pi 内核定制基线方案.md)》，第三方声明见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
 ## 研究设计一览
 
@@ -25,12 +25,13 @@
 ## 仓库结构
 
 ```
-src/                    POC1 薄 harness 主链（experiment / judge / metrics / sampling /
-                        codeintel / zoneb / tools / gate / dataset / …）
-packages/review-dsh/    DSH 内核侧（阶段 1 迁移；独立包 + 确定性纪律门）
+src/                    评测装置 + POC1 运行时（experiment / judge / metrics / sampling /
+                        codeintel / zoneb / tools / gate / dataset / reference / …；
+                        运行时模块在 pi 线 P2 门绿、P4 接缝切换后退役，见《Pi 内核从零实现方案》§3）
 packages/{ai,agent,chord,telemetry}/
-                        Pi 内核 vendor 基座（pi-kernel 分支；@earendil-works/*，
-                        `pnpm build:pi` 拓扑构建，见《Pi 内核定制基线方案》）
+                        Pi 内核 vendor 基座（@earendil-works/*，`pnpm build:pi` 拓扑构建，
+                        见《Pi 内核定制基线方案》）；review-pi 将落此间（ADR-0009）
+packages/review-llm/    LLM 接入共享包（judge 仪器客户端 + 画像/退役清单单源）
 scripts/                实验 / 门 / 分析 / 物化脚本入口（tsc 即编即跑，产物落 .tmp-gen/）
 data/                   数据集清单与 MR 物化（vul4j / defects4j / msb-java / clean-mr）
 runs/                   实验产物（不入库；*/REPORT.md 作为结论文档例外入库）
@@ -44,11 +45,11 @@ reference_project/      外部参考项目（不入库，见下节）
 ```bash
 # 前置：Node >= 22，pnpm 10.30.3（corepack enable 即可）
 pnpm install
-pnpm test          # 全量回归（约 1170 项）
+pnpm test          # 全量回归（84 文件 / 1169 项）
 pnpm typecheck     # 根包类型检查
 ```
 
-CI（push / PR）跑两层门：`discipline-gate`（确定性纪律门 · 零网络）+ `suites`（两包 typecheck + 全量测试）。**真实网关调用不进 CI**（零网络纪律，#28），只走本地脚本按需执行。
+CI（push / PR）跑 `suites`（root + review-llm 两包 typecheck + 全量测试，零网络；DSH 线的 discipline-gate 作业已随内核移除，pi 线 P2 票以「对照 DSH 审计」形式重建，见 ADR-0009）。**真实网关调用不进 CI**（零网络纪律，#28），只走本地脚本按需执行。
 
 ## 常用命令
 
@@ -62,62 +63,21 @@ CI（push / PR）跑两层门：`discipline-gate`（确定性纪律门 · 零网
 | `pnpm analyze:phase2` | Phase 2 六面分析一键复算（读 `runs/phase2-*`） |
 | `pnpm materialize:vul4j` | VUL4J 数据集物化（case → 本地仓库 + MR） |
 | `pnpm reference -- --id <id> --cases-file <file>` | Claude Code 外部参照运行器（单列报告，不进 S/A/B 主判定） |
-| `pnpm --filter review-dsh gate:discipline` | DSH 侧纪律门（本地同 CI） |
-| `pnpm --filter review-dsh cli review --repo <path> --mr <diff> [--config A-E] [--model <id>]` | 单 MR 检视（DSH 内核 CLI；凭据经 `.env.local` / `REVIEWER_*`） |
-| `pnpm --filter review-dsh cli smoke [--model <id>]` | 网关冒烟自检（#46）：双探针 + 人话诊断，通过 0 / 失败 1 |
 
-## 单次检视执行（review-agent CLI）
+## 单次检视执行
 
-单案检视入口是 `review-agent` CLI：薄 wrapper（解析 → `.env.local` 装载 → 装配 → run → 导出 → 呈现），**内核为 DSH**（cordis Context + 核内五插件，进程内直挂，见 `packages/review-dsh/src/cli/main.ts`；区别于根 `src/` 的 POC1 薄 harness——后者是冻结参照与共享模块源，不再被执行）。stdout 输出单个 JSON 文档（findings / rounds / toolCalls / truncated / auditPath）；审计与会话落 `--out` 目录；退出码：完成（含诚实截断）0 / 中止 1。被测模型缺省 `deepseek-v4-flash`，换模型加 `--model <id>`。以下命令均从**仓库根**以 `node packages/review-dsh/bin/review-agent.js` 直跑，以复用仓根 `.env.local`（`pnpm --filter` 形式的 cwd 在包目录，见下节凭据说明）。
+单案检视 CLI 随 pi 内核线 P3 票回归：`packages/review-pi` 的 `review-pi` CLI，形态对齐原 `review-agent`（解析 → `.env.local` 装载 → 装配 → run → 导出 → 呈现；stdout 单 JSON 文档；退出码：完成（含诚实截断）0 / 中止 1；被测模型缺省 `deepseek-v4-flash`，换模型加 `--model <id>`）。DSH 内核 CLI（`packages/review-dsh/bin/review-agent.js`）已随内核移除（ADR-0009）。届时回归的还有网关冒烟自检（双探针 + 人话诊断，探针走 pi-ai 生产序列化）。
 
-### 评测场景（VUL4J 单案）
+在新 CLI 落地前，仍然有效的口径与注意（对评测复现与日常检视通用）：
 
-评测口径三要素：**物化仓（base 态）+ 数据集原生 diff + 数据集原生英文 issue**。issue 改用自编文本会引入口径污染；自编中文还会被模型引用进 evidence、触发 NON_ENGLISH 门整条拒绝。前置：数据集已物化（`pnpm materialize:vul4j`，仓落在 `.cache/datasets/vul4j-repos/`）。换案只改 `CASE`（30 案清单见 `data/vul4j/target-cases.json`）：
-
-```bash
-cd <本仓根目录>
-CASE=VUL4J-6
-
-REPO=$(node -p "require('./data/vul4j/target-cases.json').find(x=>x.caseId==='$CASE').repoPath")
-ISSUE=$(node -p "require('./data/vul4j/target-cases.json').find(x=>x.caseId==='$CASE').issueDescription")
-node -e "require('fs').writeFileSync('$CASE.diff',require('./data/vul4j/target-cases.json').find(x=>x.caseId==='$CASE').diff)"
-
-node packages/review-dsh/bin/review-agent.js review \
-  --repo "$REPO" --mr "$CASE.diff" --config B \
-  --issue "$ISSUE" --out "runs/local-review-$CASE"
-```
-
-配置语义见顶部 A–E 表（B = 零工具 + 确定性预取，生产拍板形态）。可选：跑前查该案基线（`runs/phase2-dsh/runs/vul4j/<案>/B/rep-*.json` 的 `baseline.findings`）——被测模型非确定，单次结果落在基线 rep 波动族内即属正常复现。
-
-### 检视本地任意代码仓
-
-命令与具体目标仓解耦，参数抽象为 `<目标仓>`、`<MR diff 文件>`、`<变更描述>`：
-
-```bash
-cd <本仓根目录>    # .env.local 与 CLI 路径均按 cwd 解析
-
-# 1) 在目标仓生成 MR diff（四选一，diff 描述待检视的变更）
-git -C <目标仓> diff <base>...<head> > <MR diff 文件>      # 分支相对 base 的全部变更
-git -C <目标仓> diff HEAD~<N> > <MR diff 文件>             # 最近 N 次提交
-git -C <目标仓> diff <commit>~1 <commit> > <MR diff 文件>  # 指定某次提交
-git -C <目标仓> diff HEAD > <MR diff 文件>                 # 未提交的工作区变更
-
-# 2) 检视
-node packages/review-dsh/bin/review-agent.js review \
-  --repo <目标仓> --mr <MR diff 文件> --config B \
-  --issue "<变更描述>" \
-  --out runs/local-review-<名目>
-```
-
-三个使用注意：
-
-1. **中文 MR 描述是当前内核的已知边界，不是用户义务**：检视产出（title / description / evidence）被 NON_ENGLISH 门要求纯英文（Zone A 提示词同步锁英文），而模型会把 `--issue` 中的中文描述自然引用进 evidence，导致整条 finding 被拒。评测场景用数据集原生英文 issue 属测量契约；日常单次检视想稳定拿到产出，`--issue` 暂用英文是权宜绕行。企业场景 MR 标题/描述多为中文，正解在内核侧——输出语言配置化已列入《Config B 生产化方案——差距分析、推荐路线与修改建议》（`docs/design/`，§3.2：`outputLanguage: "en" | "zh"`，Zone A 按语言分序列稳定前缀，换语言后须抽样质量验证）。
-2. **内核面向 Java**：角色提示词为 senior Java code reviewer、符号索引基于 tree-sitter-java。检视非 Java 仓可运行（diff 与 Zone B 仓库结构图仍工作），但符号预取层为空、角色错配，质量不保证。
-3. **基线态语义**：检视读的上下文以仓内现状为准（CLI 不 apply diff）；评测约定仓停在 diff 的 base 侧。日常检视「仓在 head、diff 描述该段变更」亦可，上下文有轻微漂移。
+- **评测口径三要素**：物化仓（base 态）+ 数据集原生 diff + 数据集原生英文 issue（30 案清单 `data/vul4j/target-cases.json`；物化 `pnpm materialize:vul4j`，仓落 `.cache/datasets/vul4j-repos/`）。issue 改用自编文本会引入口径污染。单次复现可对照 `runs/phase2-dsh/runs/vul4j/<案>/<配置>/rep-*.json` 的 `baseline.findings`——被测模型非确定，落在基线 rep 波动族内即属正常复现。
+- **中文 MR 描述是内核已知边界，不是用户义务**：产出被 NON_ENGLISH 门要求纯英文，模型会把 `--issue` 中的中文自然引用进 evidence 导致整条 finding 被拒；正解在内核侧——输出语言配置化见《Config B 生产化方案》（`docs/design/`，§3.2）。
+- **内核面向 Java**：角色提示词为 senior Java code reviewer、符号索引基于 tree-sitter-java；检视非 Java 仓可运行但质量不保证。
+- **基线态语义**：检视读的上下文以仓内现状为准（CLI 不 apply diff）；评测约定仓停在 diff 的 base 侧。
 
 ## 凭据配置（.env.local，绝不入库）
 
-实验运行器（仓库根执行）与 `review-agent` CLI（其所在 cwd 执行，#46）都会自动装载 `.env.local`（gitignored）：已有非空环境变量优先、不被覆盖；装载摘要只报键名与行号，key 值绝不回显。key 缺失即启动报错并给清单。注意 `.env.local` 按调用进程的 cwd 解析——`pnpm --filter review-dsh cli …` 的 cwd 是包目录（读 `packages/review-dsh/.env.local`）；要复用仓库根的 `.env.local`，从仓库根直接 `node packages/review-dsh/bin/review-agent.js …`：
+实验运行器（仓库根执行）自动装载 `.env.local`（gitignored）：已有非空环境变量优先、不被覆盖；装载摘要只报键名与行号，key 值绝不回显。key 缺失即启动报错并给清单。注意 `.env.local` 按调用进程的 cwd 解析（pi 线 CLI 落地后同样约定从仓库根执行）：
 
 ```ini
 # reviewer（被测模型）——恒需
@@ -135,13 +95,7 @@ OPENAI_URL=...           # 兼容别名（旧名）
 
 被测模型经 `--model <id>` 自由指定（实验 CLI 的 `flash`/`pro` 别名保留）；wire 序列化与指标口径按 provider 画像表分派（`deepseek-*`/`glm-*` 内建，未知模型走保守默认）。judge 模型与被测可能同源时默认拒绝——任一侧自定义接入点设定则降级为 warning 放行（异构性转为实验者责任，#43）。
 
-自定义网关（`REVIEWER_URL` 指向中转/自建端点）的可用性与兼容性由实验者自证：换端点或换模型后先跑冒烟自检——
-
-```bash
-pnpm --filter review-dsh cli smoke [--model <id>]
-```
-
-对目标端点发 1 次最小补全 + 1 次最小工具调用探针，输出人话诊断（通过 / 鉴权失败 / 模型不存在 / 不支持 function calling / 画像不匹配 / 限流 / 网络不通 / ……）与处置建议；通过退出码 0，任何失败诊断退出码 1。探针请求体走生产画像序列化（与检视路径同一单源）——冒烟通过即代表该模型在该网关上的 wire 方言与工具调用面可用。
+自定义网关（`REVIEWER_URL` 指向中转/自建端点）的可用性与兼容性由实验者自证：换端点或换模型后先跑冒烟自检。DSH 线的 `review-agent smoke`（对目标端点发 1 次最小补全 + 1 次最小工具调用探针，输出人话诊断与处置建议；通过退出码 0、失败 1；探针请求体走生产画像序列化——冒烟通过即代表该模型在该网关上的 wire 方言与工具调用面可用，#46）已随内核移除，同形态工具随 pi 线 P1/P3 票回归。
 
 ## 目录与入库约定
 
@@ -161,29 +115,31 @@ pnpm --filter review-dsh cli smoke [--model <id>]
 
 | 本地目录 | 上游 | 锚定 commit | 参照角色 |
 |---|---|---|---|
-| `deepseek-harness` | <https://github.com/deepseek-ai/deepseek-harness> | `5dda764`（2026-09-08，0.1.5-alpha.1） | 内核机制参照：Everything-is-a-Plugin 架构、Session append-only log、Agent Loop 可替换（ADR-0005/0006 的决策依据；本项目名即「基于 DeepSeek Harness」） |
+| `pi` | <https://github.com/earendil-works/pi> | `6671c604`（2026-09-16，v0.85.1+11d） | Pi 内核 vendor 源与定制基座：`packages/{ai,agent,chord,telemetry}` 即出自此锚定（fork 接线与分歧清单见《Pi 内核定制基线方案》） |
+| `deepseek-harness` | <https://github.com/deepseek-ai/deepseek-harness> | `5dda764`（2026-09-08，0.1.5-alpha.1） | DSH 线内核机制参照（ADR-0005/0006 的决策依据，已归档）；phase2-dsh 对照数据的解读背景 |
 | `open-code-review` | <https://github.com/alibaba/open-code-review> | `82af2fb`（2026-09-02） | 同域开源检视 Agent：产品形态与公开评测对齐对象（AACR-Bench 已支持 reviewer 之一） |
 | `prime-agent` | <https://github.com/PrimeIntellect-ai/prime-agent> | `c718bf3`（2026-08-31） | Agent harness 设计参照（self-improving RLM harness） |
 | `whale-pod` | <https://github.com/Timothyhay/whale-pod> | `d76f522`（2026-08-13） | 轻上下文 + 前缀缓存设计参照：known world + 懒拉取 + 前缀稳定，与本项目 Minimal Sufficient Context / Stable Prefix 命题同源；其实测化 bench 方法论亦为本项目纪律参照 |
 
 ```bash
 # 恢复参考项目（在仓库根执行）
-git clone https://github.com/deepseek-ai/deepseek-harness.git reference_project/deepseek-harness
-git clone https://github.com/alibaba/open-code-review.git   reference_project/open-code-review
-git clone https://github.com/PrimeIntellect-ai/prime-agent.git reference_project/prime-agent
-git clone https://github.com/Timothyhay/whale-pod.git       reference_project/whale-pod
-cd reference_project/deepseek-harness  && git checkout 5dda764   # 其余同理
+git clone https://github.com/earendil-works/pi.git                 reference_project/pi
+git clone https://github.com/deepseek-ai/deepseek-harness.git      reference_project/deepseek-harness
+git clone https://github.com/alibaba/open-code-review.git          reference_project/open-code-review
+git clone https://github.com/PrimeIntellect-ai/prime-agent.git     reference_project/prime-agent
+git clone https://github.com/Timothyhay/whale-pod.git              reference_project/whale-pod
+cd reference_project/pi  && git checkout 6671c604   # 其余同理
 ```
 
-**DSH 依赖口径注意**：本项目的运行时依赖是 npm 包 `@deepseek-ai/dsh-sdk-protocol@0.1.2-rc.1`（lockfile 锁定，见 `packages/review-dsh`），本地参考仓（0.1.5-alpha.1）仅作机制阅读对照，**不是实际链接的依赖**；两者版本偏差逐项登记在《[DSH 内核机制偏差清单](docs/design/DSH 内核机制偏差清单（npm 0.1.2-rc.1 × reference 0.1.5-alpha.1）.md)》。
+**DSH 线归档注记**：DSH 内核（`packages/review-dsh`）与 `@deepseek-ai/dsh-sdk-protocol` 依赖已按 ADR-0009 移除；其机制事实记录（《[DSH 内核机制偏差清单](docs/design/DSH 内核机制偏差清单（npm 0.1.2-rc.1 × reference 0.1.5-alpha.1）.md)》）、`runs/phase2-dsh` 评测数据与双门报告保留，作为 pi 线对照实验（DSH↔pi）的解读依据。
 
 ## 文档地图
 
 | 文档 | 内容 |
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | 领域词汇表（Minimal Sufficient Context / Zone A–C / Finding 等术语唯一权威） |
-| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0008（POC1 独立 harness / 模型钉扎 / 零构建静态代码情报 / S 级判据 / DSH 迁移姿态 / DSH 内核形态 / 对齐门协议 v2 / 被测模型可换 + 指标按 provider 能力分口径） |
-| [`docs/design/`](docs/design/) | 总体架构设计方案 / VUL4J 评测方案与数据复制指南 / AACR-Bench 公开评测接入方案 / DSH 偏差清单 |
+| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0009（POC1 独立 harness / 模型钉扎 / 零构建静态代码情报 / S 级判据 / DSH 迁移姿态 / DSH 内核形态 / 对齐门协议 v2 / 被测模型可换 + 指标按 provider 能力分口径 / 从 0 基于 pi 内核重写） |
+| [`docs/design/`](docs/design/) | 总体架构设计方案 / Pi 内核从零实现方案 / Pi 内核定制基线方案 / VUL4J 评测方案与数据复制指南 / AACR-Bench 公开评测接入方案 / DSH 偏差清单 |
 | [`docs/report/`](docs/report/) | POC1 实现报告 / DSH 迁移实现报告 / DSH 指标对齐门报告（含噪声底）/ Phase 2 主数据分析报告 |
 | [`docs/plan/`](docs/plan/) | 项目分阶段实现计划书 |
 | [`docs/agents/`](docs/agents/) | agent 协作约定（issue tracker / triage labels / domain docs） |

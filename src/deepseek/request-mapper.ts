@@ -22,7 +22,7 @@ import type {
 /**
  * 已退役 id（2026-07-24 下线，ADR-0002）：自由 id 接受之下仍直接拒绝——
  * 静默放行只会换来模糊的线上 400，不如本地报错说清楚。
- * 清单单源在 review-llm（RETIRED_MODEL_IDS，#45 起 root / DSH / runner 门共用）。
+ * 清单单源在 review-llm（RETIRED_MODEL_IDS，#45 起 root / runner 门共用）。
  */
 
 /** harness 侧唯一合法的 effort 标签（runReview 默认档） */
