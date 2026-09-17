@@ -6,7 +6,7 @@
 
 - **从 0 边界**：Review Runtime（loop 组装 / 上下文组装 / `review.*` 工具 / 审计投影 / CLI）在 pi 原语（pi-agent-core Agent / agent-loop 钩子、pi-ai 统一 Provider API）上重写为 `packages/review-pi`；spec 真源 = 《总体架构设计方案》+ ADR + 《VUL4J 评测方案》。
 - **仪器冻结**：判定链（judge 继续走 review-llm）、指标、人工抽检、校准、数据集物化、实验 runner、对齐门 CLI 平移复用、行为冻结——重写仪器会引入判定漂移，科学增益为零。Claude Code 外部参照（`src/reference`）保留。
-- **评测口径对齐 DSH**：pi 侧最终评测与 `runs/phase2-dsh` 逐字段同协议（30 案 × A–E × 3 rep × `deepseek-v4-flash` × verifier off × glm-5.3 判定链）；验收 = 双门——A/B 请求字节对照 DSH 审计真源（`requests[].wireBody`，已实测存在）逐字节一致；指标对齐门按 #30 对称 max σ 带（ADR-0007 第三轮应用）。
+- **评测口径对齐 DSH**：pi 侧最终评测与 `runs/phase2-dsh` 逐字段同协议（30 案 × A–E × 3 rep × `deepseek-v4-flash` × verifier off × judge `glm-5-3-260814` 判定链）；验收 = 双门——A/B 请求字节对照 DSH 审计真源（`requests[].wireBody`，已实测存在）逐字节一致；指标对齐门按 #30 对称 max σ 带（ADR-0007 第三轮应用）。
 - **DSH 内核移除**：`packages/review-dsh`、实验 CLI `--kernel` 缝、`@deepseek-ai/dsh-sdk-protocol` 依赖、CI discipline-gate 作业一并移除；字节纪律改由 root golden bytes 断言携带，pi 线 P2 票以「对照 DSH 审计」形式重建纪律门。
 - **退役时点**：`src/` 运行时模块（loop / run / tools / zoneb / codeintel / contracts / finding / audit / shared / fake / deepseek）在 P2 字节门绿、P4 runner 接缝切换后退役；此前它们是 runner 的活依赖（`src/deepseek` 是实验 CLI 缺省客户端）与期望生成器。
 
