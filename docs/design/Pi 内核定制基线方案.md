@@ -8,6 +8,11 @@
 > **一句话结论**：`pi-kernel` 分支已把 pi 四个包（ai / agent / chord / telemetry，约 5.6 万行源码）
 > 以源码形态 vendor 进本仓 pnpm workspace，构建链（`pnpm build:pi`）与既有全部测试门全绿；
 > DSH 内核（`packages/review-dsh`）与全部评测数据/报告原样保留，本分支后续 Pi 适配以此为基座展开。
+>
+> **2026-09-18 更新（[ADR-0009](../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)）**：
+> 「DSH 原样保留」已被《[Pi 内核从零实现方案](Pi 内核从零实现方案.md)》取代——DSH 内核已移除
+> （评测数据/报告保留），本文 §8 后续票面（增量适配姿态）由从零实现方案的 P0–P5 取代；
+> 本文 §1–§6 的 fork 接线、分歧清单与验证事实继续有效。
 
 ---
 
