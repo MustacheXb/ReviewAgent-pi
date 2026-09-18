@@ -1,0 +1,39 @@
+# 参考项目：外部克隆的仓库（deepseek-harness / pi），不属于本项目源码
+reference_project/
+
+# API key 本机注入（评测试跑：DEEPSEEK_API_KEY 等，绝不入库）
+.env.local
+.env
+
+# Claude Code 本机配置（每台机器不同，不入库）
+.claude/settings.local.json
+
+# .claude/skills 是指向 .agents/skills 的 NTFS junction（本机链接，不入库；
+# 真实的 skills 存储在 .agents/skills/，随仓库提交）
+.claude/skills
+
+# Claude Code 本机运行产物
+.claude/worktrees/
+*.stackdump
+
+# Node 工程产物
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# 检视运行审计痕迹（数据/记录不入库，
+# 但目录本身保持可扫描——评测报告 REPORT.md 作为结论文档例外入库）
+runs/**
+!runs/**/
+!runs/**/REPORT.md
+
+# clean MR 采集 API 快照缓存（断点续采用；清单与 diff 为交付物，正常入库）
+data/clean-mr/.cache/
+
+# 脚本编译临时目录
+.tmp-gen/
+.tmp-gen-host/
+
+# 清单生成脚本下载缓存
+.cache/
