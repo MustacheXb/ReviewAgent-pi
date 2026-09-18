@@ -13,6 +13,9 @@
 > 「DSH 原样保留」已被《[Pi 内核从零实现方案](Pi 内核从零实现方案.md)》取代——DSH 内核已移除
 > （评测数据/报告保留），本文 §8 后续票面（增量适配姿态）由从零实现方案的 P0–P5 取代；
 > 本文 §1–§6 的 fork 接线、分歧清单与验证事实继续有效。
+> 另勘误 §1 保留范围行「`chord`（agent 的会话/状态底座）」的表述：chord 实为**服务组合运行时**
+> （`FacetHost` 装配 + `MutableReplicatedState` 复制状态，支持热重载）；agent 的会话模型在
+> `packages/agent/src/harness/session/`（append-only + fork）。逐项事实见《[Pi 内核演化缝盘点](Pi 内核演化缝盘点.md)》S6/S7。
 
 ---
 

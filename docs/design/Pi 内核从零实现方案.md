@@ -1,7 +1,7 @@
 # Pi 内核从零实现方案——Review Runtime 重写与 DSH 口径对齐评测
 
 > **文首说明**：2026-09-18 拍板——**Review Runtime 在 pi fork 上从 0 重写（现有实现代码不导入，仅作行为参照与期望生成器）；评测装置（判定链 / 指标 / 数据集 / 双门协议）冻结平移复用；最终评测与 DSH 内核数据（`runs/phase2-dsh`，450 单元）按同口径对照**。决策记录见 [ADR-0009](../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)；决策背景（用户自存外部分析）见同目录《[pi 内核可行性分析](pi 内核可行性分析.md)》（结论 Pi-first：`pi-agent-core` + `pi-ai` 为内核、自研 Review Runtime，DSH 降级为 Runtime Benchmark 对照——本方案即该结论的落地）。
-> 文档链：《[ReviewAgent以DSH内核和PI内核的方案对比分析](ReviewAgent以DSH内核和PI内核的方案对比分析.md)》→《[Pi 内核定制基线方案](Pi 内核定制基线方案.md)》（fork 接线事实，仍有效）→ 本文（从 0 实现方案与对照实验设计）。
+> 文档链：《[ReviewAgent以DSH内核和PI内核的方案对比分析](ReviewAgent以DSH内核和PI内核的方案对比分析.md)》→《[Pi 内核定制基线方案](Pi 内核定制基线方案.md)》（fork 接线事实，仍有效）→ 本文（从 0 实现方案与对照实验设计）→《[Pi 内核演化缝盘点](Pi 内核演化缝盘点.md)》（内核可改面 file:line 事实）→《[基于 Pi 内核的 Review Agent 总体架构设计方案](基于 Pi 内核的 Review Agent 总体架构设计方案.md)》（spec 真源，承接本文 §4 的原语映射并给出全系统架构）。
 > DSH 内核（`packages/review-dsh`）已按本方案移除；全部评测数据、报告、ADR 与偏差清单保留。
 >
 > **一句话结论**：从 0 面 ≈ 6k 行内核（在 pi 原语上重写为 `packages/review-pi`），仪器面 ≈ 10k 行平移冻结；可行性判定为**高**——pi 原语面（agent-loop 钩子 / `Model.baseUrl` / `onPayload` wire 捕获）与字节真源（DSH 审计 `requests[].wireBody`）均已逐项实测确认。
