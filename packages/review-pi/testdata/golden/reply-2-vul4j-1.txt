@@ -1,0 +1,1 @@
+{"riskClass": "High", "reason": "The change alters JSON array deserialization type resolution in a security-sensitive parser path, directly addressing CVE-2017-18349 (CWE-20 improper input validation). It affects how component types are resolved and can change deserialization behavior for untrusted input, so it is classified as High risk."}

@@ -1,0 +1,24 @@
+{
+  // dist 构建程序不能包含 pi 源码：emit 程序禁用 allowImportingTsExtensions，
+  // 且 pi src 在 rootDir 之外会触发 TS6059。故经 paths 将 @earendil-works/pi-ai
+  // 全部映射到其 dist 的 d.ts（skipLibCheck 跳过检查，仅消费公开 API 面），
+  // 同时恢复根级全量严格 flags（本包自有代码按最严标准构建）。
+  // 前置：先 pnpm build:pi 产出 pi 四包 dist（pi 为 vendored 冻结基线，
+  // 与 pnpm-workspace 的 onlyBuiltDependencies 策略一致，不做 install 自动构建）。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@earendil-works/pi-ai": ["../ai/dist/index.d.ts"],
+      "@earendil-works/pi-ai/*": ["../ai/dist/*.d.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/testing", "node_modules", "dist"]
+}

@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "id": "F001",
+      "severity": "P2",
+      "category": "CORRECTNESS",
+      "file": "src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java",
+      "line": 177,
+      "title": "Switching to parseArray(componentClass, ...) may drop generic type information for generic array components",
+      "description": "The change replaces parser.parseArray(componentType, array, fieldName) with parser.parseArray(componentClass, array, fieldName). The diff context shows both variables are initialized together only in the visible branch (componentType = componentClass = clazz.getComponentType()). If the method has another branch in which componentType is a ParameterizedType (or other non-Class Type) while componentClass is only its raw Class, the two parseArray calls select different overloads and are no longer equivalent. The Class overload may deserialize array elements using the erased component class, losing generic type information and potentially causing ClassCastException or incorrect element types for generic arrays. This is a possible behavioral regression that depends on code not visible in the diff.",
+      "evidence": [
+        "ObjectArrayCodec.java added line (new line 177): parser.parseArray(componentClass, array, fieldName);",
+        "ObjectArrayCodec.java removed line: parser.parseArray(componentType, array, fieldName);",
+        "ObjectArrayCodec.java context line 174: componentType = componentClass = clazz.getComponentType(); shows both are assigned together only in the visible branch, and the variable names indicate componentType is a Type while componentClass is a Class<?>, so the two calls bind to different overloads."
+      ],
+      "rule": "CORRECTNESS-001",
+      "confidence": 0.3
+    },
+    {
+      "id": "F002",
+      "severity": "P3",
+      "category": "MAINTAINABILITY",
+      "file": "src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java",
+      "line": 177,
+      "title": "Security-motivated overload change lacks explanatory comment",
+      "description": "The only behavioral difference in this hunk is the static type of the argument passed to parseArray: componentType (Type) vs componentClass (Class<?>), which selects a different overload. This is the core of the CVE-2017-18349 fix, but nothing in the code explains why the Type overload must be avoided. Without a comment, a future maintainer may see the two variables as equivalent (since they are assigned from the same expression) and revert to componentType, reintroducing the vulnerability. Add a short comment referencing the security rationale.",
+      "evidence": [
+        "ObjectArrayCodec.java line 177: parser.parseArray(componentClass, array, fieldName); replaces parser.parseArray(componentType, array, fieldName); with no comment",
+        "ObjectArrayCodec.java line 174: componentType = componentClass = clazz.getComponentType(); makes the two variables appear interchangeable, obscuring why componentClass is required."
+      ],
+      "rule": "MAINTAINABILITY-001",
+      "confidence": 0.7
+    }
+  ]
+}

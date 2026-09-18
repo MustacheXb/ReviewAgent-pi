@@ -1,0 +1,8 @@
+{
+  "neededContext": [
+    "Full body of ObjectArrayCodec.deserialze method showing how componentType and componentClass are derived and used before line 174",
+    "Signature and behavior of DefaultJSONParser.parseArray(Class, JSONArray, Object) vs parseArray(Type, JSONArray, Object)",
+    "The toObjectArray method implementation to verify componentClass usage consistency"
+  ],
+  "reason": "The change replaces 'componentType' with 'componentClass' in a parseArray call. Since both variables are initialized from clazz.getComponentType() in the visible diff, it is essential to see whether they diverge later in the method or have different types (Type vs Class<?>). Understanding the parseArray overloads and toObjectArray behavior is needed to confirm the fix correctly prevents type confusion without breaking other cases."
+}
