@@ -1,7 +1,8 @@
 # 参考项目：外部克隆的仓库（deepseek-harness / pi），不属于本项目源码
 reference_project/
 
-# API key 本机注入（评测试跑：DEEPSEEK_API_KEY 等，绝不入库）
+# API key 本机注入（推荐名 REVIEWER_API_KEY / JUDGE_API_KEY，旧名
+# DEEPSEEK_API_KEY / OPENAI_API_KEY 兼容；绝不入库）
 .env.local
 .env
 
@@ -12,7 +13,7 @@ reference_project/
 # 真实的 skills 存储在 .agents/skills/，随仓库提交）
 .claude/skills
 
-# Claude Code 本机运行产物
+# Claude Code 本机运行产物（/implement-spec 子代理 worktree / 崩溃转储）
 .claude/worktrees/
 *.stackdump
 
@@ -21,8 +22,10 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+# pi 内核包工具产物（packages/ai generate-model-catalog 输出目标 ../../.artifacts/）
+.artifacts/
 
-# 检视运行审计痕迹（数据/记录不入库，
+# 检视运行审计痕迹（runReview 默认落盘目录；数据/记录不入库，
 # 但目录本身保持可扫描——评测报告 REPORT.md 作为结论文档例外入库）
 runs/**
 !runs/**/
@@ -31,9 +34,9 @@ runs/**
 # clean MR 采集 API 快照缓存（断点续采用；清单与 diff 为交付物，正常入库）
 data/clean-mr/.cache/
 
-# 脚本编译临时目录
+# 脚本编译临时目录（T02/T09 采集脚本的 tsc outDir）
 .tmp-gen/
 .tmp-gen-host/
 
-# 清单生成脚本下载缓存
+# 数据集清单生成脚本下载缓存（scripts/generate-*-manifest.ts）
 .cache/

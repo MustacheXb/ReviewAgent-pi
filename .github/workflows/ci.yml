@@ -1,0 +1,48 @@
+# CI（#28）：零网络回归门。
+#
+# - suites：全量回归——root + review-llm 两包 typecheck + 测试（root 测试携带
+#   golden bytes 等字节纪律断言）。
+# - DSH 内核（packages/review-dsh）已随「从 0 基于 pi 内核」方向移除（ADR-0009）；
+#   其确定性纪律门（discipline-gate）将由 pi 内核线 P2 票以「对照 DSH 审计真源」
+#   的形式重建（见《Pi 内核从零实现方案》）。
+# - review-llm（#41 起的 LLM 接入共享包；判定链仪器）进 suites：其 prepare 在
+#   pnpm install 时构建 dist（onlyBuiltDependencies 放行），编译路径运行时依赖该产物。
+# - 真实 API 的指标对齐门（#29）走本地脚本按需执行，不进 CI。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  suites:
+    name: suites (全量回归)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 版本单源：root package.json 的 packageManager 字段
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (root)
+        run: pnpm typecheck
+
+      - name: Typecheck (review-llm)
+        run: pnpm --filter review-llm typecheck
+
+      - name: Test (review-llm)
+        run: pnpm --filter review-llm test
+
+      - name: Test (root)
+        run: pnpm test

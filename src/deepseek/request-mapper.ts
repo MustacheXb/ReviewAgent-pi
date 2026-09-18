@@ -1,0 +1,256 @@
+import type { LlmMessage, LlmRequest, ToolCall, ToolSchema } from "../contracts/llm-client.js";
+import { profileOf, RETIRED_MODEL_IDS } from "review-llm";
+import { DeepSeekClientError } from "./errors.js";
+import type {
+  WireChatCompletionsRequest,
+  WireMessage,
+  WireRequestToolCall,
+  WireTool,
+} from "./wire-types.js";
+
+/**
+ * LlmRequest → OpenAI 兼容 Chat Completions 请求体（纯函数；reviewer wire 序列化器）。
+ *
+ * 序列化策略由 provider 画像表驱动（review-llm profileOf，#43）：
+ * thinking / reasoning_effort 只在画像声明 enabled 时出场（DeepSeek 锁定档），
+ * max_tokens 按画像信封补齐（DeepSeek 不传、glm 32768、未知 8192）。
+ * 请求字节纪律不变：字段顺序固定、effort 在客户端层锁定（ADR-0002）、
+ * temperature/top_p/penalties 一律不传（保持字节最小）——DeepSeek 默认路径
+ * 的字节逐字节不变由 tests/deepseek/golden-bytes.test.ts 钉死（#43 发布硬门槛）。
+ */
+
+/**
+ * 已退役 id（2026-07-24 下线，ADR-0002）：自由 id 接受之下仍直接拒绝——
+ * 静默放行只会换来模糊的线上 400，不如本地报错说清楚。
+ * 清单单源在 review-llm（RETIRED_MODEL_IDS，#45 起 root / runner 门共用）。
+ */
+
+/** harness 侧唯一合法的 effort 标签（runReview 默认档） */
+export const LOCKED_EFFORT_LABEL = "default";
+
+/** 锁定档位的线上字节：thinking 默认档 = enabled + reasoning_effort "high"（研究笔记结论） */
+export const LOCKED_REASONING_EFFORT = "high";
+export const LOCKED_THINKING = { type: "enabled" } as const;
+
+const VALID_ROLES: ReadonlySet<string> = new Set(["system", "user", "assistant", "tool"]);
+
+/** OpenAI 兼容线上 function name 安全子集（chat completions 拒绝其余字符，含点） */
+const WIRE_TOOL_NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * 内部工具名 → 线上合法名：点分命名空间分隔符替换为下划线
+ * （review.get_symbol → review_get_symbol；确定性转换，无随机性）。
+ * harness 契约层（LlmRequest/LlmResponse/tool 注册表）保持点分名不变，
+ * 适配收敛在 DeepSeek wire 层——fake client 不经过 wire，故不受影响。
+ */
+export function toWireToolName(name: string): string {
+  return name.split(".").join("_");
+}
+
+/**
+ * 工具名 wire 映射（wire 名 → 内部名），供响应 toolCalls 反解。
+ * 两个内部名映射到同一 wire 名时 fail fast——否则反解会静默选中其一，
+ * 工具调用会被派发到错误的执行器。转换后仍不匹配线上模式的名字同样
+ * fail fast（本地报错优于线上 400）。
+ */
+export function buildWireToolNameMap(tools: readonly ToolSchema[]): Map<string, string> {
+  const wireToInternal = new Map<string, string>();
+  for (const tool of tools) {
+    const wireName = toWireToolName(tool.name);
+    if (!WIRE_TOOL_NAME_RE.test(wireName)) {
+      throw new DeepSeekClientError(
+        `tool name ${JSON.stringify(tool.name)} cannot be mapped to a wire-safe name (got ${JSON.stringify(wireName)}; the OpenAI-compatible wire requires function names to match ^[a-zA-Z0-9_-]+$)`,
+      );
+    }
+    const existing = wireToInternal.get(wireName);
+    if (existing !== undefined && existing !== tool.name) {
+      throw new DeepSeekClientError(
+        `tool names ${JSON.stringify(existing)} and ${JSON.stringify(tool.name)} both map to wire name ${JSON.stringify(wireName)}: dotted tool names must stay unambiguous after "." → "_" replacement`,
+      );
+    }
+    wireToInternal.set(wireName, tool.name);
+  }
+  return wireToInternal;
+}
+
+export function buildChatCompletionsBody(request: LlmRequest): WireChatCompletionsRequest {
+  validateModel(request.model);
+  validateEffortLabel(request.effort);
+  validateMessages(request.messages);
+  validateTools(request.tools);
+  buildWireToolNameMap(request.tools);
+  const profile = profileOf(request.model);
+  return {
+    model: request.model,
+    messages: request.messages.map(mapMessage),
+    ...(profile.thinking.kind === "enabled"
+      ? { thinking: LOCKED_THINKING, reasoning_effort: profile.thinking.reasoningEffort }
+      : {}),
+    ...(profile.completionMaxTokens !== undefined ? { max_tokens: profile.completionMaxTokens } : {}),
+    ...(request.tools.length > 0
+      ? { tools: request.tools.map(mapTool), tool_choice: "auto" as const }
+      : {}),
+    stream: false as const,
+  };
+}
+
+function validateModel(model: unknown): void {
+  if (typeof model !== "string" || model.trim().length === 0) {
+    throw new DeepSeekClientError(
+      `model must be a non-empty string (got ${JSON.stringify(model)}): free model ids are accepted and serialized per the provider profile table (review-llm profileOf)`,
+    );
+  }
+  if (RETIRED_MODEL_IDS.includes(model)) {
+    throw new DeepSeekClientError(
+      `model ${JSON.stringify(model)} is retired (deepseek-chat / deepseek-reasoner were retired on 2026-07-24 and must not be used; ADR-0002)`,
+    );
+  }
+}
+
+function validateEffortLabel(effort: unknown): void {
+  if (effort !== LOCKED_EFFORT_LABEL) {
+    throw new DeepSeekClientError(
+      `effort is locked at the client layer (ADR-0002 single effort gear): got ${JSON.stringify(effort)}, expected ${JSON.stringify(LOCKED_EFFORT_LABEL)}; the locked gear serializes per the provider profile (deepseek-*: thinking {type:"enabled"} + reasoning_effort ${JSON.stringify(LOCKED_REASONING_EFFORT)}), so the experiment cannot drift`,
+    );
+  }
+}
+
+function validateMessages(messages: unknown): void {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new DeepSeekClientError("request.messages must be a non-empty array of LlmMessage");
+  }
+  messages.forEach((message, index) => validateMessage(message, `request.messages[${index}]`));
+}
+
+function validateMessage(message: unknown, path: string): void {
+  if (typeof message !== "object" || message === null) {
+    throw new DeepSeekClientError(`${path} must be an LlmMessage object`);
+  }
+  const record = message as Partial<LlmMessage>;
+  if (typeof record.role !== "string" || !VALID_ROLES.has(record.role)) {
+    throw new DeepSeekClientError(
+      `${path}.role must be one of "system", "user", "assistant", "tool" (got ${JSON.stringify(record.role)})`,
+    );
+  }
+  if (typeof record.content !== "string") {
+    throw new DeepSeekClientError(`${path}.content must be a string`);
+  }
+  if (record.role === "tool" && (typeof record.toolCallId !== "string" || record.toolCallId.length === 0)) {
+    throw new DeepSeekClientError(`${path}.toolCallId must be a non-empty string for role "tool"`);
+  }
+  if (record.role !== "assistant" && record.toolCalls !== undefined) {
+    throw new DeepSeekClientError(`${path}.toolCalls is only allowed on assistant messages`);
+  }
+  if (record.toolCalls !== undefined) {
+    if (!Array.isArray(record.toolCalls)) {
+      throw new DeepSeekClientError(`${path}.toolCalls must be an array of ToolCall`);
+    }
+    record.toolCalls.forEach((call, callIndex) => validateToolCall(call, `${path}.toolCalls[${callIndex}]`));
+  }
+}
+
+function validateToolCall(call: unknown, path: string): void {
+  if (typeof call !== "object" || call === null) {
+    throw new DeepSeekClientError(`${path} must be a ToolCall object`);
+  }
+  const record = call as Partial<ToolCall>;
+  if (typeof record.id !== "string" || record.id.length === 0) {
+    throw new DeepSeekClientError(`${path}.id must be a non-empty string`);
+  }
+  if (typeof record.name !== "string" || record.name.length === 0) {
+    throw new DeepSeekClientError(`${path}.name must be a non-empty string`);
+  }
+  if (typeof record.argumentsJson !== "string") {
+    throw new DeepSeekClientError(`${path}.argumentsJson must be a string`);
+  }
+  try {
+    JSON.parse(record.argumentsJson);
+  } catch (error) {
+    throw new DeepSeekClientError(
+      `${path}.argumentsJson is not valid JSON: ${record.argumentsJson.slice(0, 80)}`,
+      { cause: error },
+    );
+  }
+}
+
+function validateTools(tools: unknown): void {
+  if (!Array.isArray(tools)) {
+    throw new DeepSeekClientError("request.tools must be an array of ToolSchema");
+  }
+  tools.forEach((tool, index) => validateTool(tool, `request.tools[${index}]`));
+}
+
+function validateTool(tool: unknown, path: string): void {
+  if (typeof tool !== "object" || tool === null) {
+    throw new DeepSeekClientError(`${path} must be a ToolSchema object`);
+  }
+  const record = tool as Partial<ToolSchema>;
+  if (typeof record.name !== "string" || record.name.length === 0) {
+    throw new DeepSeekClientError(`${path}.name must be a non-empty string`);
+  }
+  if (typeof record.description !== "string" || record.description.length === 0) {
+    throw new DeepSeekClientError(`${path}.description must be a non-empty string`);
+  }
+  if (typeof record.parametersJson !== "string" || record.parametersJson.length === 0) {
+    throw new DeepSeekClientError(`${path}.parametersJson must be a non-empty JSON string`);
+  }
+  const parsed = tryParseJson(record.parametersJson);
+  if (parsed === undefined || typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new DeepSeekClientError(`${path}.parametersJson must serialize to a JSON object`);
+  }
+}
+
+function mapMessage(message: LlmMessage): WireMessage {
+  if (message.role === "tool") {
+    if (message.toolCallId === undefined || message.toolCallId.length === 0) {
+      throw new DeepSeekClientError('tool message is missing toolCallId');
+    }
+    return { role: "tool", content: message.content, tool_call_id: message.toolCallId };
+  }
+  if (message.role === "assistant") {
+    const toolCalls = message.toolCalls ?? [];
+    if (toolCalls.length === 0) {
+      return { role: "assistant", content: message.content };
+    }
+    return {
+      role: "assistant",
+      content: message.content.length > 0 ? message.content : null,
+      tool_calls: toolCalls.map(mapToolCall),
+    };
+  }
+  if (message.role === "system") {
+    return { role: "system", content: message.content };
+  }
+  return { role: "user", content: message.content };
+}
+
+function mapToolCall(call: ToolCall): WireRequestToolCall {
+  return {
+    id: call.id,
+    type: "function",
+    function: { name: toWireToolName(call.name), arguments: call.argumentsJson },
+  };
+}
+
+function mapTool(tool: ToolSchema): WireTool {
+  const parameters = tryParseJson(tool.parametersJson);
+  if (parameters === undefined || typeof parameters !== "object" || parameters === null || Array.isArray(parameters)) {
+    throw new DeepSeekClientError(`request.tools parametersJson for ${JSON.stringify(tool.name)} must serialize to a JSON object`);
+  }
+  return {
+    type: "function",
+    function: {
+      name: toWireToolName(tool.name),
+      description: tool.description,
+      parameters: parameters as Record<string, unknown>,
+    },
+  };
+}
+
+function tryParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}

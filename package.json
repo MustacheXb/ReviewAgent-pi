@@ -1,0 +1,36 @@
+{
+  "name": "review-agent-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "pi 内核 Review Agent 对照实验仓（与 DSH 兄弟仓 MustacheXb/ReviewAgent 同评测集、同判定链对照；spec #1）",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.config.e2e.ts",
+    "typecheck": "tsc --noEmit",
+    "build:pi": "pnpm --filter @earendil-works/pi-telemetry run build && pnpm --filter @earendil-works/chord run build && pnpm --filter @earendil-works/pi-ai run build && pnpm --filter @earendil-works/pi-agent-core run build",
+    "experiment": "pnpm --filter review-llm build && pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/run-experiment.ts && node .tmp-gen/scripts/run-experiment.js",
+    "alignment-gate": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/run-alignment-gate.ts && node .tmp-gen/scripts/run-alignment-gate.js",
+    "reference": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/run-claude-code-reference.ts && node .tmp-gen/scripts/run-claude-code-reference.js",
+    "analyze:phase2": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --rootDir . --outDir .tmp-gen scripts/analyze-phase2.ts && node .tmp-gen/scripts/analyze-phase2.js",
+    "materialize:vul4j": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/materialize-vul4j.ts && node .tmp-gen/scripts/materialize-vul4j.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "2.1.9",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "dependencies": {
+    "@vscode/ripgrep": "1.18.0",
+    "review-llm": "workspace:*",
+    "tree-sitter-java": "0.23.5",
+    "web-tree-sitter": "0.27.0"
+  }
+}

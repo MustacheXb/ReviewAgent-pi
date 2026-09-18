@@ -1,5 +1,7 @@
 # Phase 1 DSH 迁移：核内插件化、薄 harness 冻结、1:1 对齐验收
 
+> **状态注记（2026-09-18，ADR-0009）**：DSH 线已按本 ADR 完成使命并归档——迁移、双门验收（#30 对称 max σ 带判定无系统偏差）、`runs/phase2-dsh` 附录数据全部落地。Review Runtime 自 pi-kernel 分支起转为「从 0 基于 pi 内核重写」，DSH 内核（`packages/review-dsh`）已移除；本 ADR 对现行代码不再有约束力，转为历史记录与 DSH 侧数据解读依据。
+
 POC1 收官后进入 Phase 1（ADR-0001 预留的迁移阶段）：ReviewAgent 的检视会话运行时（**核内**：loop 策略、`review.*` 工具、C0–C3 上下文决策、缓存纪律、检视政策、Evidence Gate）全部经 DSH 扩展面以插件形态实现，形成以 DSH 为内核的 `review-agent` CLI；研究工具链（**核外**：dataset / judge / calibration / sampling / reference / metrics 聚合 / experiment runner）不进 DSH 插件树，作为普通库被 CLI 调用。术语见 `CONTEXT.md`「运行时边界」。核内插件集为 policy / runtime / context / cache / evidence 五个（review-knowledge 缺位，属 Phase 4；review-metrics 拆为核内记账 + 核外聚合）。
 
 ## Considered Options
