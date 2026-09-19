@@ -12,22 +12,30 @@ import { piUsageToLlmUsage } from "../provider/usage-map.js";
 import { SYSTEM_PROMPT } from "../zonea/system-prompt.js";
 import { buildPrefetchContext } from "../zoneb/prefetch.js";
 
-// P1a 离线全链入口（#3）：单案 × config B（零工具 + 确定性预取）。
-// 组装（Zone A/B/C + 预取）→ 六阶段循环（pi-ai 序列化缝）→ 审计投影落盘。
+// 单案全链入口（#3 P1a 离线全链；#4 起真跑同缝泛化）：单案 × config B
+// （零工具 + 确定性预取）。组装（Zone A/B/C + 预取）→ 六阶段循环
+// （pi-ai 序列化缝）→ 审计投影落盘。
 //
 // fake 适配器与真适配器同缝：传输层经注入的 FetchFunction——离线开发/测试
-// 注入 fakeFetch（canned SSE），线上注入真 fetch，其余链路完全一致。
+// 注入 fakeFetch（canned SSE），真跑注入真 fetch + baseUrl（企业网关，
+// REVIEWER_URL 解析产物），其余链路完全一致。
+// 审计留痕口径（#4 密钥纪律）：审计与 RunRecord 只含 model（实际请求的
+// 模型 id）与接入行为产物，绝不含 API key。
 
-/** P1a 驱动的唯一配置：config B（零工具 + 预取管线） */
+/** 本入口驱动的唯一配置：config B（零工具 + 预取管线） */
 const CONFIG_B: ConfigId = "B";
 
-export interface OfflineReviewInput {
+export interface ReviewRunInput {
   readonly caseId: string;
   /** 本地 git 仓库快照路径（base = MR 前版本） */
   readonly repoPath: string;
   readonly diff: string;
   readonly issueDescription: string;
   readonly apiKey: string;
+  /** 网关 base URL（#4 真跑：REVIEWER_URL 解析产物；缺省官方 api.deepseek.com） */
+  readonly baseUrl?: string;
+  /** 模型 id（#45 自由 id；缺省钉住的评审模型） */
+  readonly modelId?: string;
   /** 传输层注入（离线 = fakeFetch；线上 = 真 fetch） */
   readonly fetch: FetchFunction;
   /** 运行留痕根目录（fixture 或真实 runs/） */
@@ -39,14 +47,15 @@ export interface OfflineReviewInput {
   readonly startedAt?: Date;
 }
 
-export interface OfflineReviewResult {
+export interface ReviewRunResult {
   readonly record: RunRecord;
   readonly recordPath: string;
   readonly auditPath: string;
 }
 
-export async function runOfflineReview(input: OfflineReviewInput): Promise<OfflineReviewResult> {
+export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult> {
   const startedAt = input.startedAt ?? new Date();
+  const modelId = input.modelId ?? REVIEW_MODEL_ID;
 
   // config B 组装：确定性预取管线（Zone B + Symbol/Reference/Call Chain 三层）
   const prefetch = await buildPrefetchContext({
@@ -65,6 +74,8 @@ export async function runOfflineReview(input: OfflineReviewInput): Promise<Offli
     const { message, wire } = await runReviewTurn({
       context,
       apiKey: input.apiKey,
+      ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
+      ...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
       fetch: input.fetch,
     });
     return { message, wire, usage: piUsageToLlmUsage(message.usage) };
@@ -93,7 +104,7 @@ export async function runOfflineReview(input: OfflineReviewInput): Promise<Offli
     runId,
     caseId: input.caseId,
     configId: CONFIG_B,
-    model: REVIEW_MODEL_ID,
+    model: modelId,
     effort: LOCKED_EFFORT_LABEL,
     startedAt,
     finishedAt,
@@ -109,7 +120,7 @@ export async function runOfflineReview(input: OfflineReviewInput): Promise<Offli
   const result: RunResult = {
     caseId: input.caseId,
     configId: CONFIG_B,
-    model: REVIEW_MODEL_ID,
+    model: modelId,
     findings: outcome.findings,
     usage: outcome.usage,
     rounds: outcome.rounds,
@@ -122,7 +133,7 @@ export async function runOfflineReview(input: OfflineReviewInput): Promise<Offli
     caseId: input.caseId,
     configId: CONFIG_B,
     rep: input.rep,
-    model: REVIEW_MODEL_ID,
+    model: modelId,
     completedAt: finishedAt,
     result,
   });

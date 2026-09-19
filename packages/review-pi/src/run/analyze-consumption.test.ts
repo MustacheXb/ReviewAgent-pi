@@ -18,7 +18,7 @@ import { afterAll, expect, test } from "vitest";
 import { fakeFetch } from "../provider/fake-fetch.js";
 import { goldenFixture } from "../testing/golden.js";
 import { VUL4J_1_ISSUE, VUL4J_1_SNAPSHOT, vul4j1Corpus } from "../testing/vul4j1-script.js";
-import { runOfflineReview } from "./offline-review.js";
+import { runReview } from "./review-run.js";
 
 const execAsync = promisify(exec);
 
@@ -30,7 +30,7 @@ const execAsync = promisify(exec);
 //   phase2-main / phase2-noise / phase2-dsh → NTFS junction 指向仓内真源
 //     （脚本零写盘副作用，junction 免 450×3 拷贝）
 //   phase2-smoke → 真目录：VUL4J-1 × {A,C,D,E} = DSH t1 真记录拷贝 +
-//     {B} = runOfflineReview 产出的 pi RunRecord
+//     {B} = runReview 产出的 pi RunRecord
 //
 // 断言：smoke 行 5 单元、双口径求和 = 五条 record 独立现算值（数据驱动，
 // 不硬编码）；main 侧 450 单元行在场（junction 读通）。
@@ -74,7 +74,7 @@ test.skipIf(
     const fixtureRoot = mkdtempSync(path.join(tmpdir(), "review-pi-analyze-"));
     fixtureRoots.push(fixtureRoot);
     const script = fakeFetch(vul4j1Corpus());
-    await runOfflineReview({
+    await runReview({
       caseId: "VUL4J-1",
       repoPath: VUL4J_1_SNAPSHOT,
       diff: goldenFixture("vul4j-1.diff"),

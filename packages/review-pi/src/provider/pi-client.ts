@@ -38,6 +38,19 @@ export interface WireCapture {
 export interface ReviewTurnInput {
   readonly context: Context;
   readonly apiKey: string;
+  /**
+   * 网关 base URL 覆盖（#4）：经 model.baseUrl 展开缝注入（openai-completions
+   * 以 model.baseUrl 为 SDK baseURL），vendored pi 源码零改动。缺省官方
+   * api.deepseek.com；企业网关（REVIEWER_URL）需自带 /v1——SDK 只追加
+   * /chat/completions。
+   */
+  readonly baseUrl?: string;
+  /**
+   * 模型 id 覆盖（#45 自由 id 语义）：任意非空 id 均可发。序列化画像：
+   * id 命中 deepseek 目录 → 该 id 自身画像；目录外 id → 钉住的评审模型
+   * 画像作模板（见 reviewModelOf）。缺省钉住的评审模型。
+   */
+  readonly modelId?: string;
   /** 传输层注入；缺省线上 global fetch（离线测试恒注入 fake 适配器） */
   readonly fetch?: FetchFunction;
 }
@@ -50,11 +63,11 @@ export interface ReviewTurnOutcome {
 const WIRE_ROLES: readonly string[] = ["system", "user", "assistant", "tool"];
 
 export async function runReviewTurn(input: ReviewTurnInput): Promise<ReviewTurnOutcome> {
-  const model = requireReviewModel();
+  const model = reviewModelOf(input.modelId, input.baseUrl);
   let wire: WireCapture | undefined;
   const stream = deepseekProvider().stream(model, input.context, {
     apiKey: input.apiKey,
-    fetch: input.fetch,
+    ...(input.fetch !== undefined ? { fetch: input.fetch } : {}),
     reasoningEffort: LOCKED_REASONING_EFFORT,
     onPayload: (payload) => {
       wire = captureWire(payload);
@@ -82,14 +95,30 @@ export function assistantText(message: AssistantMessage): string {
     .join("\n");
 }
 
-function requireReviewModel(): Model<"openai-completions"> {
-  const model = deepseekProvider()
-    .getModels()
-    .find((candidate) => candidate.id === REVIEW_MODEL_ID);
-  if (model === undefined) {
+/**
+ * 评审模型解析：id 命中目录 → 原样用；目录外自由 id → 钉住的评审模型
+ * 画像作模板覆写 id（#45）；baseUrl 非空则覆盖接入点（网关展开缝）。
+ * 契约不变量：provider 恒为 deepseek（compat/锁档序列化不随 id 漂移）。
+ */
+function reviewModelOf(
+  modelId: string | undefined,
+  baseUrl: string | undefined,
+): Model<"openai-completions"> {
+  const requested = modelId ?? REVIEW_MODEL_ID;
+  if (requested.trim() === "") {
+    throw new Error("review model id must be a non-empty string");
+  }
+  const catalog = deepseekProvider().getModels();
+  const exact = catalog.find((candidate) => candidate.id === requested);
+  const template = exact ?? catalog.find((candidate) => candidate.id === REVIEW_MODEL_ID);
+  if (template === undefined) {
     throw new Error(`review model "${REVIEW_MODEL_ID}" not found in the deepseek provider catalog`);
   }
-  return model;
+  return {
+    ...template,
+    id: requested,
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+  };
 }
 
 /** 校验并投影 onPayload payload（边界校验 fail fast；扩展字段透传不裁剪） */

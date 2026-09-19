@@ -126,3 +126,57 @@ test("runReviewTurn：stopReason error（finish_reason content_filter）→ 缝�
     runReviewTurn({ context: BASE_CONTEXT, apiKey: API_KEY, fetch: script.fetch }),
   ).rejects.toThrow(/content_filter/);
 });
+
+// ---- 网关注入（#4）：baseUrl 经 model.baseUrl 展开缝，自由 model id（#45 语义） ----
+
+const GATEWAY_URL = "https://gw.example.com/v1";
+
+test("runReviewTurn：缺省 baseUrl → 官方 api.deepseek.com；请求 URL 由 fake 适配器留痕", async () => {
+  const script = fakeFetch([
+    { text: "ok", usage: { promptTokens: 1, completionTokens: 1, cacheReadTokens: 0 } },
+  ]);
+  await runReviewTurn({ context: BASE_CONTEXT, apiKey: API_KEY, fetch: script.fetch });
+  expect(script.requests[0]?.url).toBe("https://api.deepseek.com/chat/completions");
+});
+
+test("runReviewTurn：baseUrl 覆盖 → 请求命中网关端点（${baseUrl}/chat/completions）", async () => {
+  const script = fakeFetch([
+    { text: "ok", usage: { promptTokens: 1, completionTokens: 1, cacheReadTokens: 0 } },
+  ]);
+  await runReviewTurn({
+    context: BASE_CONTEXT,
+    apiKey: API_KEY,
+    baseUrl: GATEWAY_URL,
+    fetch: script.fetch,
+  });
+  expect(script.requests[0]?.url).toBe(`${GATEWAY_URL}/chat/completions`);
+});
+
+test("runReviewTurn：目录外自由 model id 可发（钉住模型画像作模板），wire 与捕获面一致", async () => {
+  const script = fakeFetch([
+    { text: "ok", usage: { promptTokens: 1, completionTokens: 1, cacheReadTokens: 0 } },
+  ]);
+  const { wire } = await runReviewTurn({
+    context: BASE_CONTEXT,
+    apiKey: API_KEY,
+    baseUrl: GATEWAY_URL,
+    modelId: "custom-gateway-model",
+    fetch: script.fetch,
+  });
+  const parsed = JSON.parse(wire.wireBody) as Record<string, unknown>;
+  // wire 携带自由 id；锁档序列化（thinking/reasoning_effort）不随 id 改变
+  expect(parsed.model).toBe("custom-gateway-model");
+  expect(wire.model).toBe("custom-gateway-model");
+  expect(parsed.thinking).toEqual({ type: "enabled" });
+  expect(parsed.reasoning_effort).toBe("high");
+});
+
+test("runReviewTurn：modelId 空白 → fail fast（自由 id 非空校验）", async () => {
+  const script = fakeFetch([
+    { text: "ok", usage: { promptTokens: 1, completionTokens: 1, cacheReadTokens: 0 } },
+  ]);
+  await expect(
+    runReviewTurn({ context: BASE_CONTEXT, apiKey: API_KEY, modelId: "   ", fetch: script.fetch }),
+  ).rejects.toThrow(/model id/);
+  expect(script.requests).toHaveLength(0);
+});

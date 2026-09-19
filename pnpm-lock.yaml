@@ -171,6 +171,9 @@ importers:
       '@vscode/ripgrep':
         specifier: 1.18.0
         version: 1.18.0
+      review-llm:
+        specifier: workspace:*
+        version: link:../review-llm
       tree-sitter-java:
         specifier: 0.23.5
         version: 0.23.5

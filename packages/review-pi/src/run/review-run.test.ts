@@ -8,9 +8,9 @@ import { goldenFixture } from "../testing/golden.js";
 import { repoFixturePath } from "../testing/repos.js";
 import { VUL4J_1_ISSUE, VUL4J_1_SNAPSHOT, vul4j1Corpus } from "../testing/vul4j1-script.js";
 import { SYSTEM_PROMPT } from "../zonea/system-prompt.js";
-import { runOfflineReview } from "./offline-review.js";
+import { runReview } from "./review-run.js";
 
-// P1a 全链离线 E2E（单案 VUL4J-1 × config B × fake 适配器）：
+// 单案全链 E2E（离线 fake 适配器形态；#3 P1a 起真源，#4 起真跑同缝）：
 // 组装（Zone A/B/C + 预取）→ pi-ai 序列化 → fake 适配器 → findings 解析 →
 // 候选拦截 → 审计投影（AuditFileContent + RunRecord）。
 //
@@ -60,7 +60,7 @@ test.skipIf(!existsSync(VUL4J_1_SNAPSHOT))(
     const runsRoot = tempRunsRoot();
     let firstAudit: Record<string, unknown>;
     try {
-      const { record, recordPath, auditPath } = await runOfflineReview({
+      const { record, recordPath, auditPath } = await runReview({
         caseId: "VUL4J-1",
         repoPath: VUL4J_1_SNAPSHOT,
         diff: goldenFixture("vul4j-1.diff"),
@@ -177,7 +177,7 @@ test.skipIf(!existsSync(VUL4J_1_SNAPSHOT))(
       "+changed",
     ].join("\n");
     const secondScript = fakeFetch(vul4j1Corpus());
-    const { auditPath: secondAuditPath } = await runOfflineReview({
+    const { auditPath: secondAuditPath } = await runReview({
       caseId: "SAMPLE-2",
       repoPath: repoFixturePath("sample"),
       diff: betaDiff,
@@ -196,4 +196,52 @@ test.skipIf(!existsSync(VUL4J_1_SNAPSHOT))(
     expect(secondAudit.requests[0].messages[0]).toEqual({ role: "system", content: SYSTEM_PROMPT });
   },
   480_000,
+);
+
+// ---- 网关注入透传（#4）：baseUrl/modelId 贯穿传输层与审计/RunRecord ----
+
+test.skipIf(!existsSync(repoFixturePath("sample")))(
+  "网关注入透传：baseUrl/modelId 贯穿请求 URL、wireBody 与审计/RunRecord model 字段",
+  async () => {
+    const GATEWAY_URL = "https://gw.example.com/v1";
+    const script = fakeFetch(vul4j1Corpus());
+    const { record, auditPath } = await runReview({
+      caseId: "SAMPLE-GW",
+      repoPath: repoFixturePath("sample"),
+      diff: ["diff --git a/src/main/java/com/example/Beta.java b/src/main/java/com/example/Beta.java",
+        "--- a/src/main/java/com/example/Beta.java",
+        "+++ b/src/main/java/com/example/Beta.java",
+        "@@ -5,4 +5,4 @@",
+        " context",
+        "+changed",
+      ].join("\n"),
+      issueDescription: "Gateway passthrough MR under review.",
+      apiKey: "sentinel-key",
+      baseUrl: GATEWAY_URL,
+      modelId: "custom-gateway-model",
+      fetch: script.fetch,
+      runsRoot: tempRunsRoot(),
+      experimentId: "phase2-smoke",
+      rep: 1,
+    });
+
+    // 传输层：六回合全部命中网关端点（${baseUrl}/chat/completions）
+    expect(script.requests).toHaveLength(6);
+    for (const request of script.requests) {
+      expect(request.url).toBe(`${GATEWAY_URL}/chat/completions`);
+    }
+
+    // 审计与 RunRecord 只含 model（实际请求的 id），不含 baseUrl/key
+    //（baseUrl 属冒烟 REPORT 口径，DSH-isomorphic 审计 20 键不含它）
+    expect(record.model).toBe("custom-gateway-model");
+    const audit = JSON.parse(readFileSync(auditPath, "utf8")) as {
+      model: string;
+      requests: { wireBody: string }[];
+    };
+    expect(audit.model).toBe("custom-gateway-model");
+    for (const request of audit.requests) {
+      expect(JSON.parse(request.wireBody).model).toBe("custom-gateway-model");
+    }
+  },
+  300_000,
 );

@@ -128,7 +128,7 @@ test.skipIf(!existsSync(VUL4J_1_SNAPSHOT))(
     expect(layerMessages[1]?.content).toBe(goldenFixture("prefetch-2-vul4j-1.txt"));
     expect(layerMessages[2]?.content).toBe(goldenFixture("prefetch-3-vul4j-1.txt"));
   },
-  // 全量套件下本测试与 offline-review / analyze-consumption 的 E2E 并行跑
+  // 全量套件下本测试与 review-run / analyze-consumption 的 E2E 并行跑
   // 同一 fastjson 快照，磁盘争用可远超包级 120s 上限（曾实测单跑即 131s），
   // 显式放宽（与 run/*.test.ts 重型用例同法）
   300_000,
