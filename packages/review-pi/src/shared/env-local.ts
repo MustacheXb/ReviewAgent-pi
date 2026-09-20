@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 
 /**
- * .env.local 装载（#4 真跑冒烟）：包边界内的零依赖 dotenv 子集，语义镜像
- * 根仓 src/shared/env-local.ts（评测 CLI 同款装载器）——vitest 不会自动读
- * .env.local，e2e 必须显式装载后才能经 REVIEWER_URL / REVIEWER_API_KEY 守卫。
+ * .env.local 装载（#4 真跑冒烟；#7 起从 src/e2e 迁 src/shared——CLI dist
+ * 也要装载，而 tsconfig.build 排除 src/e2e）：包边界内的零依赖 dotenv
+ * 子集，语义镜像根仓 src/shared/env-local.ts（评测 CLI 同款装载器）。
+ * 消费方：e2e 冒烟（vitest 不自动读 .env.local）与 review-pi CLI
+ * （进程 cwd 的 .env.local，凭据解析前装载，已有环境变量优先）。
  *
  * 语义（与根仓单源口径逐条一致）：
  * - KEY=VALUE 行；首个 = 分割，值中的 = 保留；

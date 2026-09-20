@@ -203,7 +203,7 @@ test.skipIf(!existsSync(VUL4J_1_SNAPSHOT))(
 test("config A:零预取组装——req0 = Zone A + MR + Phase-1 三条(与 DSH A 真源同构)", async () => {
   const script = fakeFetch(vul4j1Corpus());
   const runsRoot = tempRunsRoot();
-  const { record, recordPath, auditPath } = await runReview({
+  const { record, recordPath, auditPath, runId } = await runReview({
     caseId: "VUL4J-1",
     // config A 零预取零工具,不读仓库——路径不存在也必须跑通
     //(守护 A 路径不偷偷构建预取)
@@ -217,6 +217,10 @@ test("config A:零预取组装——req0 = Zone A + MR + Phase-1 三条(与 DSH 
     rep: 1,
     configId: "A",
   });
+
+  // runId 透出（#7 CLI stdout 契约）：毫秒时间戳 + 配置 + 用例,与审计文件名同源
+  expect(runId).toMatch(/^\d{8}T\d{6}\.\d{3}-A-VUL4J-1$/);
+  expect(path.basename(auditPath)).toBe(`${runId}.json`);
 
   // 六阶段各一请求(零工具);落盘布局切到 A 段
   expect(script.requests).toHaveLength(6);

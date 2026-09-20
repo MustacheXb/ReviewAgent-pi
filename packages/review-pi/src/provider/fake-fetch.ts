@@ -79,7 +79,13 @@ function normalizeUrl(input: Parameters<FetchFunction>[0]): string {
   return input.url;
 }
 
-function sseBody(reply: FakeReply): string {
+/**
+ * 脚本回复 → SSE 帧序列原文（两段 content delta → finish → usage → [DONE]）。
+ * 导出面（#7 CLI 进程烟测）：loopback stub 服务器与 fake 适配器共用同一
+ * 渲染器——stub 在真 HTTP 传输层上回放与 fake 适配器逐字节相同的 wire
+ * 格式，格式漂移即单点同步（新增帧形态只改此处）。
+ */
+export function sseBody(reply: FakeReply): string {
   const frames = [
     ...contentDeltas(reply.text ?? "").map((delta) => contentChunk(delta)),
     ...(reply.toolCalls ?? []).map((call, index) => toolCallChunk(call, index)),

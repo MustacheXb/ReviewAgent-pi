@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { REVIEWER_API_KEY_ENV_VARS, hasReviewerApiKey } from "review-llm";
-import { formatEnvLocalSummary, loadEnvLocalFile } from "./env-local.js";
+import { formatEnvLocalSummary, loadEnvLocalFile } from "../shared/env-local.js";
 import { recordingFetch } from "./recording-fetch.js";
 import {
   formatSmokeDiagnostics,

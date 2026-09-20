@@ -63,6 +63,8 @@ export interface ReviewRunInput {
 }
 
 export interface ReviewRunResult {
+  /** run 标识（毫秒时间戳 + 配置 + 用例；审计文件名同源；#7 CLI stdout 契约） */
+  readonly runId: string;
   readonly record: RunRecord;
   readonly recordPath: string;
   readonly auditPath: string;
@@ -161,7 +163,7 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     result,
   });
   const recordPath = await writeRunRecord(input.runsRoot, input.experimentId, record);
-  return { record, recordPath, auditPath };
+  return { runId, record, recordPath, auditPath };
 }
 
 /** 审计文件目录（A/B 与 C/D/E 共用落盘位形——单点定义防单侧改漏） */
@@ -277,5 +279,5 @@ async function runToolDrivenReview(
     result,
   });
   const recordPath = await writeRunRecord(input.runsRoot, input.experimentId, record);
-  return { record, recordPath, auditPath };
+  return { runId, record, recordPath, auditPath };
 }
