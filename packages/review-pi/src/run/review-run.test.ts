@@ -198,6 +198,140 @@ test.skipIf(!existsSync(VUL4J_1_SNAPSHOT))(
   480_000,
 );
 
+// ---- config 矩阵扩展(#5 P2 字节门):config A 驱动 + 预取注入缝 ----
+
+test("config A:零预取组装——req0 = Zone A + MR + Phase-1 三条(与 DSH A 真源同构)", async () => {
+  const script = fakeFetch(vul4j1Corpus());
+  const runsRoot = tempRunsRoot();
+  const { record, recordPath, auditPath } = await runReview({
+    caseId: "VUL4J-1",
+    // config A 零预取零工具,不读仓库——路径不存在也必须跑通
+    //(守护 A 路径不偷偷构建预取)
+    repoPath: path.join(runsRoot, "no-such-repo"),
+    diff: goldenFixture("vul4j-1.diff"),
+    issueDescription: VUL4J_1_ISSUE,
+    apiKey: "offline-test",
+    fetch: script.fetch,
+    runsRoot,
+    experimentId: "phase2-smoke",
+    rep: 1,
+    configId: "A",
+  });
+
+  // 六阶段各一请求(零工具);落盘布局切到 A 段
+  expect(script.requests).toHaveLength(6);
+  expect(recordPath).toBe(
+    path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "A", "rep-1.json"),
+  );
+  expect(record.configId).toBe("A");
+  // config A 审计与记录不携带预取记账(DSH A 真源同构:键省略而非空数组)
+  expect(record.baseline.audit.prefetch).toBeUndefined();
+
+  const audit = JSON.parse(readFileSync(auditPath, "utf8")) as {
+    configId: string;
+    requests: { wireBody: string }[];
+  };
+  expect(audit.configId).toBe("A");
+  const req0 = JSON.parse(audit.requests[0].wireBody) as {
+    messages: { role: string; content: string }[];
+  };
+  // 三条:Zone A(system)+ MR user + Phase-1 指令 user(独立成条,DSH A 真源形态)
+  expect(req0.messages.map((message) => message.role)).toEqual(["system", "user", "user"]);
+  expect(req0.messages[0]).toEqual({ role: "system", content: SYSTEM_PROMPT });
+  expect(req0.messages[1].content).toContain("Merge request under review.");
+  expect(req0.messages[1].content).toContain("Case ID: VUL4J-1");
+  expect(req0.messages[1].content).toContain(goldenFixture("vul4j-1.diff"));
+  expect(req0.messages[2]).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[0] });
+
+  // append-only 不变量在 A 下同样成立(每请求 = 上一请求 + 回复 + 下一阶段指令)
+  const requests = audit.requests.map(
+    (request) => JSON.parse(request.wireBody).messages as { role: string; content: string }[],
+  );
+  for (let index = 1; index < requests.length; index++) {
+    expect(requests[index].slice(0, -2)).toEqual(requests[index - 1]);
+    expect(requests[index].at(-1)).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[index] });
+  }
+}, 120_000);
+
+test("config B:注入预取(门缓存缝)——注入物直达 Zone B 位与审计记账", async () => {
+  const sentinel = {
+    zoneBMessage: { role: "user" as const, content: "SENTINEL-ZONE-B" },
+    layerMessages: [
+      { role: "user" as const, content: "SENTINEL-LAYER-1" },
+      { role: "user" as const, content: "SENTINEL-LAYER-2" },
+    ],
+    records: [
+      { layer: "zone-b" as const, budgetChars: 100, contentChars: 15, truncated: false, totalEntries: 1, shownEntries: 1 },
+      { layer: "symbol" as const, budgetChars: 100, contentChars: 16, truncated: false, totalEntries: 1, shownEntries: 1 },
+    ],
+  };
+  const script = fakeFetch(vul4j1Corpus());
+  const runsRoot = tempRunsRoot();
+  const { record, auditPath } = await runReview({
+    caseId: "VUL4J-1",
+    repoPath: VUL4J_1_SNAPSHOT,
+    diff: goldenFixture("vul4j-1.diff"),
+    issueDescription: VUL4J_1_ISSUE,
+    apiKey: "offline-test",
+    fetch: script.fetch,
+    runsRoot,
+    experimentId: "phase2-smoke",
+    rep: 1,
+    configId: "B",
+    prefetch: sentinel,
+  });
+
+  // 注入物原样落位:req0 = system, ZoneB, MR, 层×2, Phase-1(不跑真预取管线)
+  const audit = JSON.parse(readFileSync(auditPath, "utf8")) as {
+    requests: { wireBody: string }[];
+  };
+  const req0 = JSON.parse(audit.requests[0].wireBody) as {
+    messages: { role: string; content: string }[];
+  };
+  expect(req0.messages.map((message) => message.role)).toEqual([
+    "system",
+    "user",
+    "user",
+    "user",
+    "user",
+    "user",
+  ]);
+  expect(req0.messages[1]).toEqual({ role: "user", content: "SENTINEL-ZONE-B" });
+  expect(req0.messages[2].content).toContain("Merge request under review.");
+  expect(req0.messages[3]).toEqual({ role: "user", content: "SENTINEL-LAYER-1" });
+  expect(req0.messages[4]).toEqual({ role: "user", content: "SENTINEL-LAYER-2" });
+  expect(req0.messages[5]).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[0] });
+  expect(record.baseline.audit.prefetch).toEqual(sentinel.records);
+}, 120_000);
+
+test("config 门面:C/D/E 未实装 → 抛;A + 预取注入 → 抛(矛盾输入)", async () => {
+  const base = {
+    caseId: "VUL4J-1",
+    repoPath: repoFixturePath("sample"),
+    diff: goldenFixture("vul4j-1.diff"),
+    issueDescription: VUL4J_1_ISSUE,
+    apiKey: "offline-test",
+    fetch: fakeFetch(vul4j1Corpus()).fetch,
+    runsRoot: tempRunsRoot(),
+    experimentId: "phase2-smoke",
+    rep: 1,
+  };
+  for (const configId of ["C", "D", "E"] as const) {
+    await expect(runReview({ ...base, configId })).rejects.toThrow(/P3/);
+  }
+  await expect(
+    runReview({
+      ...base,
+      configId: "A",
+      prefetch: {
+        zoneBMessage: { role: "user", content: "x" },
+        layerMessages: [],
+        records: [],
+      },
+    }),
+  ).rejects.toThrow(/config A .*prefetch/);
+});
+
 // ---- 网关注入透传（#4）：baseUrl/modelId 贯穿传输层与审计/RunRecord ----
 
 test.skipIf(!existsSync(repoFixturePath("sample")))(
