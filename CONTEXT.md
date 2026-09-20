@@ -87,6 +87,10 @@ _Avoid_: 可变层（过泛）
 测量常量面零漂移的形式化证明门：pi 侧 A/B 请求体与 DSH 审计真源（`requests[].wireBody` 序列化点原文）逐字节对照；内核身份差异按登记类别归一化（白名单收口），**计算差异 = 登记差异强制相等**——白名单外零容忍、登记项停弹同样红门（结构性类别每请求必触发，按记录检查；数据条件类别——如空回复——由单测与全量语料双向把守）。
 _Avoid_: 快照测试（无真源对照）、宽容 diff（语义近似放行）
 
+**语义等价门（Semantic Gate）**:
+C/D/E（工具驱动 agentLoop）的对照口径门：pi 侧请求体与 DSH 审计真源做 JSON 值域深相等（键序天然无关），继承面传输方言 + 工具面方言（`tool-dialect.ts` 单列：strict 旗标 / tool_choice 缺席 / arguments 重序列化 / 参数校验——按内核效应分类 wire-structural / wire-data-conditional / behavioral）各自归一化后对照；同一零容忍纪律——未登记差异红门、结构性类别死登记红门。循环驱动面（phaseLog / toolCallLog / findings / rejections / rounds / E ledger）全量逐条对照。工具输出字节面另由 tool-outputs 门把守（重放注入 resultSummary，不混流）。
+_Avoid_: 与字节门混流（A/B 逐字节、C/D/E 语义——两档口径各自单列）、语义近似放行（未登记差异零容忍）
+
 ### 知识
 
 **CWD**:

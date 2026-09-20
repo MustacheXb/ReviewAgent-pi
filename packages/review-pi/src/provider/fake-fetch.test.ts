@@ -62,6 +62,54 @@ test("fakeFetch：URL 归一（string / URL 实例 / Request 对象）", async (
   ]);
 });
 
+test("fakeFetch：工具调用回复（tool_calls delta 帧 + finish tool_calls + usage + DONE）", async () => {
+  const script = fakeFetch([
+    {
+      toolCalls: [
+        { id: "call-1", name: "review_get_diff", arguments: {} },
+        { id: "call-2", name: "review_get_file", arguments: { path: "Foo.java" } },
+      ],
+      usage: { promptTokens: 10, completionTokens: 5, cacheReadTokens: 0 },
+    },
+  ]);
+  const response = await script.fetch("https://api.deepseek.com/chat/completions", {});
+
+  const frames = (await response.text()).split("\n\n").filter((frame) => frame !== "");
+  expect(frames).toHaveLength(5);
+  const first = JSON.parse(frameData(frames[0]!));
+  expect(first.choices[0].delta.tool_calls[0]).toEqual({
+    index: 0,
+    id: "call-1",
+    type: "function",
+    function: { name: "review_get_diff", arguments: "{}" },
+  });
+  const second = JSON.parse(frameData(frames[1]!));
+  expect(second.choices[0].delta.tool_calls[0].index).toBe(1);
+  expect(second.choices[0].delta.tool_calls[0].function.name).toBe("review_get_file");
+  expect(JSON.parse(frameData(frames[1]!)).choices[0].delta.tool_calls[0].function.arguments).toBe(
+    JSON.stringify({ path: "Foo.java" }),
+  );
+  expect(JSON.parse(frameData(frames[2]!)).choices[0].finish_reason).toBe("tool_calls");
+  expect(frames[4]).toBe("data: [DONE]");
+});
+
+test("fakeFetch：文本 + 工具调用混合回复（content delta 在前，finish 仍为 tool_calls）", async () => {
+  const script = fakeFetch([
+    {
+      text: "let me look",
+      toolCalls: [{ id: "call-1", name: "review_get_diff", arguments: {} }],
+      usage: { promptTokens: 1, completionTokens: 1, cacheReadTokens: 0 },
+    },
+  ]);
+  const response = await script.fetch("https://api.deepseek.com/chat/completions", {});
+
+  const frames = (await response.text()).split("\n\n").filter((frame) => frame !== "");
+  expect(frames).toHaveLength(6);
+  expect(JSON.parse(frameData(frames[0]!)).choices[0].delta.content).toBe("let me");
+  expect(JSON.parse(frameData(frames[1]!)).choices[0].delta.content).toBe(" look");
+  expect(JSON.parse(frameData(frames[3]!)).choices[0].finish_reason).toBe("tool_calls");
+});
+
 function frameData(frame: string): string {
   return frame.slice("data: ".length);
 }

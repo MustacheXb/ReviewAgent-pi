@@ -108,11 +108,15 @@ test.skipIf(
       symlinkSync(path.join(REPO_ROOT, "runs", side), path.join(fixtureRoot, side), "junction");
     }
 
-    // 4) 冻结脚本原样跑：package.json 入口（tsc 编译 + node 执行），
-    //    runsRoot 经 argv 传入 fixture
+    // 4) 冻结脚本原样跑：package.json 入口（tsc 全仓编译 + node 执行），
+    //    runsRoot 经 argv 传入 fixture。
+    //    时间预算：tsc 编译（--rootDir . 含 vendored 包）+ 三侧 450×3 记录
+    //    扫描，本机实测 ~6.5 分钟（2026-09-20，盘争用下）；exec 240s 会在
+    //    编译阶段砍掉脚本且 Windows kill 不收孙进程（stdio 悬挂 → 测试挂死
+    //    到 vitest 硬超时），故预算给到 540s + 测试档 900s。
     const { stdout } = await execAsync(`pnpm analyze:phase2 "${fixtureRoot}"`, {
       cwd: REPO_ROOT,
-      timeout: 240_000,
+      timeout: 540_000,
       maxBuffer: 10 * 1024 * 1024,
       windowsHide: true,
     });
@@ -140,5 +144,5 @@ test.skipIf(
     expect(smokeRow).toBeDefined();
     expect(smokeRow).toBe(`| smoke | 5 | ${fmtTokens(billed)} | ${fmtTokens(withCache)} | — | — |`);
   },
-  600_000,
+  900_000,
 );

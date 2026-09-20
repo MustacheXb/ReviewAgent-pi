@@ -99,8 +99,9 @@ export function assistantText(message: AssistantMessage): string {
  * 评审模型解析：id 命中目录 → 原样用；目录外自由 id → 钉住的评审模型
  * 画像作模板覆写 id（#45）；baseUrl 非空则覆盖接入点（网关展开缝）。
  * 契约不变量：provider 恒为 deepseek（compat/锁档序列化不随 id 漂移）。
+ * agentLoop 路径（#6 P3a）复用同一解析作为 Agent initialState.model。
  */
-function reviewModelOf(
+export function reviewModelOf(
   modelId: string | undefined,
   baseUrl: string | undefined,
 ): Model<"openai-completions"> {
@@ -121,8 +122,9 @@ function reviewModelOf(
   };
 }
 
-/** 校验并投影 onPayload payload（边界校验 fail fast；扩展字段透传不裁剪） */
-function captureWire(payload: unknown): WireCapture {
+/** 校验并投影 onPayload payload（边界校验 fail fast；扩展字段透传不裁剪）。
+ * agentLoop 路径（#6 P3a）复用同一投影作为审计 requests[] 条目来源。 */
+export function captureWire(payload: unknown): WireCapture {
   if (typeof payload !== "object" || payload === null) {
     throw new Error("onPayload payload is not an object");
   }
@@ -152,10 +154,14 @@ function wireMessageOf(entry: unknown): WireMessage {
   if (typeof record.role !== "string" || !WIRE_ROLES.includes(record.role)) {
     throw new Error(`onPayload messages entry has an unknown wire role: ${JSON.stringify(record.role)}`);
   }
-  if (typeof record.content !== "string") {
+  if (typeof record.content !== "string" && record.content !== null) {
     throw new Error("onPayload messages entry has no string content field");
   }
-  return entry as WireMessage;
+  // 审计口径：wire 的 null content（assistant 仅携带工具调用的消息）投影为 ""——
+  // 与 DSH 审计 requests[].messages 同构；wireBody 原文保持 null（两线字节同形）。
+  return record.content === null
+    ? ({ ...(entry as Record<string, unknown>), content: "" } as WireMessage)
+    : (entry as WireMessage);
 }
 
 /** wire function tool → DSH 审计口径 ToolSchema（config B 恒空数组，投影为将来工具配置就位） */

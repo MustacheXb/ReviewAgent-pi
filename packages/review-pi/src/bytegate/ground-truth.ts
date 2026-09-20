@@ -16,8 +16,8 @@ import path from "node:path";
 import { relocateAuditPath } from "./audit-path.js";
 import { deepEqualJson } from "./json-equal.js";
 
-/** 门驱动的配置面(C/D/E = P3 agentLoop,不在本门范围) */
-export type GateConfigId = "A" | "B";
+/** 门驱动的配置面（A/B = 字节门；C/D/E = P3a agentLoop 语义门） */
+export type GateConfigId = "A" | "B" | "C" | "D" | "E";
 
 /** 一条待对照的真源记录(发现产物:重定位后可直接读) */
 export interface GateRecordRef {
@@ -35,11 +35,14 @@ const EXPERIMENT_DIR_PATTERN = /^phase2-dsh-t\d+$/;
 const RECORD_FILE_PATTERN = /^rep-(\d+)\.json$/;
 
 /**
- * 扫描 runsRoot 下的 t-series 真源记录(A/B × rep-N)。
+ * 扫描 runsRoot 下的 t-series 真源记录（configs × rep-N；缺省 A/B 字节门面）。
  * 目录结构与记录体字段交叉校验(caseId/configId/rep/auditPath);
  * 重定位后审计文件必须存在;任何错位/损坏抛错——门数据必须精确。
  */
-export function discoverGateRecords(runsRoot: string): readonly GateRecordRef[] {
+export function discoverGateRecords(
+  runsRoot: string,
+  configs: readonly GateConfigId[] = ["A", "B"],
+): readonly GateRecordRef[] {
   if (!existsSync(runsRoot)) {
     return [];
   }
@@ -57,7 +60,7 @@ export function discoverGateRecords(runsRoot: string): readonly GateRecordRef[] 
       if (!caseId.isDirectory()) {
         continue;
       }
-      for (const configId of ["A", "B"] as const) {
+      for (const configId of configs) {
         const configDir = path.join(vul4jRoot, caseId.name, configId);
         if (!existsSync(configDir)) {
           continue;

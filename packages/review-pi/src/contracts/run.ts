@@ -2,6 +2,7 @@
 // 冻结 analyze 脚本据此消费 pi RunRecord）。随模块落地逐步补齐。
 
 import type { Finding } from "./finding.js";
+import type { LedgerEntry } from "./ledger.js";
 import type { LlmUsage, ToolSchema, WireMessage } from "./llm.js";
 import type { PrefetchLayerRecord } from "./prefetch.js";
 
@@ -74,6 +75,15 @@ export interface WireRequest {
   readonly wireBody: string;
 }
 
+/** config C 全仓注入的留痕（预算守卫：截断必留痕） */
+export interface FullRepoRecord {
+  readonly budgetChars: number;
+  readonly contentChars: number;
+  readonly truncated: boolean;
+  readonly totalFiles: number;
+  readonly shownFiles: number;
+}
+
 /** 循环运行期的审计累积面（AuditFileContent 与 AuditLight 的共同来源） */
 export interface RunAudit {
   readonly requests: readonly WireRequest[];
@@ -84,6 +94,10 @@ export interface RunAudit {
   readonly truncated: boolean;
   readonly truncationReasons: readonly string[];
   readonly prefetch?: readonly PrefetchLayerRecord[];
+  /** config C 全仓注入记账（非 C 配置缺省） */
+  readonly fullRepo?: FullRepoRecord;
+  /** config E Context Ledger 快照（非 E 配置缺省） */
+  readonly ledger?: readonly LedgerEntry[];
 }
 
 /** 六阶段循环一次完整运行的结果（审计投影的输入） */

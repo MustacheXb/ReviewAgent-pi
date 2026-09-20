@@ -2,11 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
+import type { LedgerEntry } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
 import type { PrefetchLayerRecord } from "../contracts/prefetch.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
+  FullRepoRecord,
   PhaseRecord,
   RunAudit,
   ToolCallRecord,
@@ -46,6 +48,10 @@ export interface AuditFileContent {
   readonly toolCallLog: readonly ToolCallRecord[];
   /** config B 预取注入层记账（非预取配置缺省） */
   readonly prefetch?: readonly PrefetchLayerRecord[];
+  /** config C 全仓注入记账（非 C 配置缺省；DSH 真源键序在 toolCallLog 尾段） */
+  readonly fullRepo?: FullRepoRecord;
+  /** config E Context Ledger 快照（非 E 配置缺省；DSH 真源键序在 toolCallLog 尾段） */
+  readonly ledger?: readonly LedgerEntry[];
 }
 
 /** runId：毫秒时间戳 + 配置 + 用例，文件名安全 */
@@ -69,6 +75,8 @@ export function buildAuditFileContent(args: {
   readonly findings: readonly Finding[];
   readonly audit: RunAudit;
   readonly prefetch?: readonly PrefetchLayerRecord[];
+  readonly fullRepo?: FullRepoRecord;
+  readonly ledger?: readonly LedgerEntry[];
 }): AuditFileContent {
   return {
     runId: args.runId,
@@ -91,6 +99,8 @@ export function buildAuditFileContent(args: {
     requests: args.audit.requests,
     toolCallLog: args.audit.toolCallLog,
     ...(args.prefetch !== undefined ? { prefetch: args.prefetch } : {}),
+    ...(args.fullRepo !== undefined ? { fullRepo: args.fullRepo } : {}),
+    ...(args.ledger !== undefined ? { ledger: args.ledger } : {}),
   };
 }
 

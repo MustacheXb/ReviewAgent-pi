@@ -15,10 +15,21 @@ export interface FakeUsage {
   readonly cacheReadTokens: number;
 }
 
+/** 脚本化工具调用（wire 形态：下划线名 + 已解析参数对象） */
+export interface FakeToolCall {
+  readonly id: string;
+  /** wire 工具名（如 review_get_diff；与真源 wireBody.tools 的 function.name 同形态） */
+  readonly name: string;
+  readonly arguments: Record<string, unknown>;
+}
+
 export interface FakeReply {
-  readonly text: string;
+  /** 回复文本（工具调用回复可缺省） */
+  readonly text?: string;
+  /** 工具调用批次（有则 finish_reason 渲染为 "tool_calls"） */
+  readonly toolCalls?: readonly FakeToolCall[];
   readonly usage: FakeUsage;
-  /** 缺省 "stop"；错误路径脚本用（如 "content_filter" → pi-ai 映射 stopReason "error"） */
+  /** 缺省：有 toolCalls 即 "tool_calls"，否则 "stop"；错误路径脚本用（如 "content_filter"） */
   readonly finishReason?: string;
 }
 
@@ -70,12 +81,42 @@ function normalizeUrl(input: Parameters<FetchFunction>[0]): string {
 
 function sseBody(reply: FakeReply): string {
   const frames = [
-    ...contentDeltas(reply.text).map((delta) => contentChunk(delta)),
-    finishChunk(reply.finishReason ?? "stop"),
+    ...contentDeltas(reply.text ?? "").map((delta) => contentChunk(delta)),
+    ...(reply.toolCalls ?? []).map((call, index) => toolCallChunk(call, index)),
+    finishChunk(reply.finishReason ?? defaultFinishReason(reply)),
     usageChunk(reply.usage),
     "data: [DONE]",
   ];
   return `${frames.join("\n\n")}\n\n`;
+}
+
+function defaultFinishReason(reply: FakeReply): string {
+  return (reply.toolCalls ?? []).length > 0 ? "tool_calls" : "stop";
+}
+
+/**
+ * 工具调用帧：每调用单帧携带完整 arguments JSON（pi-ai 从 delta.tool_calls 的
+ * partialArgs 累积解析，单帧全文即确定性解析结果；index 与批内序号一致）。
+ */
+function toolCallChunk(call: FakeToolCall, index: number): string {
+  return dataFrame({
+    choices: [
+      {
+        index: 0,
+        delta: {
+          tool_calls: [
+            {
+              index,
+              id: call.id,
+              type: "function",
+              function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+            },
+          ],
+        },
+        finish_reason: null,
+      },
+    ],
+  });
 }
 
 /** 确定性切分：≥2 字符对半两段；1 字符单段；空文本零段 */

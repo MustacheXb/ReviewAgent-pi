@@ -2,11 +2,13 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
+import type { LedgerEntry } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
 import type { PrefetchLayerRecord } from "../contracts/prefetch.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
+  FullRepoRecord,
   PhaseRecord,
   RunAudit,
   RunResult,
@@ -37,6 +39,10 @@ export interface AuditLight {
   readonly truncated: boolean;
   readonly truncationReasons: readonly string[];
   readonly prefetch?: readonly PrefetchLayerRecord[];
+  /** config C：全仓注入记账（budget/截断留痕；DSH C 真源同位键） */
+  readonly fullRepo?: FullRepoRecord;
+  /** config E：Context Ledger 快照（恒投影——零工具调用为空数组；C/D 键省略） */
+  readonly ledger?: readonly LedgerEntry[];
 }
 
 /** RunResult 快照（audit 以轻量投影落盘） */
@@ -89,6 +95,8 @@ export function toAuditLight(audit: RunAudit): AuditLight {
     truncated: audit.truncated,
     truncationReasons: audit.truncationReasons,
     ...(audit.prefetch !== undefined ? { prefetch: audit.prefetch } : {}),
+    ...(audit.fullRepo !== undefined ? { fullRepo: audit.fullRepo } : {}),
+    ...(audit.ledger !== undefined ? { ledger: audit.ledger } : {}),
   };
 }
 
