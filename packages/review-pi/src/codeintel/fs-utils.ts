@@ -47,8 +47,23 @@ export async function readUtf8Tolerant(absPath: string): Promise<string> {
   }
 }
 
-/** 仓库展示名：根目录 basename（剥离尾部分隔符；Windows 盘符根返回 "repo"） */
+/** Windows 盘符根形态（"D:" / "d:"）——toPosixPath 剥分隔符后的残留 */
+const DRIVE_ROOT_PATTERN = /^[A-Za-z]:$/;
+
+/**
+ * 仓库展示名：根目录 basename（剥离尾部分隔符；根路径——POSIX "/" 与
+ * Windows 盘符根 "D:"——及空名回退 "repo"）。
+ * 纯字符串分段解析，不经 path.resolve——平台无关且不依赖 cwd：resolve 在
+ * POSIX 上会把 Windows 盘符路径当相对路径拼上 cwd（实测 Linux CI 上
+ * basename 错成 "D:"）。输入含两种平台形态（target-cases.json 的
+ * Windows 绝对路径 / loadRepoContext 已 resolve 的原生绝对路径，后者
+ * 无 "."、".." 段，纯分段与 resolve+basename 等价）。
+ */
 export function repoRootName(repoPath: string): string {
-  const base = path.basename(path.resolve(repoPath));
-  return base.length > 0 ? base : "repo";
+  const posix = toPosixPath(repoPath);
+  const last = posix.slice(posix.lastIndexOf("/") + 1);
+  if (last === "" || DRIVE_ROOT_PATTERN.test(last)) {
+    return "repo";
+  }
+  return last;
 }
