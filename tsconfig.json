@@ -11,7 +11,24 @@
     "skipLibCheck": true,
     "declaration": true,
     "sourceMap": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    // #8 执行缝类型链：review-pi dist d.ts 的类型闭包经 node_modules 会解析回
+    // vendored pi 源码（pi-ai 等的 exports.types 指向 TS 源，.ts 后缀 import 在
+    // 本程序触发 TS5059/TS5097 链式爆炸）——与 review-pi 自身 tsconfig.build.json
+    // 同法，把 pi 四包映射到各自 dist d.ts（skipLibCheck 跳过检查，链条终止）。
+    // 运行时不受影响：编译产物以裸名 import "review-pi"，node 经 node_modules
+    // 正常解析其 dist/index.js；vitest 侧按 "source" 条件解析 TS 源（另一条路）。
+    // review-llm 不映射：其 src 按根级严格 flags 正常进入程序（既有行为）。
+    "baseUrl": ".",
+    "paths": {
+      "review-pi": ["packages/review-pi/dist/index.d.ts"],
+      "@earendil-works/pi-ai": ["packages/ai/dist/index.d.ts"],
+      "@earendil-works/pi-ai/*": ["packages/ai/dist/*.d.ts"],
+      "@earendil-works/pi-telemetry": ["packages/telemetry/dist/index.d.ts"],
+      "@earendil-works/pi-agent-core": ["packages/agent/dist/index.d.ts"],
+      "@earendil-works/chord": ["packages/chord/dist/index.d.ts"],
+      "@earendil-works/chord/*": ["packages/chord/dist/*.d.ts", "packages/chord/dist/*/index.d.ts"]
+    }
   },
   "include": ["src", "tests"],
   "exclude": ["node_modules", "dist"]

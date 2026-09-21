@@ -26,6 +26,13 @@ export const DEFAULT_EXPERIMENT_MODEL: ExperimentModel = "deepseek-v4-flash";
 /** 二遍 Verifier 消融开关：off = 单遍自证（底线形态）；on = 二遍复核（token 计入 CARC） */
 export type VerifierMode = "off" | "on";
 
+/**
+ * 检视内核（#8 P4a 执行缝）：legacy = 根仓检视运行时（DSH 同构重写）；
+ * pi = vendored pi 内核（packages/review-pi，ADR-0009 从 0 重写）。
+ * 值类型落在本模块防 plan ↔ review-kernel 循环引用。
+ */
+export type ReviewKernelId = "legacy" | "pi";
+
 /** 人工抽检种子（每轮基准固定并记录；缺省值即当前轮基准） */
 export const DEFAULT_HUMAN_REVIEW_SEED = "poc1-human-review-2026";
 export const DEFAULT_HUMAN_REVIEW_RATE = 0.1;
@@ -44,6 +51,13 @@ export interface ExperimentPlan {
   readonly verifier: VerifierMode;
   /** 检视模型（自由 id，#43；v4-pro 强制搭配 highRiskOnly，防误发全量矩阵） */
   readonly model: ExperimentModel;
+  /**
+   * 检视内核（#8 P4a 执行缝）：同一 runner 的 executeUnit 可替换执行点——
+   * config 经请求参数逐单元切 preset（A–E），内核按计划整体切换。缺省 "legacy"。
+   * pi 恒 baseline-only：与 verifier="on" 互斥（校验拒绝）。记录不携带内核
+   * 标识（RunRecord schema 冻结），续跑一致性由 plan.json 内核冲突检测守护。
+   */
+  readonly kernel?: ReviewKernelId;
   /**
    * 检视链接入点（#43 manifest 留痕）：CLI 在 env 校验后装配
    * （REVIEWER_URL > DEEPSEEK_URL > 官方缺省，reviewerBaseUrlOf），随 plan.json
@@ -130,6 +144,17 @@ export function validateExperimentPlan(plan: ExperimentPlan): void {
   }
   if (plan.verifier !== "off" && plan.verifier !== "on") {
     throw new Error(`plan.verifier must be "off" or "on" (got ${JSON.stringify(plan.verifier)})`);
+  }
+  if (plan.kernel !== undefined && plan.kernel !== "legacy" && plan.kernel !== "pi") {
+    throw new Error(
+      `plan.kernel must be "legacy" or "pi" when present (got ${JSON.stringify(plan.kernel)})`,
+    );
+  }
+  if (plan.kernel === "pi" && plan.verifier === "on") {
+    throw new Error(
+      'plan.kernel "pi" requires verifier "off": the pi runtime is baseline-only single-pass ' +
+        "(the two-pass verifier ablation is a legacy-runtime feature; #8)",
+    );
   }
   if (typeof plan.model !== "string" || plan.model.trim().length === 0) {
     throw new Error(

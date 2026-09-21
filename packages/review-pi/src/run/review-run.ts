@@ -58,6 +58,12 @@ export interface ReviewRunInput {
   /** 实验标识（目录名，如 "phase2-smoke"） */
   readonly experimentId: string;
   readonly rep: number;
+  /**
+   * 记录落盘开关（#8 runner 执行缝）：缺省 true（内核自写 RunRecord——
+   * CLI / e2e 直跑形态）；false = 执行缝模式——runner 是记录唯一写者，
+   * 内核不落盘（recordPath 返回空串），审计照常落盘。
+   */
+  readonly persistRecord?: boolean;
   /** 起始时间戳（测试确定性钩子；缺省当前时间） */
   readonly startedAt?: Date;
 }
@@ -162,8 +168,19 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     completedAt: finishedAt,
     result,
   });
-  const recordPath = await writeRunRecord(input.runsRoot, input.experimentId, record);
+  const recordPath = await persistRunRecord(input, record);
   return { runId, record, recordPath, auditPath };
+}
+
+/**
+ * 记录落盘单点（A/B 与 C/D/E 共用）：persistRecord=false（执行缝模式）时
+ * 内核不落盘、返回空串——runner 是记录唯一写者，防双写与孤儿文件。
+ */
+function persistRunRecord(input: ReviewRunInput, record: RunRecord): Promise<string> {
+  if (input.persistRecord === false) {
+    return Promise.resolve("");
+  }
+  return writeRunRecord(input.runsRoot, input.experimentId, record);
 }
 
 /** 审计文件目录（A/B 与 C/D/E 共用落盘位形——单点定义防单侧改漏） */
@@ -278,6 +295,6 @@ async function runToolDrivenReview(
     completedAt: finishedAt,
     result,
   });
-  const recordPath = await writeRunRecord(input.runsRoot, input.experimentId, record);
+  const recordPath = await persistRunRecord(input, record);
   return { runId, record, recordPath, auditPath };
 }

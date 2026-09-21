@@ -1,4 +1,5 @@
 import path from "node:path";
+import { resolveReviewerEndpoint } from "review-pi";
 import type { ConfigId } from "../contracts/config.js";
 import { CONFIGS } from "../contracts/config.js";
 import type { LlmClient } from "../contracts/llm-client.js";
@@ -22,6 +23,7 @@ import { formatEnvLocalSummary, loadEnvLocalFile, type EnvLocalLoadResult } from
 import { renderDashboardMarkdown } from "./dashboard.js";
 import { loadExperimentCases } from "./datasets.js";
 import { checkExperimentEnv, envErrorMessage, hasCustomLlmEndpoint, reviewerBaseUrlOf } from "./env.js";
+import { piKernel } from "./pi-kernel.js";
 import {
   DEFAULT_EXPERIMENT_MODEL,
   DEFAULT_HUMAN_REVIEW_RATE,
@@ -30,6 +32,7 @@ import {
   type ExperimentModel,
   type ExperimentPlan,
   type ExperimentSource,
+  type ReviewKernelId,
   type VerifierMode,
   validateExperimentPlan,
 } from "./plan.js";
@@ -38,6 +41,7 @@ import type { ReportDeps } from "./report.js";
 import { rebuildExperimentOutcome } from "./report.js";
 import { loadPersistedCases, loadPersistedPlan, runExperiment } from "./runner.js";
 import type { UnitEvent } from "./runner.js";
+import type { ReviewKernel } from "./review-kernel.js";
 import { writeFile, mkdir } from "node:fs/promises";
 
 /**
@@ -60,6 +64,8 @@ export interface ExperimentCliOptions {
   readonly reps: number;
   readonly verifier: VerifierMode;
   readonly model: ExperimentModel;
+  /** 检视内核（#8 执行缝）：legacy = 根仓运行时；pi = vendored pi 内核 */
+  readonly kernel: ReviewKernelId;
   readonly highRiskOnly: boolean;
   readonly perSourceLimit: number | null;
   readonly caseFilter: readonly string[];
@@ -101,6 +107,8 @@ export function experimentCliUsage(): string {
     "  --verifier <off|on>       second-pass verifier ablation (default: off)",
     "  --model <id>              review model id: free ids accepted, wire bytes per provider",
     "                            profile (aliases: flash, pro; default: flash)",
+    "  --kernel <legacy|pi>      review kernel via the execution seam (default: legacy;",
+    "                            pi = vendored pi runtime, vul4j-only, baseline single-pass)",
     "  --high-risk-only          only riskClass=High cases (required for v4-pro)",
     "  --limit <n>               per-source case cap (default: none)",
     "  --case <id>               exact caseId filter (repeatable)",
@@ -125,6 +133,7 @@ type CliValues = {
   reps: number;
   verifier: VerifierMode;
   model: ExperimentModel;
+  kernel: ReviewKernelId;
   highRiskOnly: boolean;
   perSourceLimit: number | null;
   caseFilter: string[];
@@ -163,6 +172,10 @@ const VALUE_FLAGS: Readonly<Record<string, ValueFlagParser<CliValues>>> = {
     value === "off" || value === "on"
       ? flagOk({ verifier: value })
       : flagFail(`--verifier must be "off" or "on" (got ${JSON.stringify(value)})`),
+  "--kernel": (value) =>
+    value === "legacy" || value === "pi"
+      ? flagOk({ kernel: value })
+      : flagFail(`--kernel must be "legacy" or "pi" (got ${JSON.stringify(value)})`),
   "--model": (value) => {
     // #43 自由 id：别名命中则展开，未命中按字面模型 id 直通（trim 后非空）
     const trimmed = value.trim();
@@ -214,6 +227,7 @@ function defaultCliValues(): CliValues {
     reps: DEFAULT_REPS,
     verifier: "off",
     model: DEFAULT_EXPERIMENT_MODEL,
+    kernel: "legacy",
     highRiskOnly: false,
     perSourceLimit: null,
     caseFilter: [],
@@ -251,6 +265,7 @@ function finalizeCliValues(
       reps: values.reps,
       verifier: values.verifier,
       model: values.model,
+      kernel: values.kernel,
       highRiskOnly: values.highRiskOnly,
       perSourceLimit: values.perSourceLimit,
       caseFilter: values.caseFilter,
@@ -290,6 +305,8 @@ export function cliOptionsToPlan(options: ExperimentCliOptions): ExperimentPlan 
     reps: options.reps,
     verifier: options.verifier,
     model: options.model,
+    // CLI 构造的计划恒显式携带 kernel（plan.json 留痕 → 续跑内核冲突检测）
+    kernel: options.kernel,
     highRiskOnly: options.highRiskOnly,
     perSourceLimit: options.perSourceLimit,
     caseFilter: options.caseFilter,
@@ -320,6 +337,12 @@ export interface CliRunDeps {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly createLlmClient: () => LlmClient;
   /**
+   * pi 内核工厂（#8 执行缝）：--kernel pi 时装配（收到注入 env——key/url
+   * 解析在工厂内完成，REVIEWER_* > 旧名 DEEPSEEK_*，与检视预检同一 env 面）。
+   * 缺省经 resolveReviewerEndpoint 解析接入点 + 真 fetch。
+   */
+  readonly createPiKernel: (env: Readonly<Record<string, string | undefined>>) => ReviewKernel;
+  /**
    * judge 工厂收到计划 judgeModel（null = DEFAULT_JUDGE_MODEL；#33 下传缝）
    * 与 #43 异构上下文（对照系被测模型 + 预检降级标记 + 自定义接入点标记）。
    */
@@ -334,6 +357,14 @@ export function defaultCliRunDeps(): CliRunDeps {
   return {
     env: process.env,
     createLlmClient: () => new DeepSeekClient(),
+    createPiKernel: (env) => {
+      const endpoint = resolveReviewerEndpoint(env);
+      return piKernel({
+        apiKey: endpoint.apiKey,
+        baseUrl: endpoint.baseUrl,
+        fetch: globalThis.fetch,
+      });
+    },
     createJudgeClient: (judgeModel, context) =>
       new GptJudgeClient(
         judgeModel === null
@@ -526,15 +557,19 @@ async function runReviewMatrix(
   }
   deps.log(
     `[experiment ${plan.experimentId}] ${dataset.cases.length} case(s) loaded; ` +
-      `model=${plan.model} verifier=${plan.verifier} ` +
+      `model=${plan.model} kernel=${plan.kernel ?? "legacy"} verifier=${plan.verifier} ` +
       `judge=${plan.judge ? (plan.judgeModel ?? DEFAULT_JUDGE_MODEL) : "off"} ` +
       `reps=${plan.reps} configs=${plan.configs.join("")}`,
   );
+  // #8 执行缝：pi 经 createPiKernel 装配（runner 启动守卫核验 kernel.id ≡ plan.kernel）；
+  // legacy 走缺省 legacyKernel(llmClient)（零 pi 触达）
+  const kernel = (plan.kernel ?? "legacy") === "pi" ? deps.createPiKernel(deps.env) : undefined;
   return await runExperiment(
     plan,
     dataset.cases,
     {
       llmClient: deps.createLlmClient(),
+      ...(kernel !== undefined ? { kernel } : {}),
       onUnit: unitEventLogger(deps),
     },
     { experimentRoot },

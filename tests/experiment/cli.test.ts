@@ -685,3 +685,141 @@ describe("runExperimentCli — 异构校验预检（#43：同源判定以被测�
     }
   });
 });
+
+describe("--kernel 执行缝接线（#8 P4a）", () => {
+  function noFileResult(): EnvLocalLoadResult {
+    return { filePath: ".env.local", exists: false, loadedKeys: [], skippedKeys: [], malformedLines: [] };
+  }
+
+  it("解析：缺省 legacy；--kernel pi；非法值拒绝；用法文本含旗标", () => {
+    const legacy = parseOk(["--id", "a"]);
+    if (!legacy.ok) throw new Error("unreachable");
+    expect(legacy.options.kernel).toBe("legacy");
+    const pi = parseOk(["--id", "a", "--kernel", "pi"]);
+    if (!pi.ok) throw new Error("unreachable");
+    expect(pi.options.kernel).toBe("pi");
+    expect(parseFail(["--id", "a", "--kernel", "dsh"]).message).toContain("--kernel");
+    expect(experimentCliUsage()).toContain("--kernel");
+  });
+
+  it("进计划：legacy 显式留痕；pi + verifier on 由计划校验拦截（pi 恒 baseline-only）", () => {
+    const legacy = parseOk(["--id", "a"]);
+    if (!legacy.ok) throw new Error("unreachable");
+    expect(cliOptionsToPlan(legacy.options).kernel).toBe("legacy");
+    const pi = parseOk(["--id", "a", "--kernel", "pi"]);
+    if (!pi.ok) throw new Error("unreachable");
+    expect(cliOptionsToPlan(pi.options).kernel).toBe("pi");
+    const bad = parseOk(["--id", "a", "--kernel", "pi", "--verifier", "on"]);
+    if (!bad.ok) throw new Error("unreachable");
+    expect(() => cliOptionsToPlan(bad.options)).toThrow(/pi/);
+  });
+
+  it("--kernel pi → createPiKernel 装配内核经缝执行（llmClient 零调用）、plan.json 留痕 kernel=pi", async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), "review-agent-kernel-cli-"));
+    try {
+      const casesFile = path.join(workDir, "cases.json");
+      await writeFile(
+        casesFile,
+        JSON.stringify([
+          experimentMainCase("kernel-cli-1", {
+            labels: { source: "vul4j", riskClass: "High", allowedConfigs: ["A", "B", "C", "D", "E"] },
+          }),
+        ]),
+        "utf8",
+      );
+      const kernelRequests: unknown[] = [];
+      let factoryEnv: Record<string, string | undefined> | undefined;
+      const logs: string[] = [];
+      const exitCode = await runExperimentCli(
+        [
+          "--id", "kernel-cli-pi",
+          "--kernel", "pi",
+          "--configs", "A",
+          "--reps", "1",
+          "--cases-file", casesFile,
+          "--runs-root", workDir,
+        ],
+        {
+          env: { REVIEWER_API_KEY: "test-reviewer-key-001" },
+          createLlmClient: () => scriptedLlmClient(0),
+          createPiKernel: (env) => {
+            factoryEnv = env;
+            return {
+              id: "pi",
+              execute: async (request) => {
+                kernelRequests.push(request);
+                return {
+                  caseId: request.unit.caseId,
+                  configId: request.unit.configId,
+                  model: request.model,
+                  findings: [],
+                  usage: { inputTokens: 1, outputTokens: 1 },
+                  rounds: 1,
+                  toolCalls: 0,
+                  audit: {
+                    requests: [], toolCallLog: [], phaseLog: [], rejections: [],
+                    cacheBreaks: [], truncated: false, truncationReasons: [],
+                  },
+                  auditPath: path.join(request.experimentRoot, "pi-audit", `${request.unit.caseId}.json`),
+                };
+              },
+            };
+          },
+          loadEnvLocal: () => noFileResult(),
+          log: (line) => logs.push(line),
+        },
+      );
+      expect(exitCode).toBe(0);
+      // 工厂收到注入 env（key 解析在工厂内完成，此处只验传递）
+      expect(factoryEnv?.REVIEWER_API_KEY).toBe("test-reviewer-key-001");
+      // pi 内核经缝执行 1 单元；legacy llmClient 零脚本回复也不被触达（exit 0 自证）
+      expect(kernelRequests).toHaveLength(1);
+      // plan.json 留痕 kernel=pi（续跑一致性检测的数据源）
+      const planJson = JSON.parse(
+        await readFile(path.join(workDir, "kernel-cli-pi", "plan.json"), "utf8"),
+      ) as { readonly kernel?: string };
+      expect(planJson.kernel).toBe("pi");
+      // 记录由 runner 落盘（RunStore 布局）
+      const recordPath = path.join(workDir, "kernel-cli-pi", "runs", "vul4j", "kernel-cli-1", "A", "rep-1.json");
+      expect(JSON.parse(await readFile(recordPath, "utf8"))).toMatchObject({ caseId: "kernel-cli-1" });
+      // 进度日志可见内核选择（成本/口径可见性）
+      expect(logs.join("\n")).toContain("kernel=pi");
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it("缺省 legacy → createPiKernel 不被调用（零 pi 触达）、plan.json 留痕 kernel=legacy", async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), "review-agent-kernel-cli-default-"));
+    try {
+      const casesFile = path.join(workDir, "cases.json");
+      await writeFile(casesFile, JSON.stringify([experimentMainCase("kernel-cli-default-1")]), "utf8");
+      const logs: string[] = [];
+      const exitCode = await runExperimentCli(
+        [
+          "--id", "kernel-cli-legacy",
+          "--configs", "A",
+          "--reps", "1",
+          "--cases-file", casesFile,
+          "--runs-root", workDir,
+        ],
+        {
+          env: { REVIEWER_API_KEY: "test-reviewer-key-001" },
+          createLlmClient: () => scriptedLlmClient(1),
+          createPiKernel: () => {
+            throw new Error("createPiKernel must not be called on the legacy kernel path");
+          },
+          loadEnvLocal: () => noFileResult(),
+          log: (line) => logs.push(line),
+        },
+      );
+      expect(exitCode).toBe(0);
+      const planJson = JSON.parse(
+        await readFile(path.join(workDir, "kernel-cli-legacy", "plan.json"), "utf8"),
+      ) as { readonly kernel?: string };
+      expect(planJson.kernel).toBe("legacy");
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+});

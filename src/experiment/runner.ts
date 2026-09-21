@@ -1,14 +1,15 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
 import type { LlmClient } from "../contracts/llm-client.js";
 import type { MRCase } from "../contracts/mr-case.js";
 import type { RunResult } from "../contracts/run.js";
 import { addUsage } from "../loop/usage.js";
-import { DEFAULT_EFFORT, runReview } from "../run/run-review.js";
+import { DEFAULT_EFFORT } from "../run/run-review.js";
 import type { ExperimentPlan, ExpandedPlan, RunUnit } from "./plan.js";
 import { expandPlan } from "./plan.js";
+import { legacyKernel } from "./review-kernel.js";
+import type { ReviewKernel } from "./review-kernel.js";
 import type { RunRecord, RunSnapshot } from "./run-store.js";
 import { RunStore, toRunSnapshot } from "./run-store.js";
 import { runVerifierPass } from "./verifier.js";
@@ -32,6 +33,12 @@ export interface RunnerPaths {
 
 export interface ExperimentDeps {
   readonly llmClient: LlmClient;
+  /**
+   * 检视内核（#8 执行缝）：缺省 legacyKernel(llmClient)。pi 内核经
+   * pi-kernel.ts 适配（仅 CLI 与测试装配，本模块零 pi import）。
+   * kernel.id 必须与 plan.kernel（缺省 legacy）一致——启动守卫。
+   */
+  readonly kernel?: ReviewKernel;
   readonly now?: () => Date;
   /** 单元级进度回调（CLI 打印 / 测试观测；异常由运行器捕获后继续） */
   readonly onUnit?: (event: UnitEvent) => void;
@@ -86,6 +93,7 @@ export async function runExperiment(
   paths: RunnerPaths,
 ): Promise<ExperimentOutcome> {
   const expanded = expandPlan(plan, cases);
+  const kernel = resolveKernel(plan, deps);
   const store = new RunStore(path.join(paths.experimentRoot, "runs"));
   await persistPlanAndCases(paths.experimentRoot, plan, expanded.cases);
   const existing = await loadCompatibleRecords(store, plan, expanded.units);
@@ -106,7 +114,7 @@ export async function runExperiment(
       failures.push(failureOf(unit, "case missing from the expanded plan"));
       continue;
     }
-    const execution = await executeUnit(unit, mrCase, plan, deps, paths, store);
+    const execution = await executeUnit(unit, mrCase, plan, kernel, deps, paths, store);
     if (execution.failure !== null) {
       failures.push(execution.failure);
       continue;
@@ -129,30 +137,43 @@ export async function runExperiment(
   };
 }
 
-/** 单元执行：检视（runReview，RunResult 同构）→ 可选二遍 Verifier → 记录落盘；失败留痕不拖垮整批 */
+/**
+ * 内核解析 + 启动一致性守卫（#8 执行缝）：deps.kernel 缺省 legacyKernel(llmClient)。
+ * kernel.id 必须与 plan.kernel（缺省 legacy）一致——记录不携带内核标识，
+ * 「计划宣称 pi、实际跑 legacy」的静默错配即测量口径污染，启动即报错。
+ */
+function resolveKernel(plan: ExperimentPlan, deps: ExperimentDeps): ReviewKernel {
+  const kernel = deps.kernel ?? legacyKernel(deps.llmClient);
+  const planKernel = plan.kernel ?? "legacy";
+  if (kernel.id !== planKernel) {
+    throw new Error(
+      `kernel mismatch: plan.kernel = "${planKernel}" but the review kernel in place is "${kernel.id}". ` +
+        `Pass --kernel ${planKernel} (or supply the matching kernel via deps.kernel) before running; ` +
+        "records do not carry the kernel id, a silent mismatch would corrupt the measurement.",
+    );
+  }
+  return kernel;
+}
+
+/** 单元执行：检视基线经内核执行缝（ReviewKernel.execute，RunResult 同构）→ 可选二遍 Verifier → 记录落盘；失败留痕不拖垮整批 */
 async function executeUnit(
   unit: RunUnit,
   mrCase: MRCase,
   plan: ExperimentPlan,
+  kernel: ReviewKernel,
   deps: ExperimentDeps,
   paths: RunnerPaths,
   store: RunStore,
 ): Promise<UnitExecution> {
   const now = deps.now ?? (() => new Date());
-  const auditDir = path.join(
-    paths.experimentRoot,
-    "audit",
-    unit.source,
-    sanitize(unit.caseId),
-    unit.configId,
-    `rep-${unit.rep}`,
-  );
   try {
-    // 检视基线（runReview；pi 内核接入后此处成为可替换执行缝，RunResult 同构）
-    const baseline = await runReview(CONFIGS[unit.configId], mrCase, deps.llmClient, {
-      auditDir,
+    // 检视基线（#8 执行缝：legacy = 根仓运行时；pi = vendored pi 内核；
+    // 审计落盘在内核内，runner 只消费 RunResult 与 auditPath）
+    const baseline = await kernel.execute({
+      unit,
+      mrCase,
       model: plan.model,
-      effort: DEFAULT_EFFORT,
+      experimentRoot: paths.experimentRoot,
     });
     if (baseline.model !== plan.model) {
       // 口径诚实护栏（#45 语义保留）：记录会撒谎 → 拒绝落盘
@@ -299,11 +320,7 @@ function emit(deps: ExperimentDeps, event: UnitEvent): void {
   }
 }
 
-function sanitize(caseId: string): string {
-  return caseId.replace(/[^A-Za-z0-9_.-]/g, "_");
-}
-
-/** plan.json + cases.json 的首次落盘；已存在时校验一致性（防同 id 异数据集静默混跑） */
+/** plan.json + cases.json 的首次落盘；已存在时校验一致性（防同 id 异配置静默混跑） */
 async function persistPlanAndCases(
   experimentRoot: string,
   plan: ExperimentPlan,
@@ -313,6 +330,7 @@ async function persistPlanAndCases(
     path.join(experimentRoot, PLAN_FILE),
     { ...plan, caseIds: cases.map((mrCase) => mrCase.caseId) },
   );
+  await assertKernelCompatible(experimentRoot, plan);
   const persisted = await readJsonFile(path.join(experimentRoot, CASES_FILE));
   if (persisted === null) {
     await writeJsonFile(path.join(experimentRoot, CASES_FILE), cases);
@@ -330,6 +348,30 @@ async function persistPlanAndCases(
       `experiment "${plan.experimentId}" already has ${CASES_FILE} for a different case set ` +
         `(${persistedIds.size} persisted vs ${incomingIds.size} incoming). ` +
         "Resume requires the same dataset selection: use a new --id, or delete the experiment directory.",
+    );
+  }
+}
+
+/**
+ * plan.json 内核冲突检测（#8）：model/verifier 冲突可从记录反查，内核标识
+ * 不进 RunRecord（schema 冻结）——续跑一致性以 plan.json 为准。旧计划无
+ * kernel 键归一 "legacy"（#8 前的实验全为 legacy 线）。
+ */
+async function assertKernelCompatible(experimentRoot: string, plan: ExperimentPlan): Promise<void> {
+  const persisted = (await readJsonFile(path.join(experimentRoot, PLAN_FILE))) as
+    | { readonly kernel?: string }
+    | null;
+  if (persisted === null) {
+    // writeJsonIfAbsent 刚保证存在；此分支仅防御性收口
+    throw new Error(`failed to read ${PLAN_FILE} under ${experimentRoot} after persisting it`);
+  }
+  const persistedKernel = persisted.kernel ?? "legacy";
+  const incomingKernel = plan.kernel ?? "legacy";
+  if (persistedKernel !== incomingKernel) {
+    throw new Error(
+      `experiment "${plan.experimentId}" was previously run with kernel "${persistedKernel}" ` +
+        `but this run uses "${incomingKernel}". Run records do not carry the kernel id, so resuming ` +
+        "with a different kernel would silently mix runtimes: use a new --id, or delete the experiment directory.",
     );
   }
 }
@@ -352,9 +394,17 @@ export async function loadPersistedPlan(experimentRoot: string): Promise<Experim
       `no ${PLAN_FILE} found under ${experimentRoot}: run the experiment first (or check the --id)`,
     );
   }
-  // #33 前的 plan.json 无 judgeModel 字段 → 归一 null（当时即缺省 gpt-5.2-pro 口径）
-  const persisted = raw as ExperimentPlan & { judgeModel?: string | null };
-  return persisted.judgeModel === undefined ? { ...persisted, judgeModel: null } : persisted;
+  // #33 前的 plan.json 无 judgeModel 字段 → 归一 null（当时即缺省 gpt-5.2-pro 口径）；
+  // #8 前的 plan.json 无 kernel 字段 → 归一 "legacy"（当时即缺省 legacy 内核）
+  const persisted = raw as ExperimentPlan & {
+    judgeModel?: string | null;
+    kernel?: ExperimentPlan["kernel"];
+  };
+  return {
+    ...persisted,
+    judgeModel: persisted.judgeModel === undefined ? null : persisted.judgeModel,
+    kernel: persisted.kernel ?? "legacy",
+  };
 }
 
 /** 已有实验目录的重建入口：读 cases.json（判定链与人工抽检的评估输入） */

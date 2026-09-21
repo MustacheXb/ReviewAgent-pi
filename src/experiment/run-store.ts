@@ -140,6 +140,11 @@ export interface ReadAllResult {
   readonly skippedFiles: readonly string[];
 }
 
+/** caseId 的文件系统安全形（RunStore 落盘键与 legacy 内核审计目录共用同一规则——单源防漂移） */
+export function sanitizeCaseId(caseId: string): string {
+  return caseId.replace(/[^A-Za-z0-9_.-]/g, "_");
+}
+
 /** 运行记录存储：读写 + 断点续跑扫描 */
 export class RunStore {
   private readonly rootDir: string;
@@ -157,7 +162,7 @@ export class RunStore {
 
   /** 记录文件路径：<root>/<source>/<caseId>/<configId>/rep-<rep>.json */
   pathOf(unit: RunUnit): string {
-    const safeCaseId = unit.caseId.replace(/[^A-Za-z0-9_.-]/g, "_");
+    const safeCaseId = sanitizeCaseId(unit.caseId);
     return path.join(this.rootDir, unit.source, safeCaseId, unit.configId, `rep-${unit.rep}.json`);
   }
 

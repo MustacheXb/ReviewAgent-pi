@@ -50,6 +50,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # dist 前置构建（#7/#8）：vendored pi 四包 + review-llm + review-pi。
+      # #7：进程级烟测 spawn 真 bin（在位检查 + mtime 判鲜门要求产物新鲜）；
+      # #8：root typecheck 经根 tsconfig paths 消费 review-pi dist d.ts
+      # （类型链），dist 必须先于 Typecheck (root) 在位。
+      - name: Build dist (pi + review-llm + review-pi)
+        run: |
+          pnpm build:pi
+          pnpm --filter review-llm build
+          pnpm --filter review-pi build
+
       - name: Typecheck (root)
         run: pnpm typecheck
 
@@ -58,14 +68,6 @@ jobs:
 
       - name: Typecheck (review-pi)
         run: pnpm --filter review-pi typecheck
-
-      # dist 前置构建（#7）：vendored pi 四包 + review-llm + review-pi，
-      # 供进程级烟测 spawn 真 bin（在位检查 + mtime 判鲜门要求产物新鲜）
-      - name: Build dist (pi + review-llm + review-pi)
-        run: |
-          pnpm build:pi
-          pnpm --filter review-llm build
-          pnpm --filter review-pi build
 
       - name: Test (review-llm)
         run: pnpm --filter review-llm test

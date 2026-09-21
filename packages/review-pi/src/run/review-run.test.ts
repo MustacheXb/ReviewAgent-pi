@@ -519,6 +519,35 @@ test("config E:ledger 审计键恒投影(零工具 → 空数组),RunRecord 与�
   expect(record.baseline.audit.fullRepo).toBeUndefined();
 }, 120_000);
 
+test("persistRecord=false（#8 runner 执行缝）：记录不落盘、recordPath 空串；审计照常落盘", async () => {
+  const script = fakeFetch(sixPhaseNoToolCorpus());
+  const runsRoot = tempRunsRoot();
+  const { record, recordPath, auditPath } = await runReview({
+    caseId: "VUL4J-1",
+    repoPath: repoFixturePath("sample"),
+    diff: goldenFixture("vul4j-1.diff"),
+    issueDescription: VUL4J_1_ISSUE,
+    apiKey: "offline-test",
+    fetch: script.fetch,
+    runsRoot,
+    experimentId: "phase2-smoke",
+    rep: 1,
+    configId: "D",
+    persistRecord: false,
+  });
+
+  // 记录不落盘：runner 是记录唯一写者（执行缝纪律）；recordPath 空串 = 未持久化
+  expect(recordPath).toBe("");
+  expect(
+    existsSync(path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json")),
+  ).toBe(false);
+
+  // 审计照常落盘（重放字节是内核职责）；内存 record 完整返回（auditPath 同源）
+  expect(existsSync(auditPath)).toBe(true);
+  expect(record.configId).toBe("D");
+  expect(record.baseline.auditPath).toBe(auditPath);
+}, 120_000);
+
 test("config D:工具轮——review.get_diff 执行记账 + recall 请求(工具结果进上下文)", async () => {
   const diff = goldenFixture("vul4j-1.diff");
   const script = fakeFetch([
