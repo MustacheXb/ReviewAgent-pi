@@ -25,7 +25,7 @@
 
 1. **DSH s1 的判级基线当时形同虚设**（C anchor 三案全灭，A 级判给 B 配置是对比 0% 的产物）；pi 侧 C 是真实正 anchor（32.5%），E 以 anchor 26% 的 token 达到持平 recall——判级有效。
 2. **finding 产出密度差异显著**：pi 侧 45 单元全部有 findings（DSH 侧 44% 零 finding）。单侧小样不下结论，但与「pi 全仓注入 token 仅 DSH 一半」合并看，pi 内核在该 3 案上无系统性劣化迹象。
-3. **缓存命中同量级略低**（B: 81% vs 89.6%；A: 8.1% vs 44%）——pi-ai 序列化方言的预期内核效应（ADR-0009 R3 预定口径：cacheReadTokens 单列呈现，不与质量结论混排）。
+3. **缓存命中 A 配置显著低**（A: 8.1% vs 44%；B: 81% vs 89.6%）——#18 排查收口：非 pi 序列化缺陷（单元内请求间前缀逐字节连续、跨 rep 首请求逐字节相同），根因是火山网关 prefix cache 最小前缀门（~2k token，三时点探针实测）× A 六阶段小请求（0.85–3.1k token/请求）骑门；DSH s1 的 44% 属 09-13 时段同端点的低门行为，同形态 09-23 复刻不复现（网关策略时段变更）。cacheReadTokens 单列呈现口径不变（ADR-0009 R3）。
 4. **正式判级与对齐门**（POC1↔DSH↔pi 三轮协议第三轮应用）留给 #17 全量 + #11 P5b；本实验数据即全量的前 3 案切片，全量新 id `phase2-pi`（case set 一致性守卫防混批）。
 
 ## 预算
@@ -40,4 +40,4 @@
 
 ---
 
-*产物索引：`report.json`（全量数据）/ `dashboard.md`（自动看板：判级、rep 冷热分层、warm-up 曲线、dedup、cache-break 归因、judge 双口径、人工抽检 5 份表单）/ `runs/**/rep-*.json`（45 份 run 记录，usage 含 cacheReadTokens 单列）/ `judge/**`（45 份判定）/ `audit/**`（45 份审计）/ `human-review/`（seed 抽检表单）。全量（#17）将以此 3 案为切片扩展至 30 案新 id `phase2-pi`。*
+*产物索引：`report.json`（全量数据）/ `dashboard.md`（自动看板：判级、rep 冷热分层、warm-up 曲线、dedup、cache-break 归因、judge 双口径、人工抽检 5 份表单）/ `runs/**/rep-*.json`（45 份 run 记录，usage 含 cacheReadTokens 单列）/ `judge/**`（45 份判定）/ `audit/**`（45 份审计）/ `human-review/`（seed 抽检表单）。全量（#17）将以此 3 案为切片扩展至 30 案新 id `phase2-pi`。#18 排查的网关前缀门探针已入库为 `scripts/probe-gateway-cache.ts`（#17 全量跑前复核门参数用）。*

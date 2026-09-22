@@ -71,15 +71,16 @@ DSH 侧"全仓注入把模型淹没：上下文重组成主要噪声源"的机�
 
 1. **六阶段是共享协议，pi 平移正确**：两侧 A 配置同为 6 请求/单元（Change Understanding → Risk Classification → Context Decision → Context Retrieval → Deep Reasoning → Evidence Verification），消息数同为 3→5→7→9→11→13 递增（append-only 会话）。C/D/E 请求数不同（pi C/D/E = 10/18/9 vs DSH 15/15/34）——工具配置的请求次数由 agent 行为驱动，属 §5.2 Tier 2 预定的"语义一致而非字节一致"内核效应面。
 2. **记账口径一致，对照公平性成立**：VUL4J-29/A/rep-1 冷单元总输入 pi 12,216 vs DSH 12,276 token；usage 均为网关返回的累加口径（append-only 会话的重复前缀由网关 prefix cache 折扣记账），两侧可比。
-3. **跨 rep 字节稳定**：pi A 配置 rep-1/2/3 首请求 wireBody 逐字节相同（6,703 字节）——pi 的确定性组装纪律生效；A 的缓存命中低不是请求不稳定所致，是 pi-ai 序列化方言在火山网关上的前缀命中问题（见 §7 R1）。
+3. **跨 rep 字节稳定**：pi A 配置 rep-1/2/3 首请求 wireBody 逐字节相同（6,703 字节）——pi 的确定性组装纪律生效；A 的缓存命中低不是请求不稳定所致（#18 排查收口：网关 prefix cache 最小前缀门，见 §7 R1）。
 4. **per-case 互补性证明案子翻转效应**：A 配置 rule recall——VUL4J-30 上 pi 0% / DSH 50%，VUL4J-33 上 pi 33.3% / DSH 0%。零上下文下的命中是案子偏好的随机散射；n=9 的任何单格都可被一个案子翻转。
 5. **dedup 两侧同零**：E 配置 Context Ledger 去重 pi 0/97 calls、DSH 0/133 calls——3 案工具调用序列无重复模式，共享的案集特征而非 pi 实现缺陷。
+6. **思考链回传不产生计费**（#18 排查副产物）：pi-ai 将 DeepSeek 思考链以 `reasoning_content` 字段随 assistant 消息回传后续请求（A/VUL4J-29/rep-1 的 req6 请求体 61.8k 字符中 reasoning_content 占 48.0k，phase-5 深推理独占 44.7k）；火山网关 tokenize 跳过该字段——三方对账自洽：pi 剥离思考链后有效内容 55.0k 字符 ↔ 计费 12,216 token ↔ DSH 同案（wire 契约不回传思考链）12,276 token。副作用是 wire 字节体较 DSH 膨胀 ~6×（网络与审计可读性成本，无 token 成本）；两侧序列化方言的已知差异面（DSH 线 wire 契约注记「POC1 契约无该字段」）。
 
 ## 7. 风险与待验证清单（回灌 #17）
 
 | # | 项 | 现状 | 处置 |
 |---|---|---|---|
-| R1 | **A 配置缓存命中 8.1% 异常低**（vs DSH 46%；B/C 差距仅 8–9pp，A 差 36pp） | 六阶段小请求（6.7k–61.8k 字节）跨 rep 字节已稳定,仍不命中 | **#17 前排查**：pi-ai 序列化对网关 prefix cache 的可改面；A 是全量 450 单元的成本大头之一 |
+| R1 | **A 配置缓存命中 8.1% 异常低**（vs DSH 46%；B/C 差距仅 8–9pp，A 差 36pp） | **#18 已收口：非 pi 序列化缺陷，是网关前缀门 × A 小请求的结构性结果**。字节级证据：单元内请求间 wireBody 前缀连续（append-only，H2/H3 排除）；reasoning_content 回传不影响命中（探针对照 + B/C/D/E 带它命中 49–81%）。根因：火山网关 prefix cache 最小前缀门 ~2k token（三时点探针：1.5k 恒 miss / 2.4–2.5k 临界抖动 / 4.2k+ 稳定 hit），A 六阶段每请求仅 0.85–3.1k token 骑门。DSH s1 的 46% 是 2026-09-13 时段同端点的低门行为（64 块对齐、820-token 请求可命中 4.8k+），同形态 09-23 复刻不复现——**网关策略时段性变更，cache 列跨侧对比需加时段限定** | #17 全量按现状跑；跑前用 `scripts/probe-gateway-cache.ts` 复核当前门参数并留痕；全量报告 cache 列注明网关时段属性 |
 | R2 | C 反转（0.4709 vs DSH 全量 0.1341）能否在 30 案守住 | n=9，VUL4J-30/33 驱动 | #17 最优先验证项 |
 | R3 | E−D 账本增量方向（pi 子集强正 / DSH 子集正 / DSH 全量负） | 案集敏感，三口径三方向 | #17 验证项（30 案 n=90） |
 | R4 | judge 链网关时段性超时（第一轮 9/45 error，补跑全绿） | 已闭环（见运行留痕） | 全量时预留补跑轮；判定链按文件存在即复用，删 error 文件重跑即可 |
