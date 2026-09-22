@@ -51,7 +51,7 @@ reference_project/      外部参考项目（不入库，见下节）
 ```bash
 # 前置：Node >= 22，pnpm 10.30.3（corepack enable 即可）
 pnpm install
-pnpm test          # 全量回归（66 文件 / 885 项）
+pnpm test          # 全量回归（66 文件 / 888 项）
 pnpm typecheck     # 根包类型检查
 ```
 
