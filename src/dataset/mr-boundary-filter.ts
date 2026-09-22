@@ -1,4 +1,4 @@
-import type { MRCase } from "../contracts/mr-case.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import { type Result, err, ok } from "./diff/types.js";
 import { parseUnifiedDiff } from "./diff/parse-unified-diff.js";
 import { DatasetError } from "./diff/types.js";

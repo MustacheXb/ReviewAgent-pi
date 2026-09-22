@@ -1,10 +1,10 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import type { MRCase } from "../contracts/mr-case.js";
-import { runUnitKeyString } from "../contracts/run-unit.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import { runUnitKeyString } from "../instrument/contracts/run-unit.js";
 import type { GateSideInput, GateUnitSample } from "../metrics/alignment-gate.js";
 import { evaluateRun, flattenRunMetrics } from "../metrics/index.js";
-import { readJsonFile } from "../shared/report-io.js";
+import { readJsonFile } from "../instrument/report-io.js";
 import { recordToRunResult, RunStore } from "./run-store.js";
 
 /**

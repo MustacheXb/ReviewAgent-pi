@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Finding } from "../../src/contracts/finding.js";
-import type { MRTruth } from "../../src/contracts/mr-case.js";
+import type { Finding } from "../../src/instrument/contracts/finding.js";
+import type { MRTruth } from "../../src/instrument/contracts/mr-case.js";
 import {
   canonicalNature,
   normalizeFilePath,

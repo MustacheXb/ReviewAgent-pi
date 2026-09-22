@@ -1,4 +1,4 @@
-import type { TruthLocation } from "../contracts/mr-case.js";
+import type { TruthLocation } from "../instrument/contracts/mr-case.js";
 import { type FileDiff, type Hunk, type Result, DatasetError, err, ok } from "./diff/types.js";
 import { parseUnifiedDiff } from "./diff/parse-unified-diff.js";
 import { DEFAULT_DEFECT_NATURE, isDefectNature } from "./defect-nature.js";

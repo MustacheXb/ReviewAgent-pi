@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { REFERENCE_CONFIG_ID } from "../contracts/config.js";
-import type { MRCase } from "../contracts/mr-case.js";
+import { REFERENCE_CONFIG_ID } from "../instrument/contracts/config.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import {
   buildMetricsReport,
   evaluateRun,
@@ -19,7 +19,7 @@ import {
   meanOf,
   readJsonArrayFile,
   writeJsonFile,
-} from "../shared/report-io.js";
+} from "../instrument/report-io.js";
 import type { ReferenceRejectionStage } from "./contracts.js";
 import type { ClaudeCodeReferencePlan, ReferenceRunUnit } from "./plan.js";
 import { expandReferencePlan } from "./plan.js";

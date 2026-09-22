@@ -1,9 +1,9 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { REFERENCE_CONFIG_ID } from "../contracts/config.js";
-import type { Finding } from "../contracts/finding.js";
-import type { LlmUsage } from "../contracts/llm-client.js";
-import type { RunResult } from "../contracts/run.js";
+import { REFERENCE_CONFIG_ID } from "../instrument/contracts/config.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { LlmUsage } from "../instrument/contracts/llm-client.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import type { ReferenceRejection } from "./contracts.js";
 import type { ReferenceRunUnit } from "./plan.js";
 

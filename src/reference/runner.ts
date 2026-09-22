@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { MRCase } from "../contracts/mr-case.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import { CLAUDE_CODE_ALLOWED_TOOLS } from "./client.js";
 import type { ClaudeCodeClient } from "./contracts.js";
 import { normalizeClaudeCodeRun } from "./normalize.js";

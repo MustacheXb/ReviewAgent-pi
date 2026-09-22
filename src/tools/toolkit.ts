@@ -1,7 +1,7 @@
 import type { ToolExecutor } from "../loop/tools.js";
-import type { ToolSchema } from "../contracts/llm-client.js";
-import type { KnowledgeCorpus } from "../contracts/knowledge.js";
-import type { ContextLedger } from "../contracts/ledger.js";
+import type { ToolSchema } from "../instrument/contracts/llm-client.js";
+import type { KnowledgeCorpus } from "../instrument/contracts/knowledge.js";
+import type { ContextLedger } from "../instrument/contracts/ledger.js";
 import type { RepoContext } from "../zoneb/repo-context.js";
 import { loadRepoContext } from "../zoneb/repo-context.js";
 import { GET_DIFF_TOOL } from "./get-diff.js";

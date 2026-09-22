@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { hasReviewerApiKey } from "review-llm";
-import { CONFIGS } from "../../src/contracts/config.js";
+import { CONFIGS } from "../../src/instrument/contracts/config.js";
 import { DeepSeekClient } from "../../src/deepseek/deepseek-client.js";
-import { validateFinding } from "../../src/finding/finding-schema.js";
+import { validateFinding } from "../../src/instrument/finding-schema.js";
 import { runReview } from "../../src/run/run-review.js";
 import { SAMPLE_MR_CASE } from "../fixtures/sample-mr-case.js";
 

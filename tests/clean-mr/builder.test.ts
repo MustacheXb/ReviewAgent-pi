@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { MRCase } from "../../src/contracts/mr-case.js";
-import { CONFIGS } from "../../src/contracts/config.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
+import { CONFIGS } from "../../src/instrument/contracts/config.js";
 import { validateRunInputs } from "../../src/run/validate-inputs.js";
 import { filterMrCases } from "../../src/dataset/mr-boundary-filter.js";
 import { convertDefectRecord } from "../../src/dataset/inverse-patch.js";

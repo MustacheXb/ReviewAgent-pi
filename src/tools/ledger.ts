@@ -1,4 +1,4 @@
-import type { ContextLedger, LedgerEntry, LedgerEntryKind } from "../contracts/ledger.js";
+import type { ContextLedger, LedgerEntry, LedgerEntryKind } from "../instrument/contracts/ledger.js";
 import { boundedEcho } from "./registry.js";
 
 /**

@@ -10,7 +10,7 @@ import {
 } from "../src/tools/registry.js";
 import { buildReviewReadTools, buildReviewToolkit } from "../src/tools/toolkit.js";
 import { createInertContextLedger } from "../src/tools/ledger.js";
-import type { ToolCall } from "../src/contracts/llm-client.js";
+import type { ToolCall } from "../src/instrument/contracts/llm-client.js";
 import { SAMPLE_MR_CASE } from "./fixtures/sample-mr-case.js";
 
 /**

@@ -1,4 +1,4 @@
-import type { LlmRequest, LlmResponse } from "../contracts/llm-client.js";
+import type { LlmRequest, LlmResponse } from "../instrument/contracts/llm-client.js";
 
 /**
  * 可编程 FakeLlmClient（主 seam 的测试替身）。

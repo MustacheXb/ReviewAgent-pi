@@ -1,5 +1,5 @@
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
 import type {
   CriterionResult,
   MetricsReport,

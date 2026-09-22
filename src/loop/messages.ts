@@ -1,5 +1,5 @@
-import type { MRCase } from "../contracts/mr-case.js";
-import type { LlmMessage } from "../contracts/llm-client.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import type { LlmMessage } from "../instrument/contracts/llm-client.js";
 
 /**
  * Zone A 稳定前缀：检视角色、政策、六阶段方法论、输出 Schema、Severity 定义、Evidence Policy。

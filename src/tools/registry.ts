@@ -1,6 +1,6 @@
-import type { ToolCall, ToolSchema } from "../contracts/llm-client.js";
-import type { KnowledgeEntry } from "../contracts/knowledge.js";
-import type { ContextLedger } from "../contracts/ledger.js";
+import type { ToolCall, ToolSchema } from "../instrument/contracts/llm-client.js";
+import type { KnowledgeEntry } from "../instrument/contracts/knowledge.js";
+import type { ContextLedger } from "../instrument/contracts/ledger.js";
 import type { ToolExecutor } from "../loop/tools.js";
 import type { RepoContext } from "../zoneb/repo-context.js";
 import { toCanonicalJson } from "./json-canonical.js";

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { runReview, type ReviewRunInput, type ReviewRunResult } from "review-pi";
-import type { RunResult } from "../contracts/run.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import type { ReviewKernel, UnitReviewRequest } from "./review-kernel.js";
 
 /**

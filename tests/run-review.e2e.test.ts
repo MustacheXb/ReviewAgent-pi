@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FakeLlmClient } from "../src/fake/fake-llm-client.js";
-import { validateFinding } from "../src/finding/finding-schema.js";
+import { validateFinding } from "../src/instrument/finding-schema.js";
 import { PHASE_INSTRUCTIONS, PHASE_ORDER } from "../src/loop/phases.js";
 import { SYSTEM_PROMPT } from "../src/loop/messages.js";
 import { DEFAULT_EFFORT, DEFAULT_MODEL, runReview } from "../src/run/run-review.js";
-import { CONFIGS } from "../src/contracts/config.js";
-import type { LlmMessage } from "../src/contracts/llm-client.js";
+import { CONFIGS } from "../src/instrument/contracts/config.js";
+import type { LlmMessage } from "../src/instrument/contracts/llm-client.js";
 import { SAMPLE_MR_CASE } from "./fixtures/sample-mr-case.js";
 import { HAPPY_PATH_FINDING, HAPPY_PATH_RESPONSES, HAPPY_PATH_TOTAL_USAGE } from "./helpers/happy-path-script.js";
 

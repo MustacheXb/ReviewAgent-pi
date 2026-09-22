@@ -1,5 +1,5 @@
-import type { LlmUsage } from "../contracts/llm-client.js";
-import type { RunResult } from "../contracts/run.js";
+import type { LlmUsage } from "../instrument/contracts/llm-client.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import { profileOf } from "review-llm";
 import type { TokenMetrics, ToolCostPricing } from "./types.js";
 import { DEFAULT_TOOL_COST_PRICING } from "./types.js";

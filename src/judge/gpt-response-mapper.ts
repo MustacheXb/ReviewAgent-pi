@@ -4,7 +4,7 @@
  * OpenAI 的 prompt_tokens_details.cached_tokens 为命中部分）。
  */
 
-import type { LlmUsage } from "../contracts/llm-client.js";
+import type { LlmUsage } from "../instrument/contracts/llm-client.js";
 import { GptJudgeResponseFormatError } from "./errors.js";
 
 export interface MappedGptResponse {

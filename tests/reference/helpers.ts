@@ -1,4 +1,4 @@
-import type { MRCase } from "../../src/contracts/mr-case.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import type { ClaudeCodeRunInput, ClaudeCodeRunOutput, ClaudeCodeClient } from "../../src/reference/contracts.js";
 import type { ClaudeCodeReferencePlan } from "../../src/reference/plan.js";
 import { CLAUDE_CODE_PROMPT_TEMPLATE_VERSION } from "../../src/reference/prompt.js";

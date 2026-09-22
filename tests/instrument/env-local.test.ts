@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { formatEnvLocalSummary, loadEnvLocalFile, type EnvLocalLoadResult } from "../../src/shared/env-local.js";
+import { formatEnvLocalSummary, loadEnvLocalFile, type EnvLocalLoadResult } from "../../src/instrument/env-local.js";
 
 /**
  * .env.local 装载（Benchmark 试跑的 API key / 接入点本机注入面）：

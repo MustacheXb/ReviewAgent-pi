@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { RunAudit, RunResult } from "../../src/contracts/run.js";
-import type { MRCase } from "../../src/contracts/mr-case.js";
+import type { RunAudit, RunResult } from "../../src/instrument/contracts/run.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import {
   RunStore,
   recordToBaselineRunResult,

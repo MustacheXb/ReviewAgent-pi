@@ -1,4 +1,4 @@
-import type { Finding } from "../contracts/finding.js";
+import type { Finding } from "./contracts/finding.js";
 
 /**
  * Finding JSON Schema（文档级真源，与 Finding 接口一一对应）。

@@ -15,8 +15,8 @@
  * prompt.ts 按官方格式渲染（1 起索引），parse.ts 负责归一。
  */
 
-import type { Finding } from "../contracts/finding.js";
-import type { MRTruth } from "../contracts/mr-case.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { MRTruth } from "../instrument/contracts/mr-case.js";
 
 /** 匹配置信度（官方词表；"none" = 已考虑并拒绝，附拒绝理由） */
 export type MatchConfidence = "high" | "medium" | "low" | "none";

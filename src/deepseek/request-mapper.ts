@@ -1,4 +1,4 @@
-import type { LlmMessage, LlmRequest, ToolCall, ToolSchema } from "../contracts/llm-client.js";
+import type { LlmMessage, LlmRequest, ToolCall, ToolSchema } from "../instrument/contracts/llm-client.js";
 import { profileOf, RETIRED_MODEL_IDS } from "review-llm";
 import { DeepSeekClientError } from "./errors.js";
 import type {

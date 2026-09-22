@@ -12,8 +12,8 @@
  * 见 T10 aggregate.ts 头注）；token / 工具 / 轮次字段与规则口径同源（同一次 Run）。
  */
 
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
 import type { EvaluationInput, FlatMetrics, MetricsStats } from "../metrics/types.js";
 import { summarizeFlatMetrics } from "../metrics/index.js";
 import type { JudgeClient } from "./contracts.js";

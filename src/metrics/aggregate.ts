@@ -1,7 +1,7 @@
-import type { ConfigId, MetricsConfigId } from "../contracts/config.js";
-import { CONFIGS, REFERENCE_CONFIG_ID } from "../contracts/config.js";
-import type { MRCase } from "../contracts/mr-case.js";
-import type { RunResult } from "../contracts/run.js";
+import type { ConfigId, MetricsConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS, REFERENCE_CONFIG_ID } from "../instrument/contracts/config.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import { computeEfficiencyMetrics } from "./efficiency.js";
 import { computePRF } from "./quality.js";
 import { screenFindings } from "./screening.js";

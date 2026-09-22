@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ToolCall } from "../src/contracts/llm-client.js";
+import type { ToolCall } from "../src/instrument/contracts/llm-client.js";
 import { buildReviewToolkit } from "../src/tools/toolkit.js";
 import { SAMPLE_MR_CASE } from "./fixtures/sample-mr-case.js";
 

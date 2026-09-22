@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { EnvLocalLoadResult } from "../../src/shared/env-local.js";
+import type { EnvLocalLoadResult } from "../../src/instrument/env-local.js";
 import { FakeJudgeClient } from "../../src/judge/fake-judge-client.js";
 import {
   cliOptionsToPlan,

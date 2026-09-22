@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { formatSmokeDiagnostics, resolveReviewerEndpoint, runSmokeProbes } from "review-pi";
 import { hasReviewerApiKey } from "review-llm";
-import type { ConfigId } from "../../src/contracts/config.js";
-import type { MRCase } from "../../src/contracts/mr-case.js";
+import type { ConfigId } from "../../src/instrument/contracts/config.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import { FakeLlmClient } from "../../src/fake/fake-llm-client.js";
 import { piKernel } from "../../src/experiment/pi-kernel.js";
 import type { ExperimentPlan } from "../../src/experiment/plan.js";
@@ -18,7 +18,7 @@ import {
   loadPersistedPlan,
   runExperiment,
 } from "../../src/experiment/runner.js";
-import { loadEnvLocalFile } from "../../src/shared/env-local.js";
+import { loadEnvLocalFile } from "../../src/instrument/env-local.js";
 
 // #8 P4a 执行缝真跑验收：smoke 单案（VUL4J-38，data/vul4j/smoke-cases.json）
 // × 配置 A–E × rep1，经 REVIEWER_URL 企业网关全链真跑——真 pi 内核

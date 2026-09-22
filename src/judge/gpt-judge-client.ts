@@ -32,7 +32,7 @@ import type { GptRequestMapperOptions } from "./gpt-request-mapper.js";
 import { mapGptChatCompletionsResponse } from "./gpt-response-mapper.js";
 import { parseJudgeAdjudication } from "./parse.js";
 import type { WireGptChatCompletionsRequest } from "./gpt-wire-types.js";
-import { defaultSleep, OpenAiHttpKernel, runWithRetries, type HttpKernelErrorFactories } from "../shared/openai-http-kernel.js";
+import { defaultSleep, OpenAiHttpKernel, runWithRetries, type HttpKernelErrorFactories } from "../instrument/openai-http-kernel.js";
 import { nonNegativeIntOption, positiveIntOption, resolveApiKey, resolveEndpointUrl } from "review-llm";
 
 export const OPENAI_API_BASE_URL = "https://api.openai.com/v1";

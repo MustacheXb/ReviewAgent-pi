@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { KnowledgeEntry } from "../src/contracts/knowledge.js";
+import type { KnowledgeEntry } from "../src/instrument/contracts/knowledge.js";
 import { buildReviewToolkit } from "../src/tools/toolkit.js";
 import {
   createContextLedger,
   createInertContextLedger,
   LEDGER_REFERENCE_ECHO_MAX_CHARS,
 } from "../src/tools/ledger.js";
-import type { ToolCall } from "../src/contracts/llm-client.js";
+import type { ToolCall } from "../src/instrument/contracts/llm-client.js";
 import { SAMPLE_MR_CASE } from "./fixtures/sample-mr-case.js";
 
 /**

@@ -2,13 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ReviewConfig } from "../src/contracts/config.js";
-import type { LlmMessage } from "../src/contracts/llm-client.js";
-import type { ToolCall, ToolSchema } from "../src/contracts/llm-client.js";
+import type { ReviewConfig } from "../src/instrument/contracts/config.js";
+import type { LlmMessage } from "../src/instrument/contracts/llm-client.js";
+import type { ToolCall, ToolSchema } from "../src/instrument/contracts/llm-client.js";
 import { FakeLlmClient } from "../src/fake/fake-llm-client.js";
 import { MAX_ROUNDS, MAX_TOOL_CALLS } from "../src/loop/constants.js";
 import { runReview } from "../src/run/run-review.js";
-import { CONFIGS } from "../src/contracts/config.js";
+import { CONFIGS } from "../src/instrument/contracts/config.js";
 import { SAMPLE_MR_CASE } from "./fixtures/sample-mr-case.js";
 import { reply, toolCallReply } from "./helpers/llm-script.js";
 

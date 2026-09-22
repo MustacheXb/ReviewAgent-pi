@@ -1,4 +1,4 @@
-import type { MetricsConfigId } from "../contracts/config.js";
+import type { MetricsConfigId } from "../instrument/contracts/config.js";
 import { summarizeDefined } from "./stats.js";
 import type { FlatMetrics, MetricsField, Stat } from "./types.js";
 

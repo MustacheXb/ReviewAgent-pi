@@ -25,7 +25,7 @@ import {
 import type { AlignmentGateOptions, AlignmentGateReport, GateCell } from "../metrics/alignment-gate.js";
 import { METRICS_FIELDS } from "../metrics/types.js";
 import type { MetricsField } from "../metrics/types.js";
-import { writeJsonFile } from "../shared/report-io.js";
+import { writeJsonFile } from "../instrument/report-io.js";
 import { loadGateSide } from "./alignment-gate-io.js";
 import type { GateSideInput } from "../metrics/alignment-gate.js";
 import {
@@ -34,8 +34,8 @@ import {
   flagFail,
   flagOk,
   parseCliArgs,
-} from "../shared/cli-args.js";
-import type { CliArgSpec, CliParseResult, ValueFlagParser } from "../shared/cli-args.js";
+} from "../instrument/cli-args.js";
+import type { CliArgSpec, CliParseResult, ValueFlagParser } from "../instrument/cli-args.js";
 
 const USAGE = `用法：run-alignment-gate --baseline <runDir> --candidate <runDir> [--noise <runDir>]
   [--out <file.json>] [--metrics <csv>] [--min-sample <n>] [--advisory-sample <n>] [--alpha <x>] [--gap-hours <h>]

@@ -5,7 +5,7 @@ import { DEFAULT_METRICS_OPTIONS } from "../../src/metrics/types.js";
 import { renderDashboardMarkdown } from "../../src/experiment/dashboard.js";
 import type { ExperimentReport } from "../../src/experiment/report.js";
 import type { ExperimentPlan } from "../../src/experiment/plan.js";
-import type { MRCase } from "../../src/contracts/mr-case.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import type { EvaluationInput } from "../../src/metrics/types.js";
 import { usage } from "../helpers/llm-script.js";
 import { makeFinding, makeMrCase, makeRunResult, makeTruth, makeTruthLocation } from "../metrics/helpers.js";

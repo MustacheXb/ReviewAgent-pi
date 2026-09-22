@@ -1,4 +1,4 @@
-import type { KnowledgeEntry } from "../contracts/knowledge.js";
+import type { KnowledgeEntry } from "../instrument/contracts/knowledge.js";
 import type { RepoContext } from "../zoneb/repo-context.js";
 import type { ChangedSymbolRef } from "../zoneb/changed-symbols.js";
 import { qualifiedName } from "../zoneb/changed-symbols.js";

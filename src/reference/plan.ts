@@ -1,4 +1,4 @@
-import type { MRCase } from "../contracts/mr-case.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import { EXPERIMENT_SOURCES, type ExperimentSource } from "../experiment/plan.js";
 
 /**

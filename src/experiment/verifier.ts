@@ -1,6 +1,6 @@
-import type { Finding } from "../contracts/finding.js";
-import type { LlmClient, LlmMessage, LlmRequest } from "../contracts/llm-client.js";
-import type { MRCase } from "../contracts/mr-case.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { LlmClient, LlmMessage, LlmRequest } from "../instrument/contracts/llm-client.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import { parseVerificationReply } from "../loop/parse.js";
 import type { VerifierRecord } from "./run-store.js";
 

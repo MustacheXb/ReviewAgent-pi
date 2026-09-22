@@ -1,4 +1,4 @@
-import type { LlmUsage } from "../contracts/llm-client.js";
+import type { LlmUsage } from "../instrument/contracts/llm-client.js";
 
 /**
  * DeepSeek 客户端错误分类。

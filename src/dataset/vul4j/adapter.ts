@@ -1,5 +1,5 @@
-import type { ConfigId } from "../../contracts/config.js";
-import type { MRCase } from "../../contracts/mr-case.js";
+import type { ConfigId } from "../../instrument/contracts/config.js";
+import type { MRCase } from "../../instrument/contracts/mr-case.js";
 import { type DefectRecord, validateDefectRecord } from "../defect-record.js";
 import { convertDefectRecord } from "../inverse-patch.js";
 import { type SourceSnapshot } from "../diff/apply-unified-diff.js";

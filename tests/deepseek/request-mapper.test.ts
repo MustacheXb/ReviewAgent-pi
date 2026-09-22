@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LlmRequest } from "../../src/contracts/llm-client.js";
+import type { LlmRequest } from "../../src/instrument/contracts/llm-client.js";
 import { DeepSeekClient } from "../../src/deepseek/deepseek-client.js";
 import {
   buildChatCompletionsBody,

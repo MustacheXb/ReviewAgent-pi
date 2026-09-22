@@ -1,4 +1,4 @@
-import type { LlmUsage } from "../contracts/llm-client.js";
+import type { LlmUsage } from "../instrument/contracts/llm-client.js";
 
 /** 零值 usage（累计起点） */
 export const ZERO_USAGE: LlmUsage = { inputTokens: 0, outputTokens: 0 };

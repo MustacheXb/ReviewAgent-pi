@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LlmResponse } from "../../src/contracts/llm-client.js";
-import type { MRCase } from "../../src/contracts/mr-case.js";
-import type { RunResult } from "../../src/contracts/run.js";
+import type { LlmResponse } from "../../src/instrument/contracts/llm-client.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
+import type { RunResult } from "../../src/instrument/contracts/run.js";
 import type { JudgeAdjudication } from "../../src/judge/contracts.js";
 import { FakeLlmClient } from "../../src/fake/fake-llm-client.js";
 import type { ExperimentPlan, VerifierMode } from "../../src/experiment/plan.js";

@@ -1,4 +1,4 @@
-import type { MRCase } from "../contracts/mr-case.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 
 /**
  * Claude Code 外部参照提示词（Ticket 13 / issue #14）。

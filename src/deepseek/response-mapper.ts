@@ -1,4 +1,4 @@
-import type { LlmResponse, ToolCall } from "../contracts/llm-client.js";
+import type { LlmResponse, ToolCall } from "../instrument/contracts/llm-client.js";
 import { DeepSeekResponseFormatError } from "./errors.js";
 
 /**

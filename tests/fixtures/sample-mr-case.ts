@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import type { MRCase } from "../../src/contracts/mr-case.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 
 /**
  * 手写 Java MR 测试样例（Ticket 01 fixture）。

@@ -1,9 +1,9 @@
 import path from "node:path";
 import { resolveReviewerEndpoint } from "review-pi";
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
-import type { LlmClient } from "../contracts/llm-client.js";
-import { runUnitKeyString } from "../contracts/run-unit.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
+import type { LlmClient } from "../instrument/contracts/llm-client.js";
+import { runUnitKeyString } from "../instrument/contracts/run-unit.js";
 import { DeepSeekClient } from "../deepseek/deepseek-client.js";
 import type { JudgeClient } from "../judge/index.js";
 import { DEFAULT_JUDGE_MODEL, GptJudgeClient, judgeHeterogeneityOf } from "../judge/index.js";
@@ -18,8 +18,8 @@ import {
   parseCliArgs,
   type ValueFlagParser,
   type FlagApplyResult,
-} from "../shared/cli-args.js";
-import { formatEnvLocalSummary, loadEnvLocalFile, type EnvLocalLoadResult } from "../shared/env-local.js";
+} from "../instrument/cli-args.js";
+import { formatEnvLocalSummary, loadEnvLocalFile, type EnvLocalLoadResult } from "../instrument/env-local.js";
 import { renderDashboardMarkdown } from "./dashboard.js";
 import { loadExperimentCases } from "./datasets.js";
 import { checkExperimentEnv, envErrorMessage, hasCustomLlmEndpoint, reviewerBaseUrlOf } from "./env.js";

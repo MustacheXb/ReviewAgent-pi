@@ -1,4 +1,4 @@
-import type { LlmResponse } from "../../src/contracts/llm-client.js";
+import type { LlmResponse } from "../../src/instrument/contracts/llm-client.js";
 import { reply, usage } from "./llm-script.js";
 
 /**

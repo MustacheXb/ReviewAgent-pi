@@ -24,7 +24,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { rename as renameAsync } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import type { MRCase } from "../src/contracts/mr-case.js";
+import type { MRCase } from "../src/instrument/contracts/mr-case.js";
 import type { SourceSnapshot } from "../src/dataset/diff/apply-unified-diff.js";
 import { parseUnifiedDiff } from "../src/dataset/diff/parse-unified-diff.js";
 import { stripTestSections, vul4jToMrCases, type Vul4jExportInput } from "../src/dataset/vul4j/adapter.js";

@@ -1,4 +1,4 @@
-import type { ConfigId } from "../../contracts/config.js";
+import type { ConfigId } from "../../instrument/contracts/config.js";
 import { type DefectRecord } from "../defect-record.js";
 import { type SourceSnapshot, applyUnifiedDiff } from "../diff/apply-unified-diff.js";
 import { type Result, DatasetError, err, ok } from "../diff/types.js";

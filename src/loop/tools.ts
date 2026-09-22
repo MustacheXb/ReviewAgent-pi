@@ -1,5 +1,5 @@
-import type { ToolCall } from "../contracts/llm-client.js";
-import type { ToolCallRecord } from "../contracts/run.js";
+import type { ToolCall } from "../instrument/contracts/llm-client.js";
+import type { ToolCallRecord } from "../instrument/contracts/run.js";
 
 /**
  * 工具执行 seam（T03 挂载点）。

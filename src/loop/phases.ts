@@ -1,4 +1,4 @@
-import type { ReviewPhase } from "../contracts/run.js";
+import type { ReviewPhase } from "../instrument/contracts/run.js";
 
 /**
  * 六阶段骨架（主文档第 3 章）：阶段顺序固定，不可跳过、不可乱序。

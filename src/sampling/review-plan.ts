@@ -14,12 +14,12 @@
  * 本模块不实现人工评审本身（spec 范围外）：只产出确定性队列与表单格式。
  */
 
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
-import type { Finding } from "../contracts/finding.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
+import type { Finding } from "../instrument/contracts/finding.js";
 import type { EvaluationInput } from "../metrics/types.js";
-import type { MRCase, TruthLocation } from "../contracts/mr-case.js";
-import type { RunResult } from "../contracts/run.js";
+import type { MRCase, TruthLocation } from "../instrument/contracts/mr-case.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import type { JudgeRunResult } from "../judge/orchestrate.js";
 import { sampleUnits } from "./sampler.js";
 import type { SamplingOptions, SamplingPlan } from "./sampler.js";

@@ -1,5 +1,5 @@
-import type { ConfigId } from "../../contracts/config.js";
-import type { MRCase } from "../../contracts/mr-case.js";
+import type { ConfigId } from "../../instrument/contracts/config.js";
+import type { MRCase } from "../../instrument/contracts/mr-case.js";
 import { ALL_CONFIGS } from "../inverse-patch.js";
 import { DEFAULT_RISK_CLASS, type RiskClass } from "../risk-class.js";
 import { type Result, DatasetError, err, ok } from "../diff/types.js";

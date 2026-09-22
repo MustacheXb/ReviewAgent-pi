@@ -1,9 +1,9 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ConfigId } from "../contracts/config.js";
-import type { LlmClient } from "../contracts/llm-client.js";
-import type { MRCase } from "../contracts/mr-case.js";
-import type { RunResult } from "../contracts/run.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import type { LlmClient } from "../instrument/contracts/llm-client.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import { addUsage } from "../loop/usage.js";
 import { DEFAULT_EFFORT } from "../run/run-review.js";
 import type { ExperimentPlan, ExpandedPlan, RunUnit } from "./plan.js";

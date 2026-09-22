@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { MRCase } from "../../src/contracts/mr-case.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import type { ExperimentPlan } from "../../src/experiment/plan.js";
 import { expandPlan } from "../../src/experiment/plan.js";
 

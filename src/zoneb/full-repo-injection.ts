@@ -1,5 +1,5 @@
-import type { LlmMessage } from "../contracts/llm-client.js";
-import type { FullRepoRecord } from "../contracts/run.js";
+import type { LlmMessage } from "../instrument/contracts/llm-client.js";
+import type { FullRepoRecord } from "../instrument/contracts/run.js";
 import type { RepoContext } from "./repo-context.js";
 
 /**

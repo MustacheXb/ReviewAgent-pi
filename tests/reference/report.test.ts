@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Finding } from "../../src/contracts/finding.js";
-import type { MRCase } from "../../src/contracts/mr-case.js";
+import type { Finding } from "../../src/instrument/contracts/finding.js";
+import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import {
   buildClaudeCodeReferenceReport,
   persistReferenceReport,

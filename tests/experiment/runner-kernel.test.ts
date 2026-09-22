@@ -3,7 +3,7 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { RunResult } from "../../src/contracts/run.js";
+import type { RunResult } from "../../src/instrument/contracts/run.js";
 import type { ExperimentPlan } from "../../src/experiment/plan.js";
 import { validateExperimentPlan } from "../../src/experiment/plan.js";
 import type { ReviewKernel, UnitReviewRequest } from "../../src/experiment/review-kernel.js";

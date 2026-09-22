@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LlmResponse } from "../../src/contracts/llm-client.js";
+import type { LlmResponse } from "../../src/instrument/contracts/llm-client.js";
 import { FakeLlmClient } from "../../src/fake/fake-llm-client.js";
 import {
   VERIFIER_SYSTEM_PROMPT,

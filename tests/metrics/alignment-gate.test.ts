@@ -9,7 +9,7 @@ import type {
   GateSideInput,
   GateUnitSample,
 } from "../../src/metrics/alignment-gate.js";
-import type { MetricsConfigId } from "../../src/contracts/config.js";
+import type { MetricsConfigId } from "../../src/instrument/contracts/config.js";
 import { summarizeDefined } from "../../src/metrics/stats.js";
 import { METRICS_FIELDS } from "../../src/metrics/types.js";
 import type { FlatMetrics, MetricsField } from "../../src/metrics/types.js";

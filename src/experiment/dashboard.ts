@@ -1,6 +1,6 @@
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
-import { CACHE_BREAK_REASONS } from "../loop/cache-break.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
+import { CACHE_BREAK_REASONS } from "../instrument/cache-break.js";
 import type { FlatMetrics, MetricsField, Stat } from "../metrics/types.js";
 import type { ExperimentReport } from "./report.js";
 

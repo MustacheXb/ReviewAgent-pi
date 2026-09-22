@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CONFIGS } from "../../src/contracts/config.js";
-import type { LlmRequest } from "../../src/contracts/llm-client.js";
+import { CONFIGS } from "../../src/instrument/contracts/config.js";
+import type { LlmRequest } from "../../src/instrument/contracts/llm-client.js";
 import {
   DEEPSEEK_API_KEY_ENV_VAR,
   DeepSeekClient,

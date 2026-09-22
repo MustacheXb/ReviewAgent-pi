@@ -1,6 +1,6 @@
-import type { Finding } from "../contracts/finding.js";
-import type { LlmUsage } from "../contracts/llm-client.js";
-import { validateFinding } from "../finding/finding-schema.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { LlmUsage } from "../instrument/contracts/llm-client.js";
+import { validateFinding } from "../instrument/finding-schema.js";
 import type {
   ClaudeCodeRunOutput,
   NormalizedFindings,

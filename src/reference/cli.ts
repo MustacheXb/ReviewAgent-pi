@@ -10,7 +10,7 @@ import {
   parseCliArgs,
   type ValueFlagParser,
   type FlagApplyResult,
-} from "../shared/cli-args.js";
+} from "../instrument/cli-args.js";
 import type { ClaudeCodeClient } from "./contracts.js";
 import { ClaudeCodeCliClient, DEFAULT_CLAUDE_CODE_TIMEOUT_MS } from "./client.js";
 import {

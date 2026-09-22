@@ -1,8 +1,8 @@
 import path from "node:path";
-import { CONFIGS } from "../contracts/config.js";
-import type { LlmClient } from "../contracts/llm-client.js";
-import type { MRCase } from "../contracts/mr-case.js";
-import type { RunResult } from "../contracts/run.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
+import type { LlmClient } from "../instrument/contracts/llm-client.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import { DEFAULT_EFFORT, runReview } from "../run/run-review.js";
 import type { ReviewKernelId, RunUnit } from "./plan.js";
 import { sanitizeCaseId } from "./run-store.js";

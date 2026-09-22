@@ -1,4 +1,4 @@
-import type { LlmResponse, LlmUsage } from "../../src/contracts/llm-client.js";
+import type { LlmResponse, LlmUsage } from "../../src/instrument/contracts/llm-client.js";
 
 /** 测试辅助：构造 LlmResponse / LlmUsage */
 

@@ -4,7 +4,7 @@ import {
   LlmScriptExhaustedError,
   type FakeLlmScriptStep,
 } from "../src/fake/fake-llm-client.js";
-import type { LlmRequest } from "../src/contracts/llm-client.js";
+import type { LlmRequest } from "../src/instrument/contracts/llm-client.js";
 import { reply, usage } from "./helpers/llm-script.js";
 
 function sampleRequest(model: string): LlmRequest {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolvePrefetchBudgets } from "../src/contracts/prefetch.js";
+import { resolvePrefetchBudgets } from "../src/instrument/contracts/prefetch.js";
 import { buildPrefetchContext } from "../src/zoneb/prefetch.js";
 import { SAMPLE_MR_CASE } from "./fixtures/sample-mr-case.js";
 

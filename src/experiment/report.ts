@@ -1,10 +1,10 @@
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
-import type { MRCase } from "../contracts/mr-case.js";
-import { runUnitKeyString } from "../contracts/run-unit.js";
-import type { CacheBreakReason } from "../contracts/run.js";
-import type { RunResult } from "../contracts/run.js";
-import { CACHE_BREAK_REASONS, tallyCacheBreakReasons } from "../loop/cache-break.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import { runUnitKeyString } from "../instrument/contracts/run-unit.js";
+import type { CacheBreakReason } from "../instrument/contracts/run.js";
+import type { RunResult } from "../instrument/contracts/run.js";
+import { CACHE_BREAK_REASONS, tallyCacheBreakReasons } from "../instrument/cache-break.js";
 import type { JudgeClient, JudgeRunResult } from "../judge/index.js";
 import { flattenJudgeRun, judgeRun } from "../judge/index.js";
 import {
@@ -29,7 +29,7 @@ import {
   readJsonArrayFile,
   readJsonFile,
   writeJsonFile,
-} from "../shared/report-io.js";
+} from "../instrument/report-io.js";
 import path from "node:path";
 import type { ExperimentPlan } from "./plan.js";
 import { expandPlan } from "./plan.js";

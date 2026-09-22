@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { MRCase } from "../contracts/mr-case.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import { filterMrCases } from "../dataset/mr-boundary-filter.js";
 import { cleanMrCasesFromManifest, validateCleanMrManifest } from "../dataset/clean-mr/manifest.js";
 

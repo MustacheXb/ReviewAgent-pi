@@ -1,5 +1,5 @@
-import type { LlmRequest } from "../contracts/llm-client.js";
-import type { CacheBreakRecord, CacheBreakReason } from "../contracts/run.js";
+import type { LlmRequest } from "./contracts/llm-client.js";
+import type { CacheBreakRecord, CacheBreakReason } from "./contracts/run.js";
 
 /**
  * Cache Break 原因分类器（spec #1 user story 13）：对相邻请求做字节前缀分歧检测，

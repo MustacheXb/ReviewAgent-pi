@@ -1,5 +1,5 @@
-import type { ReviewConfig } from "../contracts/config.js";
-import type { Finding } from "../contracts/finding.js";
+import type { ReviewConfig } from "../instrument/contracts/config.js";
+import type { Finding } from "../instrument/contracts/finding.js";
 import type {
   LlmClient,
   LlmMessage,
@@ -8,11 +8,11 @@ import type {
   LlmUsage,
   ToolCall,
   ToolSchema,
-} from "../contracts/llm-client.js";
-import type { MRCase } from "../contracts/mr-case.js";
-import type { CandidateRejection, CacheBreakRecord, PhaseRecord, ReviewPhase, ToolCallRecord } from "../contracts/run.js";
+} from "../instrument/contracts/llm-client.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import type { CandidateRejection, CacheBreakRecord, PhaseRecord, ReviewPhase, ToolCallRecord } from "../instrument/contracts/run.js";
 import { applyCandidateGate } from "../gate/candidate-gate.js";
-import { classifyCacheBreaks } from "./cache-break.js";
+import { classifyCacheBreaks } from "../instrument/cache-break.js";
 import { MAX_ROUNDS, MAX_TOOL_CALLS, TRUNCATION_MAX_ROUNDS, TRUNCATION_TOOL_BUDGET } from "./constants.js";
 import { buildInitialMessages, type ContextMessages } from "./messages.js";
 import type { CandidatesParseResult, VerificationParseResult } from "./parse.js";

@@ -1,6 +1,6 @@
-import type { Finding } from "../contracts/finding.js";
-import type { CandidateRejection } from "../contracts/run.js";
-import { validateFinding } from "../finding/finding-schema.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { CandidateRejection } from "../instrument/contracts/run.js";
+import { validateFinding } from "../instrument/finding-schema.js";
 import type { VerificationVerdict } from "../loop/parse.js";
 
 /**

@@ -1,5 +1,5 @@
-import type { Finding } from "../contracts/finding.js";
-import type { LlmUsage } from "../contracts/llm-client.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { LlmUsage } from "../instrument/contracts/llm-client.js";
 
 /**
  * 外部参照契约（Ticket 13 / issue #14）：Claude Code 跨模型外部参照的 seam 与留痕类型。

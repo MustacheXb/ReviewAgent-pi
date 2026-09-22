@@ -1,4 +1,4 @@
-import type { ConfigId } from "../contracts/config.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
 import type { RiskClass } from "./risk-class.js";
 import { type SourceSnapshot } from "./diff/apply-unified-diff.js";
 import { type Result, DatasetError, err, ok } from "./diff/types.js";

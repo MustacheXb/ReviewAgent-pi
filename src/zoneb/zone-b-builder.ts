@@ -1,4 +1,4 @@
-import type { PrefetchLayerRecord } from "../contracts/prefetch.js";
+import type { PrefetchLayerRecord } from "../instrument/contracts/prefetch.js";
 import { applyBlockBudget } from "./budget.js";
 import type { RepoContext } from "./repo-context.js";
 import { derivePackageFromPath, loadRepoContext } from "./repo-context.js";

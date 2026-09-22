@@ -1,6 +1,6 @@
-import type { ReviewConfig } from "../contracts/config.js";
-import type { LlmClient } from "../contracts/llm-client.js";
-import type { MRCase } from "../contracts/mr-case.js";
+import type { ReviewConfig } from "../instrument/contracts/config.js";
+import type { LlmClient } from "../instrument/contracts/llm-client.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import type { RunReviewOptions } from "./run-review.js";
 
 /** 系统边界输入校验：fail fast，错误信息指明字段与期望 */

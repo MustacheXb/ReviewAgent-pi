@@ -1,9 +1,9 @@
-import type { LlmMessage } from "../contracts/llm-client.js";
+import type { LlmMessage } from "../instrument/contracts/llm-client.js";
 import type {
   PrefetchLayerRecord,
   PrefetchLayerName,
   ResolvedPrefetchBudgets,
-} from "../contracts/prefetch.js";
+} from "../instrument/contracts/prefetch.js";
 import type { RepoContext } from "./repo-context.js";
 import { loadRepoContext } from "./repo-context.js";
 import { analyzeDiff, oldSpansOf, type FileDiff } from "./diff-analysis.js";

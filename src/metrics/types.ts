@@ -1,6 +1,6 @@
-import type { MetricsConfigId } from "../contracts/config.js";
-import type { MRCase } from "../contracts/mr-case.js";
-import type { RunResult } from "../contracts/run.js";
+import type { MetricsConfigId } from "../instrument/contracts/config.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 
 /**
  * 指标计算 + 规则粗筛 + S/A/B 判定的类型契约（Ticket 10 / issue #11）。

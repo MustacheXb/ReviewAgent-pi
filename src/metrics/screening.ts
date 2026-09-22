@@ -1,5 +1,5 @@
-import type { Finding } from "../contracts/finding.js";
-import type { MRTruth, TruthLocation } from "../contracts/mr-case.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { MRTruth, TruthLocation } from "../instrument/contracts/mr-case.js";
 import { isDefectNature } from "../dataset/defect-nature.js";
 import type {
   FindingVerdict,

@@ -2,10 +2,10 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { LlmResponse } from "../src/contracts/llm-client.js";
+import type { LlmResponse } from "../src/instrument/contracts/llm-client.js";
 import { FakeLlmClient } from "../src/fake/fake-llm-client.js";
 import { runReview } from "../src/run/run-review.js";
-import { CONFIGS } from "../src/contracts/config.js";
+import { CONFIGS } from "../src/instrument/contracts/config.js";
 import { SAMPLE_MR_CASE } from "./fixtures/sample-mr-case.js";
 import { reply } from "./helpers/llm-script.js";
 

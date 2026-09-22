@@ -18,11 +18,11 @@
  * - judge 输出越界 / 重复占用条目：丢弃并记 anomaly，不整单报废。
  */
 
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
-import type { Finding } from "../contracts/finding.js";
-import type { MRCase, MRTruth, TruthLocation } from "../contracts/mr-case.js";
-import type { RunResult } from "../contracts/run.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
+import type { Finding } from "../instrument/contracts/finding.js";
+import type { MRCase, MRTruth, TruthLocation } from "../instrument/contracts/mr-case.js";
+import type { RunResult } from "../instrument/contracts/run.js";
 import { JUDGE_API_KEY_ENV_VAR, OPENAI_API_KEY_ENV_VAR } from "./gpt-judge-client.js";
 import { DEEPSEEK_API_KEY_ENV_VAR, REVIEWER_API_KEY_ENV_VAR } from "review-llm";
 import {

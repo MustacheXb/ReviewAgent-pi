@@ -14,7 +14,7 @@
  */
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { ConfigId } from "../src/contracts/config.js";
+import type { ConfigId } from "../src/instrument/contracts/config.js";
 import type { MetricsField, VerdictReports } from "../src/metrics/types.js";
 import type { JudgeRunResult } from "../src/judge/orchestrate.js";
 import type { ExperimentReport, HumanReviewOutput, JudgeStageReport } from "../src/experiment/report.js";

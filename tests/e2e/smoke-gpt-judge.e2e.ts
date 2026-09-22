@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RunResult } from "../../src/contracts/run.js";
+import type { RunResult } from "../../src/instrument/contracts/run.js";
 import {
   DEFAULT_JUDGE_MODEL,
   GptJudgeClient,

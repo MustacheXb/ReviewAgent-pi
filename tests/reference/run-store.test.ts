@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { REFERENCE_CONFIG_ID } from "../../src/contracts/config.js";
+import { REFERENCE_CONFIG_ID } from "../../src/instrument/contracts/config.js";
 import type { ReferenceRunRecord } from "../../src/reference/run-store.js";
 import {
   referenceRecordToRunResult,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MRCase } from "../src/contracts/mr-case.js";
+import type { MRCase } from "../src/instrument/contracts/mr-case.js";
 import {
   DEFAULT_MR_BOUNDARY,
   filterMrCase,

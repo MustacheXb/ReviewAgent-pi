@@ -2,14 +2,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { LlmRequest } from "../../src/contracts/llm-client.js";
+import type { LlmRequest } from "../../src/instrument/contracts/llm-client.js";
 import { FakeLlmClient } from "../../src/fake/fake-llm-client.js";
 import {
   CACHE_BREAK_REASONS,
   classifyCacheBreaks,
   tallyCacheBreakReasons,
-} from "../../src/loop/cache-break.js";
-import { CONFIGS } from "../../src/contracts/config.js";
+} from "../../src/instrument/cache-break.js";
+import { CONFIGS } from "../../src/instrument/contracts/config.js";
 import { runReview } from "../../src/run/run-review.js";
 import { buildCacheBreakReport } from "../../src/experiment/report.js";
 import { renderDashboardMarkdown } from "../../src/experiment/dashboard.js";

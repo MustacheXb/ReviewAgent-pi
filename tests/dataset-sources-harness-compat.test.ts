@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FakeLlmClient } from "../src/fake/fake-llm-client.js";
-import { CONFIGS } from "../src/contracts/config.js";
+import { CONFIGS } from "../src/instrument/contracts/config.js";
 import { filterMrCases } from "../src/dataset/mr-boundary-filter.js";
 import { msbRecordToMrCase } from "../src/dataset/msb-java/adapter.js";
 import { vul4jToMrCase } from "../src/dataset/vul4j/adapter.js";

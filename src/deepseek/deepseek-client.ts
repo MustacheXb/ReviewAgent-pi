@@ -1,4 +1,4 @@
-import type { LlmClient, LlmRequest, LlmResponse, LlmUsage } from "../contracts/llm-client.js";
+import type { LlmClient, LlmRequest, LlmResponse, LlmUsage } from "../instrument/contracts/llm-client.js";
 import { addUsage } from "../loop/usage.js";
 import {
   DeepSeekClientError,
@@ -13,7 +13,7 @@ import {
 import { buildChatCompletionsBody, buildWireToolNameMap } from "./request-mapper.js";
 import { mapChatCompletionsResponse } from "./response-mapper.js";
 import type { WireChatCompletionsRequest } from "./wire-types.js";
-import { defaultSleep, OpenAiHttpKernel, runWithRetries, type HttpKernelErrorFactories } from "../shared/openai-http-kernel.js";
+import { defaultSleep, OpenAiHttpKernel, runWithRetries, type HttpKernelErrorFactories } from "../instrument/openai-http-kernel.js";
 import {
   DEFAULT_DEEPSEEK_MAX_RETRIES,
   DEFAULT_DEEPSEEK_RETRY_BASE_DELAY_MS,

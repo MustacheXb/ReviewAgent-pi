@@ -1,4 +1,4 @@
-import type { MRCase } from "../contracts/mr-case.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 import type { DefectRecord } from "./defect-record.js";
 import {
   type SourceSnapshot,

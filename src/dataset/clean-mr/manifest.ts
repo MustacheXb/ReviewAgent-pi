@@ -1,5 +1,5 @@
-import type { ConfigId } from "../../contracts/config.js";
-import type { MRCase } from "../../contracts/mr-case.js";
+import type { ConfigId } from "../../instrument/contracts/config.js";
+import type { MRCase } from "../../instrument/contracts/mr-case.js";
 import type { RiskClass } from "../risk-class.js";
 import type { BoundaryMetrics } from "../mr-boundary-filter.js";
 import { createHash } from "node:crypto";

@@ -1,6 +1,6 @@
-import type { ConfigId } from "../contracts/config.js";
-import { CONFIGS } from "../contracts/config.js";
-import type { MRCase } from "../contracts/mr-case.js";
+import type { ConfigId } from "../instrument/contracts/config.js";
+import { CONFIGS } from "../instrument/contracts/config.js";
+import type { MRCase } from "../instrument/contracts/mr-case.js";
 
 /**
  * 实验计划（Ticket 12 / issue #13）：五配置 × 数据集 × 重复 的可编排放跑参数。
