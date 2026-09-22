@@ -29,19 +29,8 @@ export interface LedgerEntry {
   readonly description: string;
 }
 
-/**
- * 工具结果层去重账本（run 私有）。
- * 实现见 src/tools/ledger.ts（功能态 / 惰性态）；
- * ToolRunContext.ledger 持有其一，各工具在 execute 入口处接入。
+/*
+ * #9 P4b：ContextLedger 接口（工具结果层去重账本的执行面）已随 legacy 运行时
+ * 退役删除；LedgerEntry 留痕读面保留——run-store / 指标消费历史记录的
+ * audit.ledger 投影（pi 内核以同形留痕，语义见上方分区纪律）。
  */
-export interface ContextLedger {
-  /**
-   * 命中查询：已登记返回引用文本（"Already loaded: ctx#NNN (…)"），
-   * 未登记返回 undefined。引用格式由实现统一保证（工具不各自拼装）。
-   */
-  referenceIfLoaded(kind: LedgerEntryKind, description: string): string | undefined;
-  /** 读取成功后登记（调用方保证仅在未命中路径调用；失败的工具调用不登记） */
-  register(kind: LedgerEntryKind, description: string): void;
-  /** 当前快照（防御性拷贝；runReview 审计留痕用） */
-  snapshot(): readonly LedgerEntry[];
-}

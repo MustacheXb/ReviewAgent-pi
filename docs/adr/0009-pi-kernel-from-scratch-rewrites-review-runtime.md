@@ -24,3 +24,15 @@
 - token 口径归一成为硬票：DSH usage `{inputTokens, outputTokens, cacheReadTokens}` ↔ pi-ai usage 字段映射 + 已知记录断言（P1）。
 - ADR-0005 / ADR-0006 转为历史记录（DSH 线已按其完成使命并归档）；ADR-0007 对齐门协议第三轮应用；ADR-0008 的接入面语义在 pi 侧由 pi-ai 等价承担。
 - 评测数据迁移为前置事项：`phase2-*` 与 `.cache/datasets` 从主工作仓拷入（`runs/` gitignored，零 git 影响）。
+
+## 补记：期望生成器收口（P4b，#9，2026-09-22）
+
+「退役时点」已到并执行完毕：P2 字节门绿（A/B 请求体对照 DSH 审计真源逐字节一致，门本体与黄金真源已随 P3/P4 收进 `packages/review-pi/src/bytegate` 与 `packages/review-pi/testdata/golden`）+ P4a 内核执行缝就绪（#8）后，`src/{loop,run,tools,zoneb,codeintel,contracts,finding,audit,shared,fake}` 与 `src/deepseek`（实验 CLI 缺省客户端）同批退役删除。
+
+**期望生成器角色就此收口**。旧运行时在 P2 的第二角色是 A/B 请求体对照的期望生成器（golden bytes 由它产出并与 DSH 审计真源互证）；该职责已结构化固化——字节门与黄金真源迁入 pi 包后自携带字节纪律，DSH 审计真源是数据（`runs/phase2-dsh*`，重锚可移植），均不再依赖旧代码的活执行。删除是受控替换而非证据删除：审计、报告、git 历史（本补记之前的全部提交）与 archive 分支保留完整历史实现。
+
+收口后的保全与边界：
+
+- **单一内核**：执行路径全部收敛到 pi（`packages/review-pi`，经 `src/experiment/pi-kernel.ts` 适配）；实验 CLI `--kernel`/`--verifier` 旗标退役（未知 flag 拒绝），`cliOptionsToPlan` 钉死 `kernel: "pi"` / `verifier: "off"`（pi 恒 baseline-only，二遍复核消融面只存在于历史记录）。
+- **历史记录可读**：`plan.kernel` 的 `"legacy"` 保留为只读值——`#8` 前持久化的 plan.json 归一为 legacy，`--report-only` 照常消费历史实验；续跑守卫双向拦截（plan.json 内核冲突 / model-verifier 漂移均启动即报错）。
+- **读侧口径内联**：Evidence Gate 判定口径（含 `VerificationVerdict` 原形）内联至 `src/gate/candidate-gate.ts`；Cache Break 计数面收敛至 `src/instrument/cache-break.ts`（分类器执行面随内核退役，pi 以同形留痕 `CacheBreakRecord`）；RunRecord 记录契约冻结不动（`verifier`/`effective`/`verifierPass` 字段保留供消费历史记录，`report.verifierAblation` 在历史 plan `verifier: "on"` 时照常重建）。

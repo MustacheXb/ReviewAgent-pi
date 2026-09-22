@@ -7,7 +7,7 @@ import type { ExperimentReport } from "../../src/experiment/report.js";
 import type { ExperimentPlan } from "../../src/experiment/plan.js";
 import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import type { EvaluationInput } from "../../src/metrics/types.js";
-import { usage } from "../helpers/llm-script.js";
+import { usage } from "../helpers/usage.js";
 import { makeFinding, makeMrCase, makeRunResult, makeTruth, makeTruthLocation } from "../metrics/helpers.js";
 
 /**
@@ -45,6 +45,7 @@ function buildReport(options: MetricsOptions = DEFAULT_METRICS_OPTIONS): Experim
     reps: 3,
     verifier: "off",
     model: "deepseek-v4-flash",
+    kernel: "pi",
     highRiskOnly: false,
     perSourceLimit: null,
     caseFilter: [],

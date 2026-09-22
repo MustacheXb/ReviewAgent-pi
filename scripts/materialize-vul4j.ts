@@ -78,7 +78,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
     // 裸 --（end-of-options）跳过：pnpm run 把 `pnpm materialize:vul4j -- --vul-ids …`
-    // 的 -- 原样透传（与 src/shared/cli-args.ts 约定一致）
+    // 的 -- 原样透传（与 src/instrument/cli-args.ts 约定一致）
     if (arg === "--") {
       continue;
     }

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
-import { CONFIGS } from "../../src/instrument/contracts/config.js";
-import { validateRunInputs } from "../../src/run/validate-inputs.js";
 import { filterMrCases } from "../../src/dataset/mr-boundary-filter.js";
 import { convertDefectRecord } from "../../src/dataset/inverse-patch.js";
 import {
@@ -132,7 +130,7 @@ describe("buildCleanMrCases（批量）", () => {
   });
 });
 
-describe("与 T01/T02 基座的衔接（旁路集成）", () => {
+describe("与 T02 基座的衔接（旁路集成）", () => {
   function cleanCase(): MRCase {
     const result = buildCleanMrCase({ caseId: "clean-google__gson-3102", diff: SAMPLE_JAVA_DIFF }, OPTS);
     if (!result.ok) {
@@ -141,11 +139,8 @@ describe("与 T01/T02 基座的衔接（旁路集成）", () => {
     return result.value;
   }
 
-  it("T01 harness 输入校验接受 truth=null 的 clean MRCase（判定链按阴性对照口径可运行）", () => {
-    const llmStub = { complete: async () => ({}) };
-    expect(() => validateRunInputs(CONFIGS.A, cleanCase(), llmStub as never, {})).not.toThrow();
-    expect(() => validateRunInputs(CONFIGS.C, cleanCase(), llmStub as never, {})).not.toThrow();
-  });
+  // T01 harness 输入校验接线已随 legacy 运行时退役（#9）：阴性对照口径的
+  // 可运行性现由 pi 内核 + 指标层（truth=null 分流）承担，此处只留 T02 边界过滤。
 
   it("T02 边界过滤：样例 clean MR 通过（≤10 文件 / ≤2000 变更行）", () => {
     const { accepted, report } = filterMrCases([cleanCase()]);

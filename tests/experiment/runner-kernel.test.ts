@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -8,13 +8,14 @@ import type { ExperimentPlan } from "../../src/experiment/plan.js";
 import { validateExperimentPlan } from "../../src/experiment/plan.js";
 import type { ReviewKernel, UnitReviewRequest } from "../../src/experiment/review-kernel.js";
 import { PLAN_FILE, runExperiment } from "../../src/experiment/runner.js";
-import { experimentMainCase, experimentPlan, scriptedLlmClient } from "./helpers.js";
+import { experimentMainCase, experimentPlan } from "./helpers.js";
 import { makeFinding } from "../metrics/helpers.js";
 
 /**
- * #8 P4a 内核执行缝（runner 侧，fake 内核——零 pi 依赖）：
- * executeUnit 的可替换执行点。plan.kernel 选内核（A–E 全部经缝执行），
- * runner 是记录唯一写者；启动一致性守卫（kernel.id ≡ plan.kernel）、
+ * #8 P4a 内核执行缝 / #9 P4b 单一内核（runner 侧，fake 内核——零 pi 依赖）：
+ * executeUnit 的可替换执行点。P4b 起 deps.kernel 必填、唯一可执行值 = pi
+ * （legacy 运行时已退役，"legacy" 仅作历史计划的读侧值）。守卫面：
+ * 启动一致性（kernel.id ≡ plan.kernel，含 legacy 计划的退役提示）、
  * plan.json 内核冲突检测（记录不携带内核标识，续跑一致性以 plan.json 为准）、
  * 口径诚实护栏、失败隔离、断点续跑在缝上同样工作。
  * 真 pi 内核过缝（离线 A–E 全链）见 runner-pi-offline.test.ts；真跑见 e2e。
@@ -44,14 +45,13 @@ function kernelResultOf(request: UnitReviewRequest): RunResult {
 }
 
 function recordingKernel(
-  id: ReviewKernel["id"] = "pi",
   resultOf: (request: UnitReviewRequest) => RunResult = kernelResultOf,
 ): { readonly kernel: ReviewKernel; readonly requests: UnitReviewRequest[] } {
   const requests: UnitReviewRequest[] = [];
   return {
     requests,
     kernel: {
-      id,
+      id: "pi",
       execute: async (request) => {
         requests.push(request);
         return resultOf(request);
@@ -78,7 +78,15 @@ async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(await readFile(filePath, "utf8")) as unknown;
 }
 
-describe("计划校验（kernel 字段，#8）", () => {
+/** 落一份 #8 前的历史 plan.json（无 kernel 键——当时的真实形态） */
+async function persistLegacyPlanJson(experimentRoot: string, plan: ExperimentPlan): Promise<void> {
+  const legacy: Record<string, unknown> = { ...plan };
+  delete legacy.kernel;
+  await mkdir(experimentRoot, { recursive: true });
+  await writeFile(path.join(experimentRoot, PLAN_FILE), JSON.stringify(legacy), "utf8");
+}
+
+describe("计划校验（kernel 字段，#8/#9）", () => {
   it("kernel 只接受 legacy | pi", () => {
     const bad = { ...experimentPlan(), kernel: "dsh" } as unknown as ExperimentPlan;
     expect(() => validateExperimentPlan(bad)).toThrow(/plan\.kernel/);
@@ -89,9 +97,15 @@ describe("计划校验（kernel 字段，#8）", () => {
       /pi/,
     );
   });
+
+  it("legacy 仍是合法值（#9 后仅作历史计划的读侧值：verifier=on 的 legacy 形状可校验）", () => {
+    expect(() =>
+      validateExperimentPlan(experimentPlan({ kernel: "legacy", verifier: "on" })),
+    ).not.toThrow();
+  });
 });
 
-describe("runExperiment（#8 内核执行缝）", () => {
+describe("runExperiment（#8 内核执行缝 / #9 单一内核）", () => {
   it("plan.kernel=pi + 注入内核：executeUnit 经缝执行，runner 是记录唯一写者", async () => {
     const case_ = experimentMainCase("kernel-seam-1");
     const { kernel, requests } = recordingKernel();
@@ -99,7 +113,7 @@ describe("runExperiment（#8 内核执行缝）", () => {
     const outcome = await runExperiment(
       experimentPlan({ experimentId: "kernel-seam", kernel: "pi" }),
       [case_],
-      { llmClient: scriptedLlmClient(0), kernel },
+      { kernel },
       root,
     );
 
@@ -146,39 +160,28 @@ describe("runExperiment（#8 内核执行缝）", () => {
     expect(persistedPlan.kernel).toBe("pi");
   });
 
-  it("启动一致性守卫：plan.kernel=pi 而未注入 pi 内核（缺省 legacy）→ 启动即报错，零单元执行", async () => {
-    await expect(
-      runExperiment(
-        experimentPlan({ experimentId: "kernel-guard", kernel: "pi" }),
-        [experimentMainCase("kernel-guard-1")],
-        { llmClient: scriptedLlmClient(0) },
-        rootOf("kernel-guard"),
-      ),
-    ).rejects.toThrow(/kernel/);
-    expect(existsSync(path.join(rootOf("kernel-guard").experimentRoot, PLAN_FILE))).toBe(false);
-  });
-
-  it("启动一致性守卫（反向）：plan.kernel 缺省 legacy 而注入 pi 内核 → 启动即报错", async () => {
+  it("启动一致性守卫：plan.kernel=legacy（历史计划）而注入 pi 内核 → 启动即报错（含退役提示），零落盘", async () => {
     const { kernel } = recordingKernel();
     await expect(
       runExperiment(
-        experimentPlan({ experimentId: "kernel-guard-rev" }),
-        [experimentMainCase("kernel-guard-rev-1")],
-        { llmClient: scriptedLlmClient(0), kernel },
-        rootOf("kernel-guard-rev"),
+        experimentPlan({ experimentId: "kernel-guard", kernel: "legacy" }),
+        [experimentMainCase("kernel-guard-1")],
+        { kernel },
+        rootOf("kernel-guard"),
       ),
-    ).rejects.toThrow(/kernel/);
+    ).rejects.toThrow(/retired in P4b/);
+    expect(existsSync(path.join(rootOf("kernel-guard").experimentRoot, PLAN_FILE))).toBe(false);
   });
 
   it("口径诚实护栏在缝上同样生效：内核返回 model ≠ plan.model → 单元失败留痕，不落记录", async () => {
-    const { kernel } = recordingKernel("pi", (request) => ({
+    const { kernel } = recordingKernel((request) => ({
       ...kernelResultOf(request),
       model: "other-model",
     }));
     const outcome = await runExperiment(
       experimentPlan({ experimentId: "kernel-model", kernel: "pi" }),
       [experimentMainCase("kernel-model-1")],
-      { llmClient: scriptedLlmClient(0), kernel },
+      { kernel },
       rootOf("kernel-model"),
     );
     expect(outcome.executed).toBe(0);
@@ -204,7 +207,7 @@ describe("runExperiment（#8 内核执行缝）", () => {
     const outcome = await runExperiment(
       experimentPlan({ experimentId: "kernel-isolate", kernel: "pi", configs: ["A", "B"] }),
       [experimentMainCase("kernel-isolate-1")],
-      { llmClient: scriptedLlmClient(0), kernel },
+      { kernel },
       rootOf("kernel-isolate"),
     );
     expect(outcome.executed).toBe(1);
@@ -219,59 +222,49 @@ describe("runExperiment（#8 内核执行缝）", () => {
     const root = rootOf("kernel-resume");
     const plan = experimentPlan({ experimentId: "kernel-resume", kernel: "pi" });
     const first = recordingKernel();
-    await runExperiment(plan, [case_], { llmClient: scriptedLlmClient(0), kernel: first.kernel }, root);
+    await runExperiment(plan, [case_], { kernel: first.kernel }, root);
     expect(first.requests).toHaveLength(1);
 
     const second = recordingKernel();
-    const outcome = await runExperiment(
-      plan,
-      [case_],
-      { llmClient: scriptedLlmClient(0), kernel: second.kernel },
-      root,
-    );
+    const outcome = await runExperiment(plan, [case_], { kernel: second.kernel }, root);
     expect(outcome.resumed).toBe(1);
     expect(outcome.executed).toBe(0);
     expect(second.requests).toHaveLength(0);
   });
 
-  it("续跑内核冲突检测：plan.json 已是 legacy（旧计划无 kernel 键）而新计划 pi → 启动即报错", async () => {
+  it("续跑内核冲突检测：plan.json 是历史 legacy 形态（无 kernel 键）而新计划 pi → 启动即报错", async () => {
     const case_ = experimentMainCase("kernel-conflict-1");
     const root = rootOf("kernel-conflict");
-    // 先以 legacy 跑（plan.json 无 kernel 键——#8 前的历史形态）
-    await runExperiment(
-      experimentPlan({ experimentId: "kernel-conflict" }),
-      [case_],
-      { llmClient: scriptedLlmClient(1) },
-      root,
-    );
+    // #8 前的历史形态：plan.json 无 kernel 键（legacy 执行已退役，无法真跑——手工落档）
+    await persistLegacyPlanJson(root.experimentRoot, experimentPlan({ experimentId: "kernel-conflict" }));
     const { kernel } = recordingKernel();
     await expect(
       runExperiment(
         experimentPlan({ experimentId: "kernel-conflict", kernel: "pi" }),
         [case_],
-        { llmClient: scriptedLlmClient(0), kernel },
+        { kernel },
         root,
       ),
     ).rejects.toThrow(/kernel/);
   });
 
-  it("续跑内核冲突检测（反向）：plan.json 已是 pi 而新计划 legacy → 启动即报错", async () => {
+  it("续跑内核冲突检测（反向）：plan.json 已是 pi 而新计划 legacy → 启动即报错（legacy 只读）", async () => {
     const case_ = experimentMainCase("kernel-conflict-rev-1");
     const root = rootOf("kernel-conflict-rev");
     const { kernel } = recordingKernel();
     await runExperiment(
       experimentPlan({ experimentId: "kernel-conflict-rev", kernel: "pi" }),
       [case_],
-      { llmClient: scriptedLlmClient(0), kernel },
+      { kernel },
       root,
     );
     await expect(
       runExperiment(
-        experimentPlan({ experimentId: "kernel-conflict-rev" }),
+        experimentPlan({ experimentId: "kernel-conflict-rev", kernel: "legacy" }),
         [case_],
-        { llmClient: scriptedLlmClient(1) },
+        { kernel },
         root,
       ),
-    ).rejects.toThrow(/kernel/);
+    ).rejects.toThrow(/legacy runtime was retired in P4b/);
   });
 });

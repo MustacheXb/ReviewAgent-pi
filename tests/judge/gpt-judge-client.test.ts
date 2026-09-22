@@ -21,7 +21,7 @@ import {
   createSleepRecorder,
   httpErrorBody,
   jsonResponse,
-} from "../helpers/deepseek-stub.js";
+} from "./http-stub.js";
 import { wireAdjudicationText, wireMatch } from "./helpers.js";
 
 const API_KEY = "test-judge-key-001";

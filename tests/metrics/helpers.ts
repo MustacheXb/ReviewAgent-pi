@@ -3,7 +3,7 @@ import type { Finding } from "../../src/instrument/contracts/finding.js";
 import type { LlmUsage } from "../../src/instrument/contracts/llm-client.js";
 import type { MRCase, MRTruth, TruthLocation } from "../../src/instrument/contracts/mr-case.js";
 import type { RunAudit, RunResult, ToolCallRecord } from "../../src/instrument/contracts/run.js";
-import { usage } from "../helpers/llm-script.js";
+import { usage } from "../helpers/usage.js";
 
 /** 指标测试的对象工厂（全部返回新对象，字段显式可覆盖） */
 

@@ -47,7 +47,8 @@ export function piKernel(deps: PiKernelDeps): ReviewKernel {
         throw new Error(
           `pi kernel only runs vul4j units (got source "${request.unit.source}" on ` +
             `${request.unit.caseId}/${request.unit.configId}/rep-${request.unit.rep}): the pi run record ` +
-            "hard-codes source \"vul4j\" — run this source on the legacy kernel or extend the record contract first",
+            "hard-codes source \"vul4j\" and the legacy runtime that ran other sources was retired in " +
+            "P4b (#9) — extend the record contract before scheduling this source",
         );
       }
       const runsRoot = path.dirname(request.experimentRoot);

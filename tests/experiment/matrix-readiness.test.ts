@@ -17,8 +17,8 @@ import { expandPlan } from "../../src/experiment/plan.js";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
-/** P5a 全量矩阵的计划形态（kernel 缺省 legacy——矩阵形状与内核无关） */
-function fullMatrixPlan(kernel: ExperimentPlan["kernel"] = undefined): ExperimentPlan {
+/** P5a 全量矩阵的计划形态（kernel 必填——缺省 pi，P4b 唯一可执行内核） */
+function fullMatrixPlan(kernel: ExperimentPlan["kernel"] = "pi"): ExperimentPlan {
   return {
     experimentId: "matrix-readiness",
     sources: ["vul4j"],
@@ -26,6 +26,7 @@ function fullMatrixPlan(kernel: ExperimentPlan["kernel"] = undefined): Experimen
     reps: 3,
     verifier: "off",
     model: "deepseek-v4-flash",
+    kernel,
     highRiskOnly: false,
     perSourceLimit: null,
     caseFilter: [],
@@ -33,7 +34,6 @@ function fullMatrixPlan(kernel: ExperimentPlan["kernel"] = undefined): Experimen
     judgeModel: null,
     humanReviewRate: 0.1,
     humanReviewSeed: "matrix-readiness-2026",
-    ...(kernel !== undefined ? { kernel } : {}),
   };
 }
 
@@ -48,7 +48,7 @@ async function loadTargetCases(): Promise<readonly MRCase[]> {
 }
 
 describe("450 全量矩阵就绪（expandPlan 纯函数）", () => {
-  it("target-cases 30 案 × A–E × 3 reps = 450 单元，零跳过（两内核同形）", async () => {
+  it("target-cases 30 案 × A–E × 3 reps = 450 单元，零跳过（历史/现行计划同形）", async () => {
     const cases = await loadTargetCases();
     expect(cases).toHaveLength(30);
     // 每案 allowedConfigs ⊇ A–E（快照本体不在断言面：快照目录 gitignored、
@@ -59,12 +59,12 @@ describe("450 全量矩阵就绪（expandPlan 纯函数）", () => {
       );
     }
 
-    // 矩阵形状与内核无关：legacy 缺省与显式 pi 展开同一 450
-    for (const kernel of [undefined, "legacy", "pi"] as const) {
+    // 矩阵形状与内核取值无关：legacy（#9 后只读的历史计划值）与 pi 展开同一 450
+    for (const kernel of ["legacy", "pi"] as const) {
       const expanded = expandPlan(fullMatrixPlan(kernel), cases);
-      expect(expanded.cases, `kernel=${kernel ?? "default"} cases`).toHaveLength(30);
-      expect(expanded.units, `kernel=${kernel ?? "default"} units`).toHaveLength(450);
-      expect(expanded.skipped, `kernel=${kernel ?? "default"} skipped`).toEqual([]);
+      expect(expanded.cases, `kernel=${kernel} cases`).toHaveLength(30);
+      expect(expanded.units, `kernel=${kernel} units`).toHaveLength(450);
+      expect(expanded.skipped, `kernel=${kernel} skipped`).toEqual([]);
     }
   });
 

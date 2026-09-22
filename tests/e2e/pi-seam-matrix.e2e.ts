@@ -7,7 +7,6 @@ import { formatSmokeDiagnostics, resolveReviewerEndpoint, runSmokeProbes } from 
 import { hasReviewerApiKey } from "review-llm";
 import type { ConfigId } from "../../src/instrument/contracts/config.js";
 import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
-import { FakeLlmClient } from "../../src/fake/fake-llm-client.js";
 import { piKernel } from "../../src/experiment/pi-kernel.js";
 import type { ExperimentPlan } from "../../src/experiment/plan.js";
 import { rebuildExperimentOutcome } from "../../src/experiment/report.js";
@@ -135,12 +134,11 @@ test.skipIf(SKIP_REASON !== null)(
     };
 
     // 全链真跑：真 pi 内核经缝（piKernel 只注入网关端点与真 fetch）；
-    // legacy llmClient 为零触达哨兵（pi 路径任何调用即抛错）
+    // legacy 客户端已随 #9 退役删除——deps 上无 legacy 注入位（零触达由类型系统钉死）
     const outcome = await runExperiment(
       plan,
       [mrCase],
       {
-        llmClient: FakeLlmClient.fromResponses([]),
         kernel: piKernel({ apiKey: endpoint.apiKey, baseUrl: endpoint.baseUrl, fetch: globalThis.fetch }),
       },
       { experimentRoot },
@@ -222,7 +220,6 @@ test.skipIf(SKIP_REASON !== null)(
       plan,
       [mrCase],
       {
-        llmClient: FakeLlmClient.fromResponses([]),
         kernel: piKernel({
           apiKey: endpoint.apiKey,
           baseUrl: endpoint.baseUrl,

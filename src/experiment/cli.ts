@@ -2,9 +2,7 @@ import path from "node:path";
 import { resolveReviewerEndpoint } from "review-pi";
 import type { ConfigId } from "../instrument/contracts/config.js";
 import { CONFIGS } from "../instrument/contracts/config.js";
-import type { LlmClient } from "../instrument/contracts/llm-client.js";
 import { runUnitKeyString } from "../instrument/contracts/run-unit.js";
-import { DeepSeekClient } from "../deepseek/deepseek-client.js";
 import type { JudgeClient } from "../judge/index.js";
 import { DEFAULT_JUDGE_MODEL, GptJudgeClient, judgeHeterogeneityOf } from "../judge/index.js";
 import type { HeterogeneityOptions } from "../judge/index.js";
@@ -32,8 +30,6 @@ import {
   type ExperimentModel,
   type ExperimentPlan,
   type ExperimentSource,
-  type ReviewKernelId,
-  type VerifierMode,
   validateExperimentPlan,
 } from "./plan.js";
 import { buildExperimentReport, persistExperimentReport } from "./report.js";
@@ -49,11 +45,14 @@ import { writeFile, mkdir } from "node:fs/promises";
  *
  * 用法（完整矩阵见 spec #1；成本纪律支持子集/限量/续跑）：
  *   pnpm experiment -- --id poc1-main --cases-file dataset.json --clean-mr \
- *     --configs A,B,C,D,E --reps 3 --verifier on --judge
+ *     --configs A,B,C,D,E --reps 3 --judge
  *
  * 退出码：0 = 完成（单元级失败已隔离留痕，不改变退出码）；
  *         1 = 一条记录都没产出（全量失败）；2 = 用法/环境/配置错误。
  * key 只经环境变量注入（启动统一校验并给缺失清单；输出不回显 key 值）。
+ *
+ * #9 P4b：检视内核唯一 = pi（packages/review-pi；legacy 运行时已退役），
+ * --kernel / --verifier 旗标随之移除（计划恒 kernel=pi、verifier=off）。
  */
 
 /** CLI 解析结果（ExperimentPlan 的原料 + 装载/运行控制项） */
@@ -62,10 +61,7 @@ export interface ExperimentCliOptions {
   readonly sources: readonly ExperimentSource[];
   readonly configs: readonly ConfigId[];
   readonly reps: number;
-  readonly verifier: VerifierMode;
   readonly model: ExperimentModel;
-  /** 检视内核（#8 执行缝）：legacy = 根仓运行时；pi = vendored pi 内核 */
-  readonly kernel: ReviewKernelId;
   readonly highRiskOnly: boolean;
   readonly perSourceLimit: number | null;
   readonly caseFilter: readonly string[];
@@ -104,11 +100,8 @@ export function experimentCliUsage(): string {
     "  --sources <list>          comma list of defects4j,vul4j,msb-java,clean-mr (default: all)",
     "  --configs <list>          comma list of A-E (default: all)",
     "  --reps <n>                repetitions per MR, rep1 cold / rep2+ hot (default: 3)",
-    "  --verifier <off|on>       second-pass verifier ablation (default: off)",
     "  --model <id>              review model id: free ids accepted, wire bytes per provider",
     "                            profile (aliases: flash, pro; default: flash)",
-    "  --kernel <legacy|pi>      review kernel via the execution seam (default: legacy;",
-    "                            pi = vendored pi runtime, vul4j-only, baseline single-pass)",
     "  --high-risk-only          only riskClass=High cases (required for v4-pro)",
     "  --limit <n>               per-source case cap (default: none)",
     "  --case <id>               exact caseId filter (repeatable)",
@@ -122,6 +115,11 @@ export function experimentCliUsage(): string {
     "  --report-only             rebuild the report from persisted records (no review runs)",
     "  --runs-root <dir>         experiments root (default: runs)",
     "  --help                    show this help",
+    "",
+    "Review kernel: pi (packages/review-pi; the legacy runtime was retired in #9).",
+    "pi executes vul4j units only — other sources fail fast per unit. The verifier",
+    "is always off (single-pass baseline; the second-pass ablation retired with the",
+    "legacy runtime).",
   ].join("\n");
 }
 
@@ -131,9 +129,7 @@ type CliValues = {
   sources: ExperimentSource[];
   configs: ConfigId[];
   reps: number;
-  verifier: VerifierMode;
   model: ExperimentModel;
-  kernel: ReviewKernelId;
   highRiskOnly: boolean;
   perSourceLimit: number | null;
   caseFilter: string[];
@@ -168,14 +164,6 @@ const VALUE_FLAGS: Readonly<Record<string, ValueFlagParser<CliValues>>> = {
     applyListFlag(value.toUpperCase(), ALL_CONFIG_IDS, "config", (list) => ({ configs: list })),
   "--reps": (value) => applyIntFlag(value, "--reps", (parsed) => ({ reps: parsed })),
   "--limit": (value) => applyIntFlag(value, "--limit", (parsed) => ({ perSourceLimit: parsed })),
-  "--verifier": (value) =>
-    value === "off" || value === "on"
-      ? flagOk({ verifier: value })
-      : flagFail(`--verifier must be "off" or "on" (got ${JSON.stringify(value)})`),
-  "--kernel": (value) =>
-    value === "legacy" || value === "pi"
-      ? flagOk({ kernel: value })
-      : flagFail(`--kernel must be "legacy" or "pi" (got ${JSON.stringify(value)})`),
   "--model": (value) => {
     // #43 自由 id：别名命中则展开，未命中按字面模型 id 直通（trim 后非空）
     const trimmed = value.trim();
@@ -225,9 +213,7 @@ function defaultCliValues(): CliValues {
     sources: [...ALL_SOURCES],
     configs: [...ALL_CONFIG_IDS],
     reps: DEFAULT_REPS,
-    verifier: "off",
     model: DEFAULT_EXPERIMENT_MODEL,
-    kernel: "legacy",
     highRiskOnly: false,
     perSourceLimit: null,
     caseFilter: [],
@@ -263,9 +249,7 @@ function finalizeCliValues(
       sources: values.sources,
       configs: values.configs,
       reps: values.reps,
-      verifier: values.verifier,
       model: values.model,
-      kernel: values.kernel,
       highRiskOnly: values.highRiskOnly,
       perSourceLimit: values.perSourceLimit,
       caseFilter: values.caseFilter,
@@ -303,10 +287,11 @@ export function cliOptionsToPlan(options: ExperimentCliOptions): ExperimentPlan 
     sources: options.sources,
     configs: options.configs,
     reps: options.reps,
-    verifier: options.verifier,
+    // #9 P4b：单一内核 = pi、verifier 恒 off（legacy 运行时与二遍消融已退役；
+    // plan.json 留痕 → 续跑内核冲突检测仍有对账维度）
+    verifier: "off",
     model: options.model,
-    // CLI 构造的计划恒显式携带 kernel（plan.json 留痕 → 续跑内核冲突检测）
-    kernel: options.kernel,
+    kernel: "pi",
     highRiskOnly: options.highRiskOnly,
     perSourceLimit: options.perSourceLimit,
     caseFilter: options.caseFilter,
@@ -332,13 +317,12 @@ export interface JudgeClientContext extends HeterogeneityOptions {
   readonly customLlmEndpoint: boolean;
 }
 
-/** 运行时依赖注入点（测试注入 fake 客户端与环境；缺省为真实客户端 + process.env） */
+/** 运行时依赖注入点（测试注入 fake 内核与 judge；缺省为 pi 内核 + process.env） */
 export interface CliRunDeps {
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly createLlmClient: () => LlmClient;
   /**
-   * pi 内核工厂（#8 执行缝）：--kernel pi 时装配（收到注入 env——key/url
-   * 解析在工厂内完成，REVIEWER_* > 旧名 DEEPSEEK_*，与检视预检同一 env 面）。
+   * pi 内核工厂（#8 执行缝，#9 P4b 起唯一内核）：恒装配（收到注入 env——
+   * key/url 解析在工厂内完成，REVIEWER_* > 旧名 DEEPSEEK_*，与检视预检同一 env 面）。
    * 缺省经 resolveReviewerEndpoint 解析接入点 + 真 fetch。
    */
   readonly createPiKernel: (env: Readonly<Record<string, string | undefined>>) => ReviewKernel;
@@ -356,7 +340,6 @@ export function defaultCliRunDeps(): CliRunDeps {
   const log = (line: string): void => console.log(line);
   return {
     env: process.env,
-    createLlmClient: () => new DeepSeekClient(),
     createPiKernel: (env) => {
       const endpoint = resolveReviewerEndpoint(env);
       return piKernel({
@@ -557,19 +540,17 @@ async function runReviewMatrix(
   }
   deps.log(
     `[experiment ${plan.experimentId}] ${dataset.cases.length} case(s) loaded; ` +
-      `model=${plan.model} kernel=${plan.kernel ?? "legacy"} verifier=${plan.verifier} ` +
+      `model=${plan.model} kernel=${plan.kernel} verifier=${plan.verifier} ` +
       `judge=${plan.judge ? (plan.judgeModel ?? DEFAULT_JUDGE_MODEL) : "off"} ` +
       `reps=${plan.reps} configs=${plan.configs.join("")}`,
   );
-  // #8 执行缝：pi 经 createPiKernel 装配（runner 启动守卫核验 kernel.id ≡ plan.kernel）；
-  // legacy 走缺省 legacyKernel(llmClient)（零 pi 触达）
-  const kernel = (plan.kernel ?? "legacy") === "pi" ? deps.createPiKernel(deps.env) : undefined;
+  // #8 执行缝 / #9 P4b 单一内核：pi 经 createPiKernel 装配（runner 启动守卫
+  // 核验 kernel.id ≡ plan.kernel，计划恒 "pi"）
   return await runExperiment(
     plan,
     dataset.cases,
     {
-      llmClient: deps.createLlmClient(),
-      ...(kernel !== undefined ? { kernel } : {}),
+      kernel: deps.createPiKernel(deps.env),
       onUnit: unitEventLogger(deps),
     },
     { experimentRoot },

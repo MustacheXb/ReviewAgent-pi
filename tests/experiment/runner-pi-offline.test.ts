@@ -9,13 +9,13 @@ import { piKernel } from "../../src/experiment/pi-kernel.js";
 import { FAILURES_FILE, PLAN_FILE, runExperiment } from "../../src/experiment/runner.js";
 import { SAMPLE_MR_CASE } from "../fixtures/sample-mr-case.js";
 import { type SseStep, type SseFetchScript, sixPhaseNoToolSteps, sseFetchScript } from "../helpers/pi-sse-fetch.js";
-import { experimentPlan, scriptedLlmClient } from "./helpers.js";
+import { experimentPlan } from "./helpers.js";
 
 /**
- * #8 P4a 执行缝离线集成：真 pi 内核（非桩 runReviewFn）经 runExperiment 全链
- * × A–E 全配置。piKernel 只注入 SSE fake 传输层——pi 内核从请求参数装配、
- * 六相位协议、Zone B/C 上下文构建（真仓库扫描 + tree-sitter）、审计落盘、
- * 记录映射全部真跑；root 侧断言缝的两端契约：
+ * #8 P4a 执行缝离线集成 / #9 P4b 单一内核：真 pi 内核（非桩 runReviewFn）经
+ * runExperiment 全链 × A–E 全配置。piKernel 只注入 SSE fake 传输层——pi 内核从
+ * 请求参数装配、六相位协议、Zone B/C 上下文构建（真仓库扫描 + tree-sitter）、
+ * 审计落盘、记录映射全部真跑；root 侧断言缝的两端契约：
  * - 记录完整：5 条 RunRecord 经 RunStore 布局落盘，usage 逐请求对账（6 × 脚本值）；
  * - pi 审计布局：<root>/audit/vul4j/<case>/<config>/rep-N/audit/<runId>.json，
  *   requests[].wireBody 在位且携带计划模型 id（重放字节真源）；
@@ -81,8 +81,7 @@ async function runOfflinePiExperiment(
     plan,
     [VUL4J_SAMPLE_CASE],
     {
-      // pi 路径零 legacy 触达哨兵：任何调用即脚本耗尽抛错
-      llmClient: scriptedLlmClient(0),
+      // legacy 运行时已随 #9 退役删除：deps 上已无 legacy 客户端注入位（零触达由类型系统钉死）
       kernel: piKernel({ apiKey: "offline-test-key", fetch: script.fetch }),
     },
     { experimentRoot },

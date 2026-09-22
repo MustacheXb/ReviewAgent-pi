@@ -27,8 +27,10 @@ export const DEFAULT_EXPERIMENT_MODEL: ExperimentModel = "deepseek-v4-flash";
 export type VerifierMode = "off" | "on";
 
 /**
- * 检视内核（#8 P4a 执行缝）：legacy = 根仓检视运行时（DSH 同构重写）；
- * pi = vendored pi 内核（packages/review-pi，ADR-0009 从 0 重写）。
+ * 检视内核（#8 P4a 执行缝 / #9 P4b 单一内核）：pi = vendored pi 内核
+ * （packages/review-pi，ADR-0009 从 0 重写），P4b 起唯一可执行值；
+ * legacy = 根仓检视运行时的历史值（已随 P4b 退役）——legacy 计划只读
+ * （--report-only 重建报告仍可消费，执行被 runner 内核守卫拒绝）。
  * 值类型落在本模块防 plan ↔ review-kernel 循环引用。
  */
 export type ReviewKernelId = "legacy" | "pi";
@@ -52,12 +54,13 @@ export interface ExperimentPlan {
   /** 检视模型（自由 id，#43；v4-pro 强制搭配 highRiskOnly，防误发全量矩阵） */
   readonly model: ExperimentModel;
   /**
-   * 检视内核（#8 P4a 执行缝）：同一 runner 的 executeUnit 可替换执行点——
-   * config 经请求参数逐单元切 preset（A–E），内核按计划整体切换。缺省 "legacy"。
-   * pi 恒 baseline-only：与 verifier="on" 互斥（校验拒绝）。记录不携带内核
-   * 标识（RunRecord schema 冻结），续跑一致性由 plan.json 内核冲突检测守护。
+   * 检视内核（#8 执行缝 / #9 P4b 单一内核）：P4b 起唯一可执行值 = "pi"
+   * （CLI 恒定注入）；"legacy" 仅作为历史计划（#8 前的 plan.json）的读侧值
+   * 保留——legacy 计划可 --report-only 重建，执行由 runner 内核守卫拒绝。
+   * 记录不携带内核标识（RunRecord schema 冻结），续跑一致性由 plan.json
+   * 内核冲突检测守护。
    */
-  readonly kernel?: ReviewKernelId;
+  readonly kernel: ReviewKernelId;
   /**
    * 检视链接入点（#43 manifest 留痕）：CLI 在 env 校验后装配
    * （REVIEWER_URL > DEEPSEEK_URL > 官方缺省，reviewerBaseUrlOf），随 plan.json
@@ -145,9 +148,11 @@ export function validateExperimentPlan(plan: ExperimentPlan): void {
   if (plan.verifier !== "off" && plan.verifier !== "on") {
     throw new Error(`plan.verifier must be "off" or "on" (got ${JSON.stringify(plan.verifier)})`);
   }
-  if (plan.kernel !== undefined && plan.kernel !== "legacy" && plan.kernel !== "pi") {
+  if (plan.kernel !== "legacy" && plan.kernel !== "pi") {
     throw new Error(
-      `plan.kernel must be "legacy" or "pi" when present (got ${JSON.stringify(plan.kernel)})`,
+      `plan.kernel must be "legacy" or "pi" (got ${JSON.stringify(plan.kernel)}): the only executable ` +
+        "kernel is \"pi\" (the legacy runtime was retired in P4b, #9); \"legacy\" is a read-only value " +
+        "for pre-#8 persisted plans",
     );
   }
   if (plan.kernel === "pi" && plan.verifier === "on") {

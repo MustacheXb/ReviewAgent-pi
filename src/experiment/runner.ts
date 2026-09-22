@@ -1,22 +1,17 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ConfigId } from "../instrument/contracts/config.js";
-import type { LlmClient } from "../instrument/contracts/llm-client.js";
 import type { MRCase } from "../instrument/contracts/mr-case.js";
 import type { RunResult } from "../instrument/contracts/run.js";
-import { addUsage } from "../loop/usage.js";
-import { DEFAULT_EFFORT } from "../run/run-review.js";
 import type { ExperimentPlan, ExpandedPlan, RunUnit } from "./plan.js";
 import { expandPlan } from "./plan.js";
-import { legacyKernel } from "./review-kernel.js";
 import type { ReviewKernel } from "./review-kernel.js";
-import type { RunRecord, RunSnapshot } from "./run-store.js";
+import type { RunRecord } from "./run-store.js";
 import { RunStore, toRunSnapshot } from "./run-store.js";
-import { runVerifierPass } from "./verifier.js";
 
 /**
- * 实验运行器（Ticket 12 / issue #13）：把 数据集 → runReview → 审计落盘 →
- * 二遍 Verifier（消融）→ 断点续跑 的矩阵执行串成一条命令。
+ * 实验运行器（Ticket 12 / issue #13）：把 数据集 → 内核执行缝（#8 起唯一在位
+ * 内核 = pi）→ 审计落盘 → 断点续跑 的矩阵执行串成一条命令。
  *
  * 纪律：
  * - 失败隔离：单 (case, config, rep) 失败不拖垮整批——留痕（failures）继续；
@@ -24,6 +19,9 @@ import { runVerifierPass } from "./verifier.js";
  * - 冷热分层：单元按 case → config → rep 顺序执行，记录按 rep 升序进入指标聚合
  *   （rep1 冷单列 / rep2+ 热主口径由 T10 aggregate 实现）；
  * - 模型/消融配置变更（model、verifier）与既有记录冲突时启动即报错，不静默重跑烧钱。
+ * - 二遍 Verifier 消融是 legacy 运行时特性（#8 已定 pi 恒 baseline-only），
+ *   P4b（#9）随内核退役——记录契约（verifier/effective/verifierPass 字段）
+ *   保留用于消费历史记录，执行面恒单遍。
  */
 
 export interface RunnerPaths {
@@ -32,13 +30,12 @@ export interface RunnerPaths {
 }
 
 export interface ExperimentDeps {
-  readonly llmClient: LlmClient;
   /**
-   * 检视内核（#8 执行缝）：缺省 legacyKernel(llmClient)。pi 内核经
-   * pi-kernel.ts 适配（仅 CLI 与测试装配，本模块零 pi import）。
-   * kernel.id 必须与 plan.kernel（缺省 legacy）一致——启动守卫。
+   * 检视内核（#8 执行缝；#9 P4b 起必填）：唯一在位实现 = pi（pi-kernel.ts
+   * 适配 packages/review-pi，仅 CLI 与测试装配，本模块零 pi import）。
+   * kernel.id 必须与 plan.kernel 一致——启动守卫。
    */
-  readonly kernel?: ReviewKernel;
+  readonly kernel: ReviewKernel;
   readonly now?: () => Date;
   /** 单元级进度回调（CLI 打印 / 测试观测；异常由运行器捕获后继续） */
   readonly onUnit?: (event: UnitEvent) => void;
@@ -138,24 +135,25 @@ export async function runExperiment(
 }
 
 /**
- * 内核解析 + 启动一致性守卫（#8 执行缝）：deps.kernel 缺省 legacyKernel(llmClient)。
- * kernel.id 必须与 plan.kernel（缺省 legacy）一致——记录不携带内核标识，
- * 「计划宣称 pi、实际跑 legacy」的静默错配即测量口径污染，启动即报错。
+ * 内核解析 + 启动一致性守卫（#8 执行缝 / #9 P4b 单一内核）：deps.kernel 必填。
+ * kernel.id 必须与 plan.kernel 一致——记录不携带内核标识，
+ * 「计划宣称 pi、实际跑他内核」的静默错配即测量口径污染，启动即报错。
  */
 function resolveKernel(plan: ExperimentPlan, deps: ExperimentDeps): ReviewKernel {
-  const kernel = deps.kernel ?? legacyKernel(deps.llmClient);
-  const planKernel = plan.kernel ?? "legacy";
-  if (kernel.id !== planKernel) {
+  const kernel = deps.kernel;
+  if (kernel.id !== plan.kernel) {
     throw new Error(
-      `kernel mismatch: plan.kernel = "${planKernel}" but the review kernel in place is "${kernel.id}". ` +
-        `Pass --kernel ${planKernel} (or supply the matching kernel via deps.kernel) before running; ` +
+      `kernel mismatch: plan.kernel = "${plan.kernel}" but the review kernel in place is "${kernel.id}". ` +
+        (plan.kernel === "legacy"
+          ? "the legacy runtime was retired in P4b (#9): legacy-era experiments are read-only (report-only) — run pi experiments under a new --id; "
+          : "") +
         "records do not carry the kernel id, a silent mismatch would corrupt the measurement.",
     );
   }
   return kernel;
 }
 
-/** 单元执行：检视基线经内核执行缝（ReviewKernel.execute，RunResult 同构）→ 可选二遍 Verifier → 记录落盘；失败留痕不拖垮整批 */
+/** 单元执行：检视基线经内核执行缝（ReviewKernel.execute，RunResult 同构）→ 记录落盘；失败留痕不拖垮整批 */
 async function executeUnit(
   unit: RunUnit,
   mrCase: MRCase,
@@ -167,8 +165,8 @@ async function executeUnit(
 ): Promise<UnitExecution> {
   const now = deps.now ?? (() => new Date());
   try {
-    // 检视基线（#8 执行缝：legacy = 根仓运行时；pi = vendored pi 内核；
-    // 审计落盘在内核内，runner 只消费 RunResult 与 auditPath）
+    // 检视基线（#8 执行缝，P4b 起唯一内核 = pi；审计落盘在内核内，
+    // runner 只消费 RunResult 与 auditPath）
     const baseline = await kernel.execute({
       unit,
       mrCase,
@@ -182,9 +180,9 @@ async function executeUnit(
           `result.model = ${JSON.stringify(baseline.model)}): persisting the record would be dishonest — fix the model route before rerunning`,
       );
     }
-    const { record } = await composeRecord(unit, mrCase, plan, baseline, deps, now);
+    const record = composeRecord(unit, plan, baseline, now);
     await store.save(record);
-    emit(deps, { kind: "completed", unit, findings: record.effective?.findings.length ?? record.baseline.findings.length });
+    emit(deps, { kind: "completed", unit, findings: record.baseline.findings.length });
     return { record, failure: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -193,54 +191,24 @@ async function executeUnit(
   }
 }
 
-/** 基线结果 + Verifier 消融 → RunRecord（不可变组装） */
-async function composeRecord(
+/** 基线结果 → RunRecord（不可变组装；verifier 恒 off——二遍消融随 legacy 运行时退役，#9） */
+function composeRecord(
   unit: RunUnit,
-  mrCase: MRCase,
   plan: ExperimentPlan,
   baseline: RunResult,
-  deps: ExperimentDeps,
   now: () => Date,
-): Promise<{ readonly record: RunRecord }> {
-  const baselineSnapshot = toRunSnapshot(baseline);
-  if (plan.verifier === "off") {
-    return {
-      record: {
-        source: unit.source,
-        caseId: unit.caseId,
-        configId: unit.configId,
-        rep: unit.rep,
-        model: plan.model,
-        verifier: "off",
-        completedAt: now().toISOString(),
-        baseline: baselineSnapshot,
-        effective: null,
-        verifierPass: null,
-      },
-    };
-  }
-  const pass = await runVerifierPass(mrCase, baseline.findings, deps.llmClient, {
-    model: plan.model,
-    effort: DEFAULT_EFFORT,
-  });
-  const effective: RunSnapshot = {
-    ...baselineSnapshot,
-    findings: pass.findings,
-    usage: addUsage(baselineSnapshot.usage, pass.record.usage),
-  };
+): RunRecord {
   return {
-    record: {
-      source: unit.source,
-      caseId: unit.caseId,
-      configId: unit.configId,
-      rep: unit.rep,
-      model: plan.model,
-      verifier: "on",
-      completedAt: now().toISOString(),
-      baseline: baselineSnapshot,
-      effective,
-      verifierPass: pass.record,
-    },
+    source: unit.source,
+    caseId: unit.caseId,
+    configId: unit.configId,
+    rep: unit.rep,
+    model: plan.model,
+    verifier: plan.verifier,
+    completedAt: now().toISOString(),
+    baseline: toRunSnapshot(baseline),
+    effective: null,
+    verifierPass: null,
   };
 }
 

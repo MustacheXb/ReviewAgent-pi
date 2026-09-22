@@ -1,16 +1,16 @@
-import path from "node:path";
-import { CONFIGS } from "../instrument/contracts/config.js";
-import type { LlmClient } from "../instrument/contracts/llm-client.js";
 import type { MRCase } from "../instrument/contracts/mr-case.js";
 import type { RunResult } from "../instrument/contracts/run.js";
-import { DEFAULT_EFFORT, runReview } from "../run/run-review.js";
 import type { ReviewKernelId, RunUnit } from "./plan.js";
-import { sanitizeCaseId } from "./run-store.js";
 
 /**
- * 内核执行缝（#8 P4a）：runner executeUnit 的可替换执行点——实验面与产品面
- * 共享同一内核协议。config 经请求参数逐单元切 preset（A–E），同一 runner 可
- * 按计划在旧运行时（legacy）与 pi 内核（pi，见 pi-kernel.ts）间切换。
+ * 内核执行缝（#8 P4a 立 / #9 P4b 收口到单一内核）：runner executeUnit 的
+ * 可替换执行点——实验面与产品面共享同一内核协议。config 经请求参数逐单元
+ * 切 preset（A–E）。
+ *
+ * P4b（#9）起仓库收敛到单一内核：legacy 实现（根仓检视运行时，六阶段骨架
+ * + Zone 注入 + 工具箱 + DeepSeek 客户端）已整批退役，唯一在位内核 = pi
+ * （pi-kernel.ts 适配 packages/review-pi）。缝保留——内核身份仍是 plan.kernel
+ * 的对账维度（断点续跑一致性守卫），未来内核仍经此接入，不再复活旧实现。
  *
  * 接口纪律（RunResult 同构）：
  * - execute 返回根仓 RunResult——记录组装、口径诚实护栏（model ≡ plan.model）、
@@ -37,28 +37,4 @@ export interface UnitReviewRequest {
 export interface ReviewKernel {
   readonly id: ReviewKernelId;
   execute(request: UnitReviewRequest): Promise<RunResult>;
-}
-
-/**
- * legacy 内核（缺省）：根仓检视运行时（六阶段骨架 + Zone 注入 + 工具箱）。
- * 审计布局与 #8 前的 runner 完全一致：
- * <experimentRoot>/audit/<source>/<safeCaseId>/<configId>/rep-<rep>/。
- */
-export function legacyKernel(llmClient: LlmClient): ReviewKernel {
-  return {
-    id: "legacy",
-    execute: (request) =>
-      runReview(CONFIGS[request.unit.configId], request.mrCase, llmClient, {
-        auditDir: path.join(
-          request.experimentRoot,
-          "audit",
-          request.unit.source,
-          sanitizeCaseId(request.unit.caseId),
-          request.unit.configId,
-          `rep-${request.unit.rep}`,
-        ),
-        model: request.model,
-        effort: DEFAULT_EFFORT,
-      }),
-  };
 }

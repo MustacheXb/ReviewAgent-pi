@@ -1,5 +1,6 @@
 /**
- * Judge 客户端错误分类（镜像 src/deepseek/errors.ts 的模式）。
+ * Judge 客户端错误分类（镜像已退役 DeepSeek 主客户端 src/deepseek/errors.ts
+ * 的模式，#9 P4b 留档：原实现见 git 历史与 archive 分支）。
  * 错误信息只包含状态码与服务端返回的 message/code，绝不包含 API key 或请求头。
  */
 

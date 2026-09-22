@@ -81,9 +81,9 @@ Finding/Evidence 契约与各纪律门              会话 / 审计投影机制
 | 代码面 | 处置 | 时点 |
 |---|---|---|
 | `packages/review-dsh` + `--kernel` 缝 + SDK 依赖 + CI discipline-gate | 移除 | ✅ 已完成（本提交） |
-| `src/deepseek`（791） | 随 runtime 退役——它是实验 CLI 的缺省客户端（`cli.ts` 活依赖），**不可先弃**（修正可行性分析中「可即弃」的判断） | P4 runner 接缝切换时 |
-| `src/{loop,run,tools,zoneb,codeintel,contracts,finding,audit,shared,fake}`（≈5.5k） | P2 字节门的期望生成器与行为参照，门绿后退役 | P4 同批 |
-| `tests/` 对应测试（全量 ≈20k 行） | 随宿主模块同进退 | 同批 |
+| `src/deepseek`（791） | 随 runtime 退役——它是实验 CLI 的缺省客户端（`cli.ts` 活依赖），**不可先弃**（修正可行性分析中「可即弃」的判断） | ✅ 已完成（P4b #9：随 runtime 同批退役；实验 CLI 客户端职责并入 `createPiKernel` 装配缝） |
+| `src/{loop,run,tools,zoneb,codeintel,contracts,finding,audit,shared,fake}`（≈5.5k） | P2 字节门的期望生成器与行为参照，门绿后退役 | ✅ 已完成（P4b #9：期望生成器角色收口说明见 ADR-0009 补记；读侧口径内联 `src/gate/candidate-gate.ts` 与 `src/instrument/cache-break.ts`） |
+| `tests/` 对应测试（全量 ≈20k 行） | 随宿主模块同进退 | ✅ 已完成（P4b #9 同批删除；受影响测试重写为 fake 内核 / 纯函数直测形态，读侧契约面保留覆盖） |
 | `packages/review-llm`、`src/{experiment,judge,metrics,sampling,calibration,gate,dataset,reference}` | 长期保留 | — |
 
 ## 4. pi 原语映射（设计文档要求 → pi 落点）
@@ -145,7 +145,7 @@ Config B 生产形态（2026-09-17 拍板：零工具 + 确定性预取）不因
 | P1 | pi walking skeleton | 单案 × config B 全链：自研组装 → pi-ai（网关）→ findings 解析 → 审计投影 → RunRecord；`onPayload` wire 捕获；usage 映射 | RunRecord 被 analyze 脚本原样消费；网关冒烟过；R2/R4/R6 就地关闭 |
 | P2 | 字节纪律门 | A/B `wireBody` vs DSH 审计真源逐字节对照（gate 复用 #22/#23 方法论，比较对象换 DSH 审计） | 零差异，或差异逐条登记为显式决策 |
 | P3 | 全配置面 + CLI | C/D/E 七工具上 agentLoop；`review-pi` CLI（形态对齐原 `review-agent`，含 smoke） | 工具语义等价 + 前缀稳定 |
-| P4 | 实验 runner 接入 | kernel 执行缝（runner `executeUnit` 的可替换执行点已预留注释）+ 450 单元矩阵 | 全矩阵可跑（断点续跑协议复用）；`src/` runtime 模块退役 |
+| P4 | 实验 runner 接入 | kernel 执行缝（runner `executeUnit` 的可替换执行点已预留注释）+ 450 单元矩阵 | ✅ P4a #8：全矩阵可跑（断点续跑协议复用）+ e2e 小样真跑；✅ P4b #9：`src/` runtime 模块 + deepseek 客户端退役（§3.4 全勾，收口说明见 ADR-0009 补记） |
 | P5 | 评测与对照 | judge + 指标复算 + DSH↔pi 对称 σ 带对齐门 + 对照报告 | 报告入 `docs/report/` |
 
 工作量感觉：从 0 面 ≈ 6k 行内核 + 1k 集成与测试；仪器 ≈ 10k 行平移基本不动。比 DSH 线整体省（装置 / 方法论 / 文档 / 数据全在）；**净成本集中在 P2 纪律工作与 P5 真跑**（pi 侧 450 单元 + judge 网关成本，量级与 phase2-dsh 一轮相当）。

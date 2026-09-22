@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { usage } from "../helpers/llm-script.js";
+import { usage } from "../helpers/usage.js";
 import { computeEfficiencyMetrics } from "../../src/metrics/efficiency.js";
 import { computePRF } from "../../src/metrics/quality.js";
 import { computeTokenMetrics, computeToolCostTokens } from "../../src/metrics/tokens.js";

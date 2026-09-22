@@ -3,7 +3,7 @@ import { buildMetricsReport, evaluateCase, meanFlatMetrics } from "../../src/met
 import { evaluateRun as evaluateRunForTest } from "../../src/metrics/aggregate.js";
 import { DEFAULT_METRICS_OPTIONS } from "../../src/metrics/types.js";
 import type { EvaluationInput, MetricsOptions } from "../../src/metrics/types.js";
-import { usage } from "../helpers/llm-script.js";
+import { usage } from "../helpers/usage.js";
 import { makeFinding, makeMrCase, makeRunResult, makeTruth, makeTruthLocation } from "./helpers.js";
 
 /**

@@ -4,10 +4,13 @@ import type { MRCase } from "../instrument/contracts/mr-case.js";
  * Claude Code 外部参照提示词（Ticket 13 / issue #14）。
  *
  * 同目标纪律：检视使命 / Finding Schema / Severity 定义与主 harness 的 Zone A
- * （src/loop/messages.ts SYSTEM_PROMPT）逐字对齐——外部参照比较的是同一检视目标
- * 下的跨模型能力，提示词差异会污染对比。差异仅两处（刻意保留）：
+ * 逐字对齐——外部参照比较的是同一检视目标下的跨模型能力，提示词差异会污染对比。
+ * 出身说明（#9 P4b）：对齐源是 legacy 运行时的 SYSTEM_PROMPT（原
+ * src/loop/messages.ts，已随内核退役；原字节见 git 历史与 archive 分支）。
+ * 本模板字节已冻结（版本锚见下），不随后续内核演进漂移——重对齐属新模板
+ * 版本决策，不属本仓 P4b 范围。差异仅两处（刻意保留）：
  * 1. Claude Code 以自身 agent 形态运行（可用仓库读取工具、自主多轮），
- *    不复刻主 harness 的六阶段骨架——参照测的是"Claude Code 本来的样子"；
+ *    不复刻检视 harness 的阶段骨架——参照测的是"Claude Code 本来的样子"；
  * 2. 输出载体从"每阶段一条 JSON 回复"改为"最终单条 {"findings": [...]}"。
  *
  * 模板版本：提示词演进时递增（随计划落盘并作续跑兼容守卫；旧记录不与新模板混跑）。

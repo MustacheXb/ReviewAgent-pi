@@ -12,7 +12,7 @@ import {
   type VerdictMetrics,
   type VerdictThresholds,
 } from "../../src/metrics/types.js";
-import { usage } from "../helpers/llm-script.js";
+import { usage } from "../helpers/usage.js";
 import { makeFinding, makeMrCase, makeRunResult, makeTruth, makeTruthLocation } from "./helpers.js";
 
 /**

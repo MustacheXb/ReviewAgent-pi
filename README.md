@@ -29,12 +29,14 @@
 ## 仓库结构
 
 ```
-src/                    评测装置 + POC1 运行时（experiment / judge / metrics / sampling /
-                        codeintel / zoneb / tools / gate / dataset / reference / …；
-                        运行时模块在 pi 线 P2 门绿、P4 接缝切换后退役，见《Pi 内核从零实现方案》§3）
+src/                    评测装置（experiment / judge / metrics / sampling / gate /
+                        dataset / reference / instrument …；POC1 运行时模块已随
+                        pi 线 P4b 退役，收口说明见 ADR-0009 补记）
 packages/{ai,agent,chord,telemetry}/
                         Pi 内核 vendor 基座（@earendil-works/*，`pnpm build:pi` 拓扑构建，
-                        见《Pi 内核定制基线方案》）；review-pi 将落此间（ADR-0009）
+                        见《Pi 内核定制基线方案》）
+packages/review-pi/     Review Runtime（pi 内核从 0 重写：六阶段骨架 + 七工具 +
+                        审计投影 + review-pi CLI + 字节纪律门本体，ADR-0009）
 packages/review-llm/    LLM 接入共享包（judge 仪器客户端 + 画像/退役清单单源）
 scripts/                实验 / 门 / 分析 / 物化脚本入口（tsc 即编即跑，产物落 .tmp-gen/）
 data/                   数据集清单与 MR 物化（vul4j / defects4j / msb-java / clean-mr）
@@ -49,7 +51,7 @@ reference_project/      外部参考项目（不入库，见下节）
 ```bash
 # 前置：Node >= 22，pnpm 10.30.3（corepack enable 即可）
 pnpm install
-pnpm test          # 全量回归（84 文件 / 1169 项）
+pnpm test          # 全量回归（66 文件 / 885 项）
 pnpm typecheck     # 根包类型检查
 ```
 

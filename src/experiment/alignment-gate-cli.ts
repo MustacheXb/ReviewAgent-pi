@@ -1,7 +1,7 @@
 /**
  * 对齐门 CLI（#31）——「一条命令跑指标对齐门 v2」。
  *
- * 参数解析共享骨架（src/shared/cli-args.ts，experiment / reference 双 CLI 同款）：
+ * 参数解析共享骨架（src/instrument/cli-args.ts，experiment / reference 双 CLI 同款）：
  * --flag value 与 --flag=value 两种取值形式、--help、裸 --（end-of-options）跳过、
  * 跨 CLI 错误消息语义一致；本文件只声明缺省值、flag 表与收尾装配。
  * 数值域规则不在解析层重复维护——finalize 统一经 validateAlignmentGateOptions

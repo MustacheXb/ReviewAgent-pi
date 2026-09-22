@@ -1,13 +1,22 @@
 import type { Finding } from "../instrument/contracts/finding.js";
 import type { CandidateRejection } from "../instrument/contracts/run.js";
 import { validateFinding } from "../instrument/finding-schema.js";
-import type { VerificationVerdict } from "../loop/parse.js";
 
 /**
  * Evidence Gate（"No Evidence, No Finding"）+ 候选拦截链。
  * 拦截顺序：Schema 校验 → 全英文检查 → 证据检查 → 验证裁决 → 重复 id。
  * 每个候选最多产生一条拦截记录（首个失败阶段），全部留痕进 RunAudit.rejections。
+ *
+ * 出身说明（#9 P4b）：本门源自 legacy 运行时的六阶段骨架（原 src/loop），
+ * 供判定链/指标消费记录时重放判定口径；原 VerificationVerdict 类型随宿主
+ * 退役，此处按原形内联（pass/reason 二字段，语义不变）。
  */
+
+/** 证据裁决（原 legacy loop/parse 的 VerificationVerdict，#9 内联保形） */
+export interface VerificationVerdict {
+  readonly pass: boolean;
+  readonly reason: string;
+}
 
 export interface GateInput {
   /** Deep Reasoning 阶段产出的原始候选对象 */

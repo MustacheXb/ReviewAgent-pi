@@ -1,8 +1,9 @@
 /**
  * LLM-as-judge 真实客户端（原生 fetch，OpenAI 兼容 chat completions，无 SDK）。
  *
- * HTTP/重试/脱敏/解析内核共享自 src/shared/openai-http-kernel.ts（与 DeepSeek 主客户端
- * 去重）；本文件只保留 judge 特有语义。
+ * HTTP/重试/脱敏/解析内核共享自 src/instrument/openai-http-kernel.ts（P4b 平移
+ * 自 src/shared/，原与 DeepSeek 主客户端去重；#9 后 DeepSeek 侧已退役）；本文件
+ * 只保留 judge 特有语义。
  *
  * 纪律：
  * - API key 仅经环境变量或显式参数注入，绝不硬编码、绝不出现在错误信息中；

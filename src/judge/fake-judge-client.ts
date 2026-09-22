@@ -1,5 +1,6 @@
 /**
- * 可编程 FakeJudgeClient（judge client 边界的测试替身，镜像 src/fake/fake-llm-client.ts 模式）。
+ * 可编程 FakeJudgeClient（judge client 边界的测试替身；模式承自已退役的
+ * legacy FakeLlmClient，#9 P4b 留档：原实现见 git 历史）。
  * - 脚本化裁定序列：按调用顺序消费 steps；
  * - 捕获收到的每个 JudgeRequest（结构化深拷贝，隔离被测代码的后续变更）；
  * - 错误注入：fail（异常，驱动 judge 链的有界失败分支）；
