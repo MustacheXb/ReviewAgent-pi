@@ -136,17 +136,30 @@ export async function runExperiment(
 
 /**
  * 内核解析 + 启动一致性守卫（#8 执行缝 / #9 P4b 单一内核）：deps.kernel 必填。
- * kernel.id 必须与 plan.kernel 一致——记录不携带内核标识，
- * 「计划宣称 pi、实际跑他内核」的静默错配即测量口径污染，启动即报错。
+ * legacy 计划无条件拒绝（只读承诺是结构而非约定——缝上复活 legacy 适配器
+ * 不能静默重开退役执行路径）；pi 恒 baseline-only（verifier on 是 legacy
+ * 消融面，落盘即「宣称复核而未跑」的撒谎记录）；kernel.id 必须与
+ * plan.kernel 一致——记录不携带内核标识，静默错配即测量口径污染，启动即报错。
  */
 function resolveKernel(plan: ExperimentPlan, deps: ExperimentDeps): ReviewKernel {
+  if (plan.kernel === "legacy") {
+    throw new Error(
+      'plan.kernel = "legacy": the legacy runtime was retired in P4b (#9) — legacy-era experiments are ' +
+        "read-only (consume via --report-only); run pi experiments under a new --id. this guard is " +
+        "unconditional on purpose: a legacy adapter revived at the kernel seam must not silently reopen " +
+        "a retired execution path (defense in depth beyond the id-equality check below).",
+    );
+  }
+  if (plan.kernel === "pi" && plan.verifier === "on") {
+    throw new Error(
+      'plan.kernel = "pi" with verifier "on": the pi kernel is baseline-only (verifier execution was retired ' +
+        "with the legacy runtime in P4b, #9) — a record would claim a verification pass that never ran.",
+    );
+  }
   const kernel = deps.kernel;
   if (kernel.id !== plan.kernel) {
     throw new Error(
       `kernel mismatch: plan.kernel = "${plan.kernel}" but the review kernel in place is "${kernel.id}". ` +
-        (plan.kernel === "legacy"
-          ? "the legacy runtime was retired in P4b (#9): legacy-era experiments are read-only (report-only) — run pi experiments under a new --id; "
-          : "") +
         "records do not carry the kernel id, a silent mismatch would corrupt the measurement.",
     );
   }

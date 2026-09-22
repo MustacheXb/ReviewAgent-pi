@@ -173,6 +173,37 @@ describe("runExperiment（#8 内核执行缝 / #9 单一内核）", () => {
     expect(existsSync(path.join(rootOf("kernel-guard").experimentRoot, PLAN_FILE))).toBe(false);
   });
 
+  it("legacy 只读是结构而非约定：缝上复活 id=legacy 的适配器 → 同样无条件拒绝（id 等价检查不能保护退役策略）", async () => {
+    const revived: ReviewKernel = {
+      id: "legacy",
+      execute: async () => {
+        throw new Error("revived legacy adapter must never execute");
+      },
+    };
+    await expect(
+      runExperiment(
+        experimentPlan({ experimentId: "kernel-revive", kernel: "legacy" }),
+        [experimentMainCase("kernel-revive-1")],
+        { kernel: revived },
+        rootOf("kernel-revive"),
+      ),
+    ).rejects.toThrow(/unconditional on purpose/);
+    expect(existsSync(path.join(rootOf("kernel-revive").experimentRoot, PLAN_FILE))).toBe(false);
+  });
+
+  it("pi 恒 baseline-only 是结构：绕过计划校验直调 runExperiment（pi + verifier on）→ 启动即拒绝（防「宣称复核而未跑」的撒谎记录）", async () => {
+    const { kernel } = recordingKernel();
+    await expect(
+      runExperiment(
+        experimentPlan({ experimentId: "kernel-pi-vf", kernel: "pi", verifier: "on" }),
+        [experimentMainCase("kernel-pi-vf-1")],
+        { kernel },
+        rootOf("kernel-pi-vf"),
+      ),
+    ).rejects.toThrow(/baseline-only/);
+    expect(existsSync(path.join(rootOf("kernel-pi-vf").experimentRoot, PLAN_FILE))).toBe(false);
+  });
+
   it("口径诚实护栏在缝上同样生效：内核返回 model ≠ plan.model → 单元失败留痕，不落记录", async () => {
     const { kernel } = recordingKernel((request) => ({
       ...kernelResultOf(request),

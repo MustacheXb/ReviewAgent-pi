@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -496,6 +496,42 @@ describe("Verifier 消融读面（历史 legacy 记录；#9 后执行面退役�
     // on 档（复核后）零命中；off 档（基线）保留对照口径
     expect(report.verifierAblation?.perConfig[0]?.on?.lineRecall).toBe(0);
     expect(report.verifierAblation?.perConfig[0]?.off?.lineRecall).toBe(1);
+  });
+
+  it("端到端：#8 前落档的 legacy 实验目录（plan.json 无 kernel 键 + verifier on 记录）→ report-only 重建出含消融的报告（ADR-0009 补记承诺）", async () => {
+    // 手工落一个 #8 前的真实形态实验目录：plan.json 无 kernel 键、verifier "on"，
+    // 记录带复核留痕——执行面已退役，只能这样落档
+    const experimentRoot = path.join(workDir, "legacy-report-only");
+    await mkdir(experimentRoot, { recursive: true });
+    const case_ = experimentMainCase("vf-legacy-e2e-1");
+    const legacyPlan: Record<string, unknown> = {
+      ...experimentPlan({ experimentId: "legacy-report-only", verifier: "on", configs: ["A"], reps: 2 }),
+    };
+    delete legacyPlan.kernel;
+    await writeFile(path.join(experimentRoot, "plan.json"), JSON.stringify(legacyPlan), "utf8");
+    await writeFile(path.join(experimentRoot, "cases.json"), JSON.stringify([case_]), "utf8");
+    const store = new RunStore(path.join(experimentRoot, "runs"));
+    const records = [1, 2].map((rep) =>
+      craftVerifierOnRecord({ source: "defects4j", caseId: "vf-legacy-e2e-1", configId: "A", rep }),
+    );
+    for (const record of records) {
+      await store.save(record);
+    }
+
+    // --report-only 同一重建入口：历史计划归一 legacy（只读），消费不经过执行守卫
+    const outcome = await rebuildExperimentOutcome(
+      experimentRoot,
+      () => loadPersistedPlan(experimentRoot),
+      () => loadPersistedCases(experimentRoot),
+    );
+    expect(outcome.plan.kernel).toBe("legacy");
+    expect(outcome.plan.verifier).toBe("on");
+    expect(outcome.resumed).toBe(2);
+    expect(outcome.records).toHaveLength(2);
+    // 重建出的报告携带消融面（历史记录的复核留痕仍被读侧消费）
+    const report = await buildExperimentReport(outcome, {}, { experimentRoot });
+    expect(report.verifierAblation).not.toBeNull();
+    expect(report.verifierAblation?.perConfig[0]).toMatchObject({ configId: "A", removedFindings: 0 });
   });
 });
 
