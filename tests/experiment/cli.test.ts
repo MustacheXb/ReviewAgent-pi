@@ -683,6 +683,135 @@ describe("runExperimentCli — 异构校验预检（#43：同源判定以被测�
   });
 });
 
+describe("runExperimentCli — --report-only 异构预检对照持久化计划（#16）", () => {
+  function noFileResult(): EnvLocalLoadResult {
+    return { filePath: ".env.local", exists: false, loadedKeys: [], skippedKeys: [], malformedLines: [] };
+  }
+
+  interface Captured {
+    model?: string | null;
+    downgrade?: boolean;
+    customEndpoint?: boolean;
+    reviewerModel?: string;
+  }
+
+  /** 两步共用的 CLI 驱动器：cases.json 幂等落盘 + fake 内核 + 捕获 judge 工厂入参 */
+  async function runCaptured(
+    workDir: string,
+    argv: readonly string[],
+    env: Record<string, string | undefined>,
+    captured: Captured,
+  ): Promise<{ readonly exitCode: number; readonly logs: string[] }> {
+    const casesFile = path.join(workDir, "cases.json");
+    await writeFile(casesFile, JSON.stringify([experimentMainCase("report-only-model-case")]), "utf8");
+    const fakeJudge = FakeJudgeClient.fromAdjudications([judgeAdjudication()]);
+    const logs: string[] = [];
+    const exitCode = await runExperimentCli(
+      [...argv, "--configs", "C", "--reps", "1", "--cases-file", casesFile, "--runs-root", workDir],
+      {
+        env,
+        createPiKernel: () => recordingKernel().kernel,
+        createJudgeClient: (model, context) => {
+          captured.model = model;
+          captured.downgrade = context.heterogeneityDowngraded;
+          captured.customEndpoint = context.customLlmEndpoint;
+          captured.reviewerModel = context.reviewerModel;
+          return fakeJudge;
+        },
+        loadEnvLocal: () => noFileResult(),
+        log: (line) => logs.push(line),
+      },
+    );
+    return { exitCode, logs };
+  }
+
+  it("report-only 指向 glm 被测实验、不传 --model → 预检按持久化 model 判定（CLI 缺省模型不再误拦）", async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), "review-agent-report-only-pass-"));
+    try {
+      // 第一步：真跑出持久化实验目录（被测 glm-4.7 / judge deepseek-v4-flash，异源放行）
+      const first = await runCaptured(
+        workDir,
+        ["--id", "report-only-pass", "--model", "glm-4.7", "--judge", "--judge-model", "deepseek-v4-flash"],
+        { REVIEWER_API_KEY: "test-reviewer-key-001", JUDGE_API_KEY: "test-judge-key-001" },
+        {},
+      );
+      expect(first.exitCode).toBe(0);
+
+      // 第二步：--report-only 复算、不传 --model（CLI 计划落缺省 deepseek-v4-flash——
+      // 与 judge 同源；修复前预检按 CLI 模型误拦 exit 2，修复后按持久化 glm-4.7 放行）
+      const captured: Captured = {};
+      const second = await runCaptured(
+        workDir,
+        ["--id", "report-only-pass", "--report-only", "--judge", "--judge-model", "deepseek-v4-flash"],
+        { JUDGE_API_KEY: "test-judge-key-001" },
+        captured,
+      );
+      expect(second.exitCode).toBe(0);
+      expect(second.logs.join("\n")).not.toContain("same-source");
+      // judge 工厂上下文 = 持久化计划的 model / judgeModel（与实际被报告的数据同源）
+      expect(captured.reviewerModel).toBe("glm-4.7");
+      expect(captured.model).toBe("deepseek-v4-flash");
+      expect(captured.downgrade).toBe(false);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it("report-only 传与持久化不同的 --model → 预检仍按持久化 model 判定（CLI 异值不再误放）", async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), "review-agent-report-only-block-"));
+    try {
+      // 第一步：自定义接入点降级放行，跑出 deepseek/deepseek 同源实验目录
+      const first = await runCaptured(
+        workDir,
+        ["--id", "report-only-block", "--model", "deepseek-v4-flash", "--judge", "--judge-model", "deepseek-v4-flash"],
+        {
+          REVIEWER_API_KEY: "test-reviewer-key-001",
+          JUDGE_API_KEY: "test-judge-key-001",
+          REVIEWER_URL: "https://gw.example.com",
+        },
+        {},
+      );
+      expect(first.exitCode).toBe(0);
+
+      // 第二步：无自定义端点 + CLI --model glm-4.7（异值）——修复前按 CLI 判异源误放，
+      // 修复后按持久化 deepseek/deepseek 同源拦截（exit 2，judge 工厂未被调用）
+      const captured: Captured = {};
+      const second = await runCaptured(
+        workDir,
+        [
+          "--id", "report-only-block", "--report-only", "--judge", "--judge-model", "deepseek-v4-flash",
+          "--model", "glm-4.7",
+        ],
+        { JUDGE_API_KEY: "test-judge-key-001" },
+        captured,
+      );
+      expect(second.exitCode).toBe(2);
+      expect(second.logs.join("\n")).toContain("heterogeneous");
+      expect(captured.model).toBeUndefined();
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it("report-only 指向不存在实验目录 → 持久化计划载入失败 exit 2（错误文案与重建路径一致）", async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), "review-agent-report-only-missing-"));
+    try {
+      const { exitCode, logs } = await runCaptured(
+        workDir,
+        ["--id", "no-such-experiment", "--report-only", "--judge", "--judge-model", "deepseek-v4-flash"],
+        { JUDGE_API_KEY: "test-judge-key-001" },
+        {},
+      );
+      expect(exitCode).toBe(2);
+      const joined = logs.join("\n");
+      expect(joined).toContain("no plan.json");
+      expect(joined).toContain("run the experiment first");
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("内核选择收口（#8 P4a 执行缝 / #9 P4b 单一内核）", () => {
   function noFileResult(): EnvLocalLoadResult {
     return { filePath: ".env.local", exists: false, loadedKeys: [], skippedKeys: [], malformedLines: [] };

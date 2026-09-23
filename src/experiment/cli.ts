@@ -311,6 +311,11 @@ export function cliOptionsToPlan(options: ExperimentCliOptions): ExperimentPlan 
 export interface JudgeClientContext extends HeterogeneityOptions {
   /** 同源判定对照系 = 被测模型 id（预检 judgeHeterogeneityOf 同参） */
   readonly reviewerModel: string;
+  /**
+   * 预检与工厂共用的 judge 模型 id（#16：--report-only 时取持久化计划的
+   * judgeModel（缺省回落 CLI 选项），使判定对象与被报告的数据同源）。
+   */
+  readonly judgeModel: string | null;
   /** true = 异构校验降级放行（同源 + 自定义接入点不可机械判定）：judge 客户端跳过同源拒绝 */
   readonly heterogeneityDowngraded: boolean;
   /** true = 部署经自定义 LLM 接入点（任一侧 URL env 在场）：无信封家族信封回落保守默认 */
@@ -419,16 +424,37 @@ export async function runExperimentCli(
   // #43：manifest（plan.json）留痕检视链接入点——与客户端构造期 resolveEndpointUrl
   // 同序同结果（CLI 从不传 baseUrl 选项）；只记录「连到哪」，绝不记录 key
   plan = { ...plan, reviewerBaseUrl: reviewerBaseUrlOf(resolved.env) };
+  const experimentRoot = path.resolve(options.runsRoot, options.experimentId);
+  // #16：--report-only 的报告按持久化计划重建，异构预检与 judge 上下文的
+  // 对照系（被测 model / judge model）须取持久化计划——CLI 选项模型此时
+  // 缺省值可能与实际被报告的数据不同源（误拦），异值则可能误放
+  let persistedPlan: ExperimentPlan | null = null;
+  if (options.reportOnly) {
+    try {
+      persistedPlan = await loadPersistedPlan(experimentRoot);
+    } catch (error) {
+      resolved.log(`experiment "${options.experimentId}" failed: ${errorMessage(error)}`);
+      return 2;
+    }
+  }
+  const precheckPlan: ExperimentPlan =
+    persistedPlan === null
+      ? plan
+      : {
+          ...plan,
+          model: persistedPlan.model,
+          judgeModel: persistedPlan.judgeModel ?? plan.judgeModel,
+        };
   // #43 异构预检：同源判定以被测模型为对照系（精确同 id 或同已知 provider
   // 家族）——judge 与被测同源且双侧官方端点时报错阻断（不烧检视预算）；
   // 任一侧自定义接入点设定时机械判定不可能，降级为 warning 放行（异构性转为
   // 实验者责任，spec #40 user story 6）。判定结果与标记下传 judge 工厂。
   const customLlmEndpoint = hasCustomLlmEndpoint(resolved.env);
   let judgeHeterogeneityDowngraded = false;
-  if (plan.judge) {
+  if (precheckPlan.judge) {
     const verdict = judgeHeterogeneityOf(
-      plan.judgeModel ?? DEFAULT_JUDGE_MODEL,
-      plan.model,
+      precheckPlan.judgeModel ?? DEFAULT_JUDGE_MODEL,
+      precheckPlan.model,
       customLlmEndpoint,
     );
     if (verdict.kind === "error") {
@@ -440,10 +466,10 @@ export async function runExperimentCli(
       judgeHeterogeneityDowngraded = true;
     }
   }
-  const experimentRoot = path.resolve(options.runsRoot, options.experimentId);
   try {
     return await executeCli(plan, options, experimentRoot, resolved, {
-      reviewerModel: plan.model,
+      reviewerModel: precheckPlan.model,
+      judgeModel: precheckPlan.judgeModel,
       heterogeneityDowngraded: judgeHeterogeneityDowngraded,
       customLlmEndpoint,
     });
@@ -481,7 +507,8 @@ function buildJudgeDeps(
 ): ReportDeps {
   return plan.judge
     ? {
-        judgeClient: deps.createJudgeClient(plan.judgeModel, judgeContext),
+        // #16：judge 模型取预检上下文（report-only 时为持久化计划的 judgeModel）
+        judgeClient: deps.createJudgeClient(judgeContext.judgeModel, judgeContext),
         onJudgeUnit: (event) => deps.log(`  judge ${event.unit}: ${event.status}`),
       }
     : {};
