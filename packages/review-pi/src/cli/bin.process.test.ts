@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 import { checkRuntimeArtifacts } from "../../bin/lib/cli-runtime.js";
+import { eRunRecordJson } from "../disposition/run-record-fixture.js";
 import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
 import { goldenFixture } from "../testing/golden.js";
@@ -501,4 +502,88 @@ test("smoke 子命令：网关不可达 → exit 1 + 人话诊断（健康探针
   expect(run.stdout).toContain("FAILED");
   expect(run.stdout).toContain("gateway unreachable at http://127.0.0.1:9/v1");
   expect(run.stdout).toContain("skipped: the gateway is unreachable");
+});
+
+// ---- disposition 命令面（#15：本地数据面，无网络、不碰 .env.local） ----
+// 夹具与 command.test.ts 共享单源（run-record-fixture.ts，E 形态生产入口锚）。
+
+test(
+  "disposition 记录 + KPI（进程面）：无凭据可跑、.env.local 在场也不装载（无网络命令）、落库可回溯",
+  async () => {
+    const dir = makeTempDir("review-pi-disposition-");
+    const runRecordPath = path.join(dir, "rep-1.json");
+    writeFileSync(runRecordPath, eRunRecordJson(), "utf8");
+    const storePath = path.join(dir, "dispositions.json");
+
+    // 记录处置：cwd 里种了 .env.local 诱饵——disposition 无网络，绝不装载（stderr 必须干净）
+    const record = await runBin(
+      [
+        "disposition",
+        "--run",
+        runRecordPath,
+        "--finding",
+        "F100",
+        "--decision",
+        "accept",
+        "--note",
+        "真实缺陷，接受",
+        "--store",
+        storePath,
+      ],
+      { seedEnvLocal: `REVIEWER_URL=http://127.0.0.1:9/v1\nREVIEWER_API_KEY=${DECOY_KEY}\n` },
+    );
+    expect(record.status).toBe(0);
+    expect(record.stderr).toBe("");
+    const recordOutcome = JSON.parse(record.stdout) as {
+      ok: boolean;
+      store: string;
+      recordCount: number;
+      disposition: { findingId: string; disposition: string; caseId: string; configId: string; note: string };
+    };
+    expect(recordOutcome).toMatchObject({
+      ok: true,
+      store: storePath,
+      recordCount: 1,
+      disposition: {
+        findingId: "F100",
+        disposition: "accept",
+        caseId: "VUL4J-1",
+        configId: "E",
+        note: "真实缺陷，接受",
+      },
+    });
+    // 落库面：处置记录在库中（回溯锚齐备）；key 纪律全输出面扫描
+    const store = JSON.parse(readFileSync(storePath, "utf8")) as unknown[];
+    expect(store).toHaveLength(1);
+    expectNoKeyLeak([
+      { label: "stdout", text: record.stdout },
+      { label: "stderr", text: record.stderr },
+      { label: "store", text: JSON.stringify(store) },
+    ]);
+
+    // KPI 面：绝对口径直出单 JSON 文档
+    const stats = await runBin(["disposition", "--stats", "--store", storePath], {});
+    expect(stats.status).toBe(0);
+    expect(JSON.parse(stats.stdout)).toEqual({
+      ok: true,
+      store: storePath,
+      accepted: 1,
+      rejected: 0,
+      falsePositive: 0,
+      total: 1,
+      acceptanceRate: 1,
+    });
+  },
+  180_000,
+);
+
+test("disposition 用法错误（非法 --decision）：exit 1 + 人话错误 + usage 文案 + stdout 干净", async () => {
+  const run = await runBin(
+    ["disposition", "--run", "x.json", "--finding", "F1", "--decision", "maybe"],
+    { timeoutMs: 30_000 },
+  );
+  expect(run.status).toBe(1);
+  expect(run.stdout).toBe("");
+  expect(run.stderr).toContain('invalid --decision "maybe"');
+  expect(run.stderr).toContain("usage:");
 });

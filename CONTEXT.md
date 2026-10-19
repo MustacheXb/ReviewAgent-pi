@@ -61,6 +61,14 @@ _Avoid_: 评论、告警、issue（泛化）
 **Risk Class**:
 变更的风险分级（Low / Medium / High），决定 C 级上下文加载深度与证据等级。
 
+**处置（Disposition）**:
+人工对单条 Finding 的判定（accept / reject / false-positive），经 review-pi CLI 落库（append-only；回溯锚 = source/caseId/configId/rep/model + findingId，与 RunRecord 对齐）；同一 finding 重复处置按 notedAt latest-wins。
+_Avoid_: 判级（judge 属评测链；处置是人工生产面）
+
+**人工接受率（Acceptance Rate）**:
+生产 KPI：accepted / totalDispositioned，绝对口径直接从处置库算出（total=0 → null，空集不冒充 0）——与评测判级解耦。
+_Avoid_: 相对锚口径（不依赖评测结论）、把 reject/false-positive 计入接受
+
 ### 运行时边界
 
 **核内（Review Runtime）**:
@@ -74,6 +82,10 @@ _Avoid_: 自定义 Loop（替换内核 loop 的机制，DSH 线已否；pi 线�
 **核外（研究工具链）**:
 服务于实验而非检视会话的层：数据集构造、判定链、指标聚合、实验运行器、外部参照；普通库被 CLI 调用，不进内核。
 _Avoid_: 实验插件
+
+**翻译投影（Translation Projection）**:
+核外呈现工具：消费检视产出的英文文档做中文呈现，仅译自然语言字段（findings 叙述、resultSummary），结构化字段字节直通；投影自带留痕（呈现语言、术语表版本、源 finding 关联）。检视输出恒英文——测量面冻结，语言是呈现配置而非实验自变量（ADR-0010）。
+_Avoid_: 输出语言配置（暗示内核参数化缝）、双语内核（检视链整体留在已验证英文域，S 级结论零迁移）
 
 **测量常量面（Measurement-Constant Face）**:
 内核对照实验中必须 byte / 行为一致的半边：Zone A 提示词、Zone B 组装、六阶段 Loop 语义、Finding/Evidence 契约、判定链、指标公式、数据集；A/B 配置要求请求字节一致（ADR-0009）。

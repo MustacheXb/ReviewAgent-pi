@@ -18,7 +18,12 @@ export type ReviewOutcome = Pick<
   "caseId" | "configId" | "runId" | "truncated" | "rounds" | "toolCalls" | "findings"
 > & { readonly auditPath: string };
 
+/** ok 包络 + 两空格缩进 JSON 整写 + 尾随换行（stdout 单文档纪律的公共面；disposition 命令复用） */
+export function renderJsonDocument(document: Record<string, unknown>): string {
+  return `${JSON.stringify(document, null, 2)}\n`;
+}
+
 /** ok 包络 + 两空格缩进 JSON 整写 + 尾随换行 */
 export function renderReviewOutcome(outcome: ReviewOutcome): string {
-  return `${JSON.stringify({ ok: true, ...outcome }, null, 2)}\n`;
+  return renderJsonDocument({ ok: true, ...outcome });
 }

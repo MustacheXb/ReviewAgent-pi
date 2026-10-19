@@ -9,35 +9,41 @@
  *   （缺省；--config A-E 透传内核配置矩阵）→ 审计/记录落盘（--out）→
  *   stdout 单 JSON 文档（render.ts，已测）；
  * - smoke：双探针（网关健康 + 模型可达，gateway-probe.ts 已测）→ stdout
- *   人话报告。
+ *   人话报告；
+ * - disposition（#15）：Finding 人工处置落库 + 接受率 KPI，编排全在
+ *   disposition/command.ts（已测）——本地数据面：无网络、不解析凭据、
+ *   不碰 .env.local（与 review/smoke 的实质差异，分发在装载面之前）。
  *
  * 退出码契约（票面三态）：成功（含诚实截断——防御性失败不是运行失败）0 /
  * 其余中止或错误 1；截断信号由 stdout JSON 的 truncated=true 携带。
- * smoke 按诊断结论给码（通过 0 / 任何失败诊断 1）。
- * 退出一律走 exitGracefully（exitCode + 自然排干）：立即 process.exit 在
- * Windows 上与 undici/AbortSignal 句柄清理竞态，退出码被吞成 0xC0000409。
+ * smoke 按诊断结论给码（通过 0 / 任何失败诊断 1）。disposition 成功 0 /
+ * 用法与校验错误 1。退出一律走 exitGracefully（exitCode + 自然排干）：
+ * 立即 process.exit 在 Windows 上与 undici/AbortSignal 句柄清理竞态，
+ * 退出码被吞成 0xC0000409。
  *
- * stdout 纪律：review 的 stdout 契约是单个 JSON 文档——.env.local 摘要与
- * 一切诊断走 stderr。凭据经 REVIEWER_*（> 旧 DEEPSEEK_* 别名）环境变量
- * 或进程 cwd 的 .env.local（已有环境变量优先），key 绝不回显。
+ * stdout 纪律：review 与 disposition 的 stdout 契约都是单个 JSON 文档——
+ * .env.local 摘要与一切诊断走 stderr。凭据经 REVIEWER_*（> 旧
+ * DEEPSEEK_* 别名）环境变量或进程 cwd 的 .env.local（已有环境变量优先），
+ * key 绝不回显。
  *
  * 进程调用形态：review-pi review --repo <path> --mr <diff-file>
  *   [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
  *   review-pi smoke [--model <id>]
+ *   review-pi disposition --run <run-record.json> --finding <id>
+ *   --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
+ *   review-pi disposition --stats ([--store <file>] | [--out <dir>])
  */
 
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { runDispositionCommand } from "../disposition/command.js";
 import { formatSmokeDiagnostics, runSmokeProbes } from "../provider/gateway-probe.js";
 import { resolveReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runReview } from "../run/review-run.js";
 import { formatEnvLocalSummary, loadEnvLocalFile } from "../shared/env-local.js";
-import { parseCliArgs, USAGE_TEXT, type ReviewCliArgs, type SmokeCliArgs } from "./args.js";
+import { CLI_EXPERIMENT_ID, parseCliArgs, USAGE_TEXT, type ReviewCliArgs, type SmokeCliArgs } from "./args.js";
 import { renderReviewOutcome } from "./render.js";
-
-/** CLI 运行留痕的实验目录名（<out>/<experimentId>/runs|audit/...，与 runs/ 布局同构） */
-const CLI_EXPERIMENT_ID = "review-pi-cli";
 
 /** 执行一次 review 命令；返回进程退出码（完成 0——截断同为 0；错误经异常上抛 → 1） */
 async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
@@ -131,6 +137,14 @@ function main(): void {
     return;
   }
 
+  // disposition 无网络：不解析凭据、不碰 .env.local——在装载面之前分流
+  if (parsed.command === "disposition") {
+    runDispositionCommand(parsed.args)
+      .then((document) => writeStdout(document).then(() => exitGracefully(0)))
+      .catch(reportErrorAndExit);
+    return;
+  }
+
   // .env.local：用法解析成功后才触碰文件系统；必须在凭据解析前。
   // 读失败（非缺失，如 EACCES/EISDIR）→ 干净人话错误 + exit 1（不留未捕获堆栈）。
   try {
@@ -148,12 +162,13 @@ function main(): void {
   }
 
   const command = parsed.command === "smoke" ? runSmokeCommand(parsed.args) : runReviewCommand(parsed.args);
-  command
-    .then((code) => exitGracefully(code))
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`review-pi: ${message}\n`, () => exitGracefully(1));
-    });
+  command.then((code) => exitGracefully(code)).catch(reportErrorAndExit);
+}
+
+/** 命令异常 → stderr 人话 + exit 1（不落堆栈：输入/环境错误是预期路径） */
+function reportErrorAndExit(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`review-pi: ${message}\n`, () => exitGracefully(1));
 }
 
 main();
