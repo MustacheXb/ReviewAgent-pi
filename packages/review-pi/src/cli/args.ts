@@ -12,7 +12,9 @@ import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
  * （A–E 矩阵真源）。
  *
  * pi 线差异（自立决策，不从 DSH 仓导入）：
- * - 缺省 config = B（生产形态：零工具 + 确定性预取管线；DSH 线缺省 A）；
+ * - 缺省 config = E（生产入口切流，ADR-0011：自主拉取 + Context Ledger；
+ *   2026-10-19 决策前曾为 B——P3b 时代「生产形态」口径已随选型死亡；
+ *   DSH 线缺省 A）；
  * - 无 --language 旗标（输出语言是 DSH 线后分家决策，pi 线自立 ADR 前不实装）；
  * - smoke 只认 --model（双探针自检不跑检视，参数面自然更窄）；
  * - disposition（#15）本地数据面：无网络无凭据；--decision 三值枚举在
@@ -69,7 +71,7 @@ export const USAGE_TEXT = `usage: review-pi review --repo <path> --mr <diff-file
 review 旗标：
   --repo    <path>       仓库快照根目录（必需）
   --mr      <diff-file>  MR diff 文件路径（必需；caseId = 文件名去扩展名）
-  --config  <A-E>        配置形态（缺省 B = 生产形态：零工具 + 确定性预取）
+  --config  <A-E>        配置形态（缺省 E = 生产入口：自主拉取 + Context Ledger，ADR-0011 切流）
   --issue   <text>       MR 议题描述（缺省空）
   --out     <dir>        输出目录（审计与运行记录落盘；缺省 ${DEFAULT_OUT_DIR}）
   --model   <id>         评审模型 id（缺省 ${REVIEW_MODEL_ID}；自由 id 透传）
@@ -307,7 +309,7 @@ export function parseCliArgs(argv: readonly string[]): ParseCliArgsResult {
   return parseReviewArgs(flags.values, model.model);
 }
 
-/** review 面必填与缺省：--repo / --mr（caseId = 文件名去扩展名）、--config 缺省 B、--issue 缺省空 */
+/** review 面必填与缺省：--repo / --mr（caseId = 文件名去扩展名）、--config 缺省 E（ADR-0011 切流）、--issue 缺省空 */
 function parseReviewArgs(
   values: Map<string, string>,
   model: string,
@@ -320,7 +322,7 @@ function parseReviewArgs(
   if (mr === undefined) {
     return { ok: false, message: "missing required flag --mr" };
   }
-  const configRaw = values.get("--config") ?? "B";
+  const configRaw = values.get("--config") ?? "E";
   if (!(configRaw in CONFIGS)) {
     return { ok: false, message: `invalid --config ${JSON.stringify(configRaw)}: expected one of A, B, C, D, E` };
   }

@@ -44,8 +44,8 @@ export interface ReviewRunInput {
   readonly diff: string;
   readonly issueDescription: string;
   readonly apiKey: string;
-  /** 驱动配置（缺省 B；A/B 之外未实装） */
-  readonly configId?: ConfigId;
+  /** 驱动配置（必填显式——缺省只存在于 CLI 用户面，ADR-0011 切流后缺省 = E） */
+  readonly configId: ConfigId;
   /** 预取注入（仅 config B;缺省现场计算;门缓存缝） */
   readonly prefetch?: PrefetchContext;
   /** 网关 base URL（#4 真跑：REVIEWER_URL 解析产物；缺省官方 api.deepseek.com） */
@@ -78,7 +78,8 @@ export interface ReviewRunResult {
 }
 
 export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult> {
-  const configId = input.configId ?? "B";
+  // configId 必填显式（ADR-0011 切流：程序化接口无缺省，缺省只在 CLI 用户面 = E）
+  const configId = input.configId;
   const config = CONFIGS[configId];
   const startedAt = input.startedAt ?? new Date();
   const modelId = input.modelId ?? REVIEW_MODEL_ID;

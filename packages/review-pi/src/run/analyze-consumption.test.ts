@@ -80,6 +80,7 @@ test.skipIf(
       diff: goldenFixture("vul4j-1.diff"),
       issueDescription: VUL4J_1_ISSUE,
       apiKey: "offline-test",
+      configId: "B",
       fetch: script.fetch,
       runsRoot: fixtureRoot,
       experimentId: "phase2-smoke",

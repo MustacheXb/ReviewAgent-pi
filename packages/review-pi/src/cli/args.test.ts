@@ -7,7 +7,8 @@ import { parseCliArgs, USAGE_TEXT } from "./args.js";
 // `review-pi smoke` / `review-pi disposition` 三个子命令的 argv 用法面。
 // 形态对齐 DSH 线 args.ts（union 结果、不抛异常——用户输入错误是预期
 // 路径），pi 线差异：
-// - 缺省 config = B（生产形态：零工具 + 确定性预取；DSH 线缺省 A）；
+// - 缺省 config = E（生产入口切流，ADR-0011：自主拉取 + Context Ledger；
+//   2026-10-19 决策前曾为 B；DSH 线缺省 A）；
 // - 无 --language 旗标（输出语言是 DSH 线后分家决策，pi 线自立 ADR 前不实装）；
 // - smoke = P1b 双探针（无工具调用探针——config B 零工具，检视链不需要）；
 // - disposition（#15）= Finding 处置落库 + KPI：本地数据面，--decision
@@ -24,7 +25,7 @@ test("空 argv 与未知子命令 → 用法错误（不抛异常）", () => {
   });
 });
 
-test("review 最小 argv：必填旗标 + 全缺省（config B / out / model / issue）", () => {
+test("review 最小 argv：必填旗标 + 全缺省（config E = 生产入口切流 ADR-0011 / out / model / issue）", () => {
   const parsed = parseCliArgs(["review", "--repo", "repo", "--mr", "case.diff"]);
   expect(parsed).toEqual({
     ok: true,
@@ -33,7 +34,7 @@ test("review 最小 argv：必填旗标 + 全缺省（config B / out / model / i
       repo: "repo",
       mr: "case.diff",
       caseId: "case",
-      config: "B",
+      config: "E",
       issue: "",
       out: "review-pi-output",
       model: REVIEW_MODEL_ID,

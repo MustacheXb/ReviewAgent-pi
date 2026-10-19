@@ -127,6 +127,7 @@ test.skipIf(SKIP_REASON !== null)(
       diff: goldenFixture("vul4j-1.diff"),
       issueDescription: VUL4J_1_ISSUE,
       apiKey: endpoint.apiKey,
+      configId: "B",
       baseUrl: endpoint.baseUrl,
       fetch: recorder.fetch,
       runsRoot: path.join(REPO_ROOT, "runs"),
