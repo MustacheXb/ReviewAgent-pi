@@ -113,6 +113,40 @@ describe("buildAuditFileContent", () => {
     expect("prefetch" in content).toBe(false);
   });
 
+  test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序恒在尾部（prefetch/fullRepo/ledger 之后）", () => {
+    // 界内（不传 mrBoundary）：键缺席——护栏零介入的投影面证明
+    const bare = contentFixture();
+    expect("mrBoundary" in bare).toBe(false);
+    expect(Object.keys(bare).at(-1)).toBe("toolCallLog");
+
+    // 降级（传入 mrBoundary）：度量值与决策留痕，尾键扩展不扰动冻结前缀
+    const degraded = buildAuditFileContent({
+      runId: "20260914T180846.922-B-VUL4J-1",
+      caseId: "VUL4J-1",
+      configId: "B",
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 0,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: EMPTY_AUDIT,
+      ledger: [],
+      mrBoundary: { files: 11, changedLines: 22, degraded: true, reason: "too-many-files" },
+    });
+    const keys = Object.keys(degraded);
+    expect(keys.slice(0, -1)).toEqual([...AUDIT_KEYS_WITH_PREFETCH.filter((key) => key !== "prefetch"), "ledger"]);
+    expect(keys.at(-1)).toBe("mrBoundary");
+    expect(degraded.mrBoundary).toEqual({
+      files: 11,
+      changedLines: 22,
+      degraded: true,
+      reason: "too-many-files",
+    });
+  });
+
   test("元数据换算：ISO 时间戳与 durationMs", () => {
     const content = contentFixture();
     expect(content.startedAt).toBe("2026-09-14T18:08:46.922Z");

@@ -20,6 +20,7 @@ import {
 } from "../zoneb/full-repo-injection.js";
 import { loadRepoContext, type RepoContext } from "../zoneb/repo-context.js";
 import { buildPrefetchContext, type PrefetchContext } from "../zoneb/prefetch.js";
+import { guardMrBoundary, type MrBoundaryDecision } from "./mr-boundary-guard.js";
 
 // 单案全链入口（#3 P1a 离线全链；#4 起真跑同缝泛化；#5 起 config A/B 双驱；
 // #6 P3a 起 C/D/E 工具驱动 agentLoop）：
@@ -81,8 +82,12 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
   const config = CONFIGS[configId];
   const startedAt = input.startedAt ?? new Date();
   const modelId = input.modelId ?? REVIEW_MODEL_ID;
+  // MR 边界护栏（#12）：配置无关——在 config 分派之前统一生效（A–E 同护栏）。
+  // 纯度量，不触碰请求字节面：界内 degraded=false 全程零介入（缺席省键），
+  // 超界/不可度量只追加结果尾键（domainWarning + 审计 mrBoundary），照常执行。
+  const boundary = guardMrBoundary(input.diff);
   if (config.toolsEnabled) {
-    return runToolDrivenReview(input, configId, config, startedAt, modelId);
+    return runToolDrivenReview(input, configId, config, startedAt, modelId, boundary);
   }
   if (input.prefetch !== undefined && !config.prefetch) {
     throw new Error(
@@ -145,6 +150,8 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     findings: outcome.findings,
     audit: outcome.audit,
     ...(prefetch !== undefined ? { prefetch: prefetch.records } : {}),
+    // 护栏降级留痕（#12）：界内省键（缺席省键纪律——审计键序只在尾部扩展）
+    ...(boundary.degraded ? { mrBoundary: boundary.mrBoundary } : {}),
   });
   const auditPath = await writeAuditFile(auditDir, auditContent);
 
@@ -158,6 +165,8 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     toolCalls: outcome.toolCalls,
     audit: outcome.audit,
     auditPath,
+    // 域外显式降级标注（#12）：界内省键（边界内与无护栏时逐字节一致）
+    ...(boundary.degraded ? { domainWarning: boundary.domainWarning } : {}),
   };
   const record = buildRunRecord({
     source: "vul4j",
@@ -201,7 +210,8 @@ function buildAuditDir(input: ReviewRunInput, configId: ConfigId): string {
  * C/D/E 工具驱动路径（#6 P3a）：初始上下文（MR + config C 全仓注入）→
  * pi-agent-core Agent 三钩子循环（七工具 + 轮次上界 + Ledger）→ 审计投影。
  * 与 A/B 路径共用 runId / 落盘三件套；审计键按配置扩展（C: fullRepo、
- * E: ledger——DSH 真源同位键）。
+ * E: ledger——DSH 真源同位键）。MR 边界护栏（#12）经 boundary 参数共用
+ * （在 runReview 入口统一判定，配置无关）。
  */
 async function runToolDrivenReview(
   input: ReviewRunInput,
@@ -209,6 +219,7 @@ async function runToolDrivenReview(
   config: ReviewConfig,
   startedAt: Date,
   modelId: string,
+  boundary: MrBoundaryDecision,
 ): Promise<ReviewRunResult> {
   if (input.prefetch !== undefined) {
     throw new Error(
@@ -269,6 +280,8 @@ async function runToolDrivenReview(
     ...(fullRepo !== undefined ? { fullRepo: fullRepo.record } : {}),
     // E 的 ledger 快照经 outcome.audit 透传（恒投影——含空数组形态）
     ...(outcome.audit.ledger !== undefined ? { ledger: outcome.audit.ledger } : {}),
+    // 护栏降级留痕（#12）：界内省键（缺席省键纪律——审计键序只在尾部扩展）
+    ...(boundary.degraded ? { mrBoundary: boundary.mrBoundary } : {}),
   });
   const auditPath = await writeAuditFile(auditDir, auditContent);
 
@@ -285,6 +298,8 @@ async function runToolDrivenReview(
       ...(fullRepo !== undefined ? { fullRepo: fullRepo.record } : {}),
     },
     auditPath,
+    // 域外显式降级标注（#12）：界内省键（边界内与无护栏时逐字节一致）
+    ...(boundary.degraded ? { domainWarning: boundary.domainWarning } : {}),
   };
   const record = buildRunRecord({
     source: "vul4j",

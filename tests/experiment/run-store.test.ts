@@ -112,6 +112,24 @@ describe("toRunSnapshot / toAuditLight（轻量投影）", () => {
     expect(bare.fullRepo).toBeUndefined();
     expect(bare.ledger).toBeUndefined();
   });
+
+  it("domainWarning（#12 MR 边界护栏）：快照投影尾部在场 + 记录重建回填；界内/旧记录缺席省键", () => {
+    const warning = "out-of-validated-domain (files>10 or diff>2K)";
+    // 快照投影：结果顶层字段（非 AuditLight 字段），恒在尾部
+    const snapshot = toRunSnapshot(runResult({ domainWarning: warning }));
+    expect(snapshot.domainWarning).toBe(warning);
+    expect(Object.keys(snapshot).at(-1)).toBe("domainWarning");
+    expect("domainWarning" in snapshot.audit).toBe(false);
+
+    // 记录 → 重建：标注回填进 RunResult（分析侧可见，缺席兼容旧记录）
+    const rebuilt = recordToRunResult(record({ baseline: snapshot }));
+    expect(rebuilt.domainWarning).toBe(warning);
+
+    // 界内 / 旧记录：键不在（不是 undefined 值）
+    const bare = toRunSnapshot(runResult());
+    expect("domainWarning" in bare).toBe(false);
+    expect("domainWarning" in recordToRunResult(record())).toBe(false);
+  });
 });
 
 describe("recordToRunResult（重建形状）", () => {

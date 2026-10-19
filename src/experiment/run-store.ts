@@ -70,6 +70,11 @@ export interface RunSnapshot {
   readonly toolCalls: number;
   readonly audit: AuditLight;
   readonly auditPath: string;
+  /**
+   * 域外显式降级标注（#12 MR 边界护栏）：结果顶层字段（非审计字段），
+   * 界内缺席省键（旧记录 / DSH 记录无此键——缺席兼容）。
+   */
+  readonly domainWarning?: string;
 }
 
 /** RunResult → 轻量快照（去 requests；路径来自 RunResult.auditPath） */
@@ -81,6 +86,7 @@ export function toRunSnapshot(result: RunResult): RunSnapshot {
     toolCalls: result.toolCalls,
     audit: toAuditLight(result.audit),
     auditPath: result.auditPath ?? "",
+    ...(result.domainWarning !== undefined ? { domainWarning: result.domainWarning } : {}),
   };
 }
 
@@ -125,6 +131,8 @@ export function recordToRunResult(record: RunRecord): RunResult {
     toolCalls: snapshot.toolCalls,
     audit,
     ...(snapshot.auditPath.length > 0 ? { auditPath: snapshot.auditPath } : {}),
+    // 域外显式降级标注（#12）：快照 → 重建结果回填（旧记录缺省 = 界内）
+    ...(snapshot.domainWarning !== undefined ? { domainWarning: snapshot.domainWarning } : {}),
   };
 }
 

@@ -36,6 +36,12 @@ export interface RunResult {
   readonly audit: RunAudit;
   /** 审计文件落盘路径（未落盘时缺省） */
   readonly auditPath?: string;
+  /**
+   * 域外显式降级标注（#12 MR 边界护栏）：超界 / 不可度量时在场
+   * （pi 内核入口护栏透传；DSH 路径 / 旧记录缺省 = 界内）。
+   * 结果顶层字段，非审计字段。
+   */
+  readonly domainWarning?: string;
 }
 
 export interface RunAudit {

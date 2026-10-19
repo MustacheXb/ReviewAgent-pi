@@ -9,6 +9,7 @@ import type {
   CacheBreakRecord,
   CandidateRejection,
   FullRepoRecord,
+  MrBoundaryRecord,
   PhaseRecord,
   RunAudit,
   ToolCallRecord,
@@ -52,6 +53,12 @@ export interface AuditFileContent {
   readonly fullRepo?: FullRepoRecord;
   /** config E Context Ledger 快照（非 E 配置缺省；DSH 真源键序在 toolCallLog 尾段） */
   readonly ledger?: readonly LedgerEntry[];
+  /**
+   * MR 边界护栏降级留痕（#12：度量值 + 降级决策；界内缺省省键）。
+   * 键序纪律：pi 线新增可选尾键，只加在 AuditFileContent 尾部
+   * （同 prefetch/fullRepo/ledger 先例）。
+   */
+  readonly mrBoundary?: MrBoundaryRecord;
 }
 
 /** runId：毫秒时间戳 + 配置 + 用例，文件名安全 */
@@ -77,6 +84,7 @@ export function buildAuditFileContent(args: {
   readonly prefetch?: readonly PrefetchLayerRecord[];
   readonly fullRepo?: FullRepoRecord;
   readonly ledger?: readonly LedgerEntry[];
+  readonly mrBoundary?: MrBoundaryRecord;
 }): AuditFileContent {
   return {
     runId: args.runId,
@@ -101,6 +109,7 @@ export function buildAuditFileContent(args: {
     ...(args.prefetch !== undefined ? { prefetch: args.prefetch } : {}),
     ...(args.fullRepo !== undefined ? { fullRepo: args.fullRepo } : {}),
     ...(args.ledger !== undefined ? { ledger: args.ledger } : {}),
+    ...(args.mrBoundary !== undefined ? { mrBoundary: args.mrBoundary } : {}),
   };
 }
 

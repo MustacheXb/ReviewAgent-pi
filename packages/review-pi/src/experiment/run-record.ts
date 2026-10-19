@@ -53,6 +53,11 @@ export interface RunSnapshot {
   readonly toolCalls: number;
   readonly audit: AuditLight;
   readonly auditPath: string;
+  /**
+   * 域外显式降级标注（#12 MR 边界护栏）：结果顶层字段（非审计字段），
+   * 界内缺席省键（旧记录无此键——缺席兼容）。
+   */
+  readonly domainWarning?: string;
 }
 
 /** 一次运行的持久化记录（断点续跑与报告重建的数据源） */
@@ -81,6 +86,7 @@ export function toRunSnapshot(result: RunResult): RunSnapshot {
     toolCalls: result.toolCalls,
     audit: toAuditLight(result.audit),
     auditPath: result.auditPath ?? "",
+    ...(result.domainWarning !== undefined ? { domainWarning: result.domainWarning } : {}),
   };
 }
 

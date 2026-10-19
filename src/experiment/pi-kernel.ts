@@ -97,5 +97,7 @@ function toRootRunResult(request: UnitReviewRequest, result: ReviewRunResult): R
       ...(snapshot.audit.ledger !== undefined ? { ledger: snapshot.audit.ledger } : {}),
     },
     auditPath: result.auditPath,
+    // 域外显式降级标注（#12 MR 边界护栏）：pi 快照顶层字段逐级透传；界内省键
+    ...(snapshot.domainWarning !== undefined ? { domainWarning: snapshot.domainWarning } : {}),
   };
 }

@@ -115,6 +115,20 @@ describe("toRunSnapshot", () => {
     const withoutPath = toRunSnapshot({ ...RUN_RESULT, auditPath: undefined });
     expect(withoutPath.auditPath).toBe("");
   });
+
+  test("domainWarning（#12 护栏降级标注）：在场透传且恒在尾部；界内缺席省键", () => {
+    const degraded = toRunSnapshot({
+      ...RUN_RESULT,
+      domainWarning: "out-of-validated-domain (files>10 or diff>2K)",
+    });
+    expect(degraded.domainWarning).toBe("out-of-validated-domain (files>10 or diff>2K)");
+    expect(Object.keys(degraded).at(-1)).toBe("domainWarning");
+
+    // 界内（RunResult 无该键）：快照同样无该键——不是 undefined 值，是键不在
+    const bare = toRunSnapshot(RUN_RESULT);
+    expect("domainWarning" in bare).toBe(false);
+    expect(Object.keys(bare)).toEqual(["findings", "usage", "rounds", "toolCalls", "audit", "auditPath"]);
+  });
 });
 
 describe("buildRunRecord", () => {

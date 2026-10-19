@@ -171,6 +171,38 @@ describe("piKernel（#8 执行缝 pi 侧适配器）", () => {
     ]);
   });
 
+  it("domainWarning（#12 MR 边界护栏）：pi 快照顶层降级标注透传；界内缺席省键", async () => {
+    const warning = "out-of-validated-domain (files>10 or diff>2K)";
+    const degradedKernel = piKernel({
+      apiKey: "offline-test-key",
+      fetch: FETCH_STUB,
+      runReviewFn: async (input) => {
+        const record = stubPiRecord(input);
+        return {
+          runId: "run-boundary-1",
+          record: { ...record, baseline: { ...record.baseline, domainWarning: warning } },
+          recordPath: "",
+          auditPath: record.baseline.auditPath,
+        };
+      },
+    });
+    const degraded = await degradedKernel.execute(vul4jUnitRequest());
+    // pi 入口护栏的降级决策经 pi-kernel 映射进 root RunResult（顶层字段，非审计字段）
+    expect(degraded.domainWarning).toBe(warning);
+
+    // 界内（pi 快照无该键）：root RunResult 同样无该键——键不在，而非 undefined 值
+    const cleanKernel = piKernel({
+      apiKey: "offline-test-key",
+      fetch: FETCH_STUB,
+      runReviewFn: async (input) => {
+        const record = stubPiRecord(input);
+        return { runId: "run-boundary-2", record, recordPath: "", auditPath: record.baseline.auditPath };
+      },
+    });
+    const inBoundary = await cleanKernel.execute(vul4jUnitRequest());
+    expect("domainWarning" in inBoundary).toBe(false);
+  });
+
   it("source 守卫：pi 内核是 vul4j 线，他源单元 fail fast（pi 记录 source 硬编码）", async () => {
     const kernel = piKernel({
       apiKey: "offline-test-key",

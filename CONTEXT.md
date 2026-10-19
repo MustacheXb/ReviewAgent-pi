@@ -91,6 +91,10 @@ _Avoid_: 快照测试（无真源对照）、宽容 diff（语义近似放行）
 C/D/E（工具驱动 agentLoop）的对照口径门：pi 侧请求体与 DSH 审计真源做 JSON 值域深相等（键序天然无关），继承面传输方言 + 工具面方言（`tool-dialect.ts` 单列：strict 旗标 / tool_choice 缺席 / arguments 重序列化 / 参数校验——按内核效应分类 wire-structural / wire-data-conditional / behavioral）各自归一化后对照；同一零容忍纪律——未登记差异红门、结构性类别死登记红门。循环驱动面（phaseLog / toolCallLog / findings / rejections / rounds / E ledger）全量逐条对照。工具输出字节面另由 tool-outputs 门把守（重放注入 resultSummary，不混流）。
 _Avoid_: 与字节门混流（A/B 逐字节、C/D/E 语义——两档口径各自单列）、语义近似放行（未登记差异零容忍）
 
+**MR 边界护栏（Boundary Guard）**:
+内核入口处的 MR 输入边界检查（≤10 文件 / diff ≤2K 变更行，与数据集过滤口径同构、配置无关、config 分派之前）：界内路径零字节漂移（缺席省键）；超界或不可度量走显式降级——`domainWarning` 标注 + 审计 `mrBoundary` 留痕 + 照常执行，不拒检。
+_Avoid_: 输入校验（过泛）、大 MR 切分（v2 另立项）、静默截断（违背零静默纪律）
+
 ### 知识
 
 **CWD**:
@@ -112,8 +116,12 @@ _Avoid_: 把上界当真实成本混比（无计量侧方向已知偏高）
 ### 模型接入
 
 **被测模型（reviewer）**:
-实验的自变量侧 LLM：model id 走请求参数（实验 CLI `--model`，`flash`/`pro` 别名保留；pi 内核线接缝见 ADR-0009），无 model 环境变量；url / key 经角色命名环境变量（`REVIEWER_*` > 旧 `DEEPSEEK_*`，`.env.local` 自动装载——已有环境变量优先，#46）；进 manifest / 审计留痕（model + baseUrl，绝不记 key，ADR-0008）。自定义网关换端点/模型先冒烟自证（双探针 + 人话诊断形态，随 pi 线回归）。
+实验的自变量侧 LLM：model id 走请求参数（实验 CLI `--model`，`flash`/`pro` 别名保留；pi 内核线接缝见 ADR-0009），无 model 环境变量；url / key 经角色命名环境变量（`REVIEWER_*` > 旧 `DEEPSEEK_*`，`.env.local` 自动装载——已有环境变量优先，#46）；进 manifest / 审计留痕（model + baseUrl，绝不记 key，ADR-0008）。自定义网关换端点/模型先过模型迁移门自证再放行。
 _Avoid_: 检视模型（与 judge 混淆）、白名单模型（准入白名单已由画像表取代）、model 走环境变量（实验数据走请求，秘密才走环境）
+
+**模型迁移门（Migration Gate）**:
+换模型 / 换网关的安全前置自证（迁移 runbook 的机器化，`pnpm migration-gate`）：双探针（网关健康 + **目标**模型可达）→ 单案生产入口 config E 真跑，全绿才放行（exit 0）；每类失败路径一条人话诊断。flash→pro 同族高险升级不默认放行——须 `--confirm-high-risk-upgrade` 显式确认，标记为消融验证项（§7.7 保守路线）。
+_Avoid_: 冒烟测试（过泛——探针只是门的第一步）、自动拦截（门是显式 runbook，不挂实验 CLI 启动路径）、A 分层探针当必做（裁量项）
 
 **参数画像（Provider Profile）**:
 模型 id pattern → wire 序列化策略（thinking 字段 / completion 信封）+ usage 能力声明（有无缓存计量）的单源查表（review-llm）；未知模型回落保守默认档（ADR-0008）。

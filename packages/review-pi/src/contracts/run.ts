@@ -84,6 +84,20 @@ export interface FullRepoRecord {
   readonly shownFiles: number;
 }
 
+/** MR 边界护栏的降级原因（#12：前两类 = 度量完成但超界；末类 = 结构不可度量） */
+export type MrBoundaryReason = "too-many-files" | "diff-too-large" | "boundary-unmeasurable";
+
+/** MR 边界护栏降级留痕（#12：审计文件尾键 mrBoundary 的形状；界内缺省省键） */
+export interface MrBoundaryRecord {
+  /** 度量到的文件数（boundary-unmeasurable 时为 null——度量未完成） */
+  readonly files: number | null;
+  /** 度量到的变更行数 = 新增 + 删除（boundary-unmeasurable 时为 null） */
+  readonly changedLines: number | null;
+  /** 降级决策恒 true：该记录只在降级时在场（零静默纪律——界内无此键） */
+  readonly degraded: true;
+  readonly reason: MrBoundaryReason;
+}
+
 /** 循环运行期的审计累积面（AuditFileContent 与 AuditLight 的共同来源） */
 export interface RunAudit {
   readonly requests: readonly WireRequest[];
@@ -111,4 +125,10 @@ export interface RunResult {
   readonly toolCalls: number;
   readonly audit: RunAudit;
   readonly auditPath?: string;
+  /**
+   * 域外显式降级标注（#12 MR 边界护栏）：超界 / 不可度量时在场
+   * （生产化方案 §3.1 原文案或 boundary-unmeasurable 语义文案），
+   * 边界内缺席省键——护栏零介入的可观测证明。
+   */
+  readonly domainWarning?: string;
 }
