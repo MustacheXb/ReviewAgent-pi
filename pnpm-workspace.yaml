@@ -1,8 +1,9 @@
 packages:
   - packages/*
 
-onlyBuiltDependencies:
-  - esbuild
-  - tree-sitter-java
-  - koffi
-  - review-llm
+allowBuilds:
+  '@google/genai': false
+  canvas: false
+  esbuild: false
+  protobufjs: false
+  tree-sitter-java: false
