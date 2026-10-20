@@ -7,7 +7,9 @@
  * 命令面：
  * - review：凭据 fail fast（resolveReviewerEndpoint 构造期）→ config B 全链
  *   （缺省；--config A-E 透传内核配置矩阵）→ 审计/记录落盘（--out）→
- *   stdout 单 JSON 文档（render.ts，已测）；
+ *   呈现投影（ADR-0010：REVIEW_PI_PRESENTATION_ENGINE 注入引擎时 stdout
+ *   呈现档译中文，失败降级英文源；未配置恒等直通）→ stdout 单 JSON 文档
+ *   （render.ts，已测）；
  * - smoke：双探针（网关健康 + 模型可达，gateway-probe.ts 已测）→ stdout
  *   人话报告；
  * - disposition（#15）：Finding 人工处置落库 + 接受率 KPI，编排全在
@@ -43,6 +45,7 @@ import { resolveReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runReview } from "../run/review-run.js";
 import { formatEnvLocalSummary, loadEnvLocalFile } from "../shared/env-local.js";
 import { CLI_EXPERIMENT_ID, parseCliArgs, USAGE_TEXT, type ReviewCliArgs, type SmokeCliArgs } from "./args.js";
+import { applyPresentationProjection, isPresentationProjectionConfigured } from "./presentation-projection.js";
 import { renderReviewOutcome } from "./render.js";
 
 /** 执行一次 review 命令；返回进程退出码（完成 0——截断同为 0；错误经异常上抛 → 1） */
@@ -72,6 +75,35 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
     rep: 1,
   });
 
+  // 呈现投影（ADR-0010 消费端接线）：检视产物已落盘落袋，投影只改 stdout
+  // 呈现档（title/description 等自然语言字段经注入引擎译中文，结构化字段
+  // 直通）。呈现源只含 findings——stdout 呈现面不打印工具摘要（只有计数），
+  // resultSummary 不投，省字段数的网关调用（长 description 单字段翻译可达
+  // 数十秒）。引擎失败降级英文源——检视产物绝不因呈现层失败丢失，退出码
+  // 不受影响；未配置引擎 = 恒等直通（stdout 逐字节同投影缝落地前形态）。
+  // 投影可耗时数十秒（逐字段网关翻译，长 description 单字段可达 30s+）：
+  // 动手前先给一行 stderr 心跳，免得「检视完成 → 长静默 → stdout」被误读
+  // 为挂死。谓词单源 isPresentationProjectionConfigured——与投影缝读同一
+  // 环境变量，未配置恒等直通时零输出（现状形态不动）。
+  if (isPresentationProjectionConfigured()) {
+    process.stderr.write("review-pi: 呈现投影进行中（自然语言字段译中文）……\n");
+  }
+  const projection = await applyPresentationProjection({
+    findings: record.baseline.findings,
+    toolCallLog: [],
+  });
+  const findings =
+    projection.kind === "projected" ? projection.findings : record.baseline.findings;
+  const presentation =
+    projection.kind === "projected"
+      ? projection.provenance
+      : projection.kind === "degraded"
+        ? { language: "en" as const, degraded: true as const }
+        : undefined;
+  if (projection.kind === "degraded") {
+    process.stderr.write(`review-pi: 呈现投影降级为英文源文档（${projection.reason}）\n`);
+  }
+
   await writeStdout(
     renderReviewOutcome({
       caseId: record.caseId,
@@ -80,8 +112,9 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
       truncated: record.baseline.audit.truncated,
       rounds: record.baseline.rounds,
       toolCalls: record.baseline.toolCalls,
-      findings: record.baseline.findings,
+      findings,
       auditPath,
+      ...(presentation !== undefined ? { presentation } : {}),
     }),
   );
   // 截断 = 完成的一种（票面退出码契约：0 + truncated=true）

@@ -427,6 +427,122 @@ test(
   180_000,
 );
 
+// ---- 呈现投影注入缝（ADR-0010 消费端接线）：引擎注入 → stdout 中文呈现档 ----
+// 引擎模块是外部 ESM（翻译算法/网络/密钥全在核外）——fixture 现场 tmp .mjs。
+
+/** 成功引擎 fixture：只译 title/description，结构化字段与 toolCallLog 直通 */
+function writeProjectionEngineFixture(name: string, body: string): string {
+  const enginePath = path.join(makeTempDir("review-pi-projection-engine-"), name);
+  writeFileSync(enginePath, body, "utf8");
+  return enginePath;
+}
+
+test(
+  "呈现投影：引擎注入 → stdout findings 已译呈现档 + presentation 留痕 + 审计恒英文 + 请求面零影响",
+  async () => {
+    const stub = await startLoopbackStub(oneFindingCorpus());
+    try {
+      const enginePath = writeProjectionEngineFixture(
+        "engine.mjs",
+        `export default async (source) => ({
+          provenance: {
+            language: "zh",
+            terminologyVersion: 1,
+            findingLinks: source.findings.map((finding) => ({
+              sourceFindingId: finding.id,
+              projectedFindingId: finding.id,
+            })),
+          },
+          findings: source.findings.map((finding) => ({
+            ...finding,
+            title: "[zh] " + finding.title,
+            description: "[zh] " + finding.description,
+          })),
+          toolCallLog: source.toolCallLog,
+        });\n`,
+      );
+      const outDir = makeTempDir("review-pi-cli-out-");
+      const mrFile = path.join(makeTempDir("review-pi-cli-mr-"), "VUL4J-1.diff");
+      writeFileSync(mrFile, goldenFixture("vul4j-1.diff"), "utf8");
+
+      const run = await runBin(
+        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir, "--config", "B"],
+        { env: { ...stubEnv(stub.baseUrl), REVIEW_PI_PRESENTATION_ENGINE: enginePath } },
+      );
+
+      expect(run.status).toBe(0);
+      const outcome = JSON.parse(run.stdout) as {
+        findings: { id: string; severity: string; title: string; description: string; file: string; line: number }[];
+        presentation?: { language: string; terminologyVersion: number; degraded?: boolean };
+        auditPath: string;
+      };
+      // stdout = 已译呈现档：自然语言字段经引擎投影，结构化字段字节直通
+      expect(outcome.findings).toHaveLength(1);
+      expect(outcome.findings[0]).toMatchObject({
+        id: "F100",
+        severity: "P2",
+        title: "[zh] Sentinel finding title",
+        description: "[zh] Sentinel finding description",
+        file: "sample.txt",
+        line: 1,
+      });
+      // presentation 留痕在场（引擎 provenance 透传）
+      expect(outcome.presentation).toEqual({
+        language: "zh",
+        terminologyVersion: 1,
+        findingLinks: [{ sourceFindingId: "F100", projectedFindingId: "F100" }],
+      });
+      // 审计落盘恒英文（ADR-0010：检视审计零改动——投影只发生在 stdout 呈现面）
+      const audit = JSON.parse(readFileSync(outcome.auditPath, "utf8")) as {
+        findings: { title: string }[];
+      };
+      expect(audit.findings[0]?.title).toBe("Sentinel finding title");
+      // 检视请求面零影响：仍然恰好六回合（投影不发检视请求）
+      expect(stub.requests()).toHaveLength(6);
+      expectNoKeyLeak([{ label: "stdout", text: run.stdout }, { label: "stderr", text: run.stderr }]);
+    } finally {
+      await stub.close();
+    }
+  },
+  180_000,
+);
+
+test(
+  "呈现投影：引擎失败 → stdout 降级英文源档 + presentation.degraded + stderr 人话 + 退出码不受影响",
+  async () => {
+    const stub = await startLoopbackStub(oneFindingCorpus());
+    try {
+      const enginePath = writeProjectionEngineFixture(
+        "broken.mjs",
+        `export default async () => { throw new Error("translation gateway down"); };\n`,
+      );
+      const outDir = makeTempDir("review-pi-cli-out-");
+      const mrFile = path.join(makeTempDir("review-pi-cli-mr-"), "VUL4J-1.diff");
+      writeFileSync(mrFile, goldenFixture("vul4j-1.diff"), "utf8");
+
+      const run = await runBin(
+        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir, "--config", "B"],
+        { env: { ...stubEnv(stub.baseUrl), REVIEW_PI_PRESENTATION_ENGINE: enginePath } },
+      );
+
+      // 呈现降级不是运行失败（对齐诚实截断哲学）：exit 0，检视产物完好
+      expect(run.status).toBe(0);
+      const outcome = JSON.parse(run.stdout) as {
+        findings: { title: string }[];
+        presentation?: { language: string; degraded?: boolean };
+      };
+      expect(outcome.findings[0]?.title).toBe("Sentinel finding title");
+      expect(outcome.presentation).toEqual({ language: "en", degraded: true });
+      // 人话降级原因走 stderr（stdout 只报事实）
+      expect(run.stderr).toContain("呈现投影降级");
+      expect(run.stderr).toContain("translation gateway down");
+    } finally {
+      await stub.close();
+    }
+  },
+  180_000,
+);
+
 test("陈旧产物拒跑：dist 回拨 30 天 → exit 1 + 人话提示 + stdout 干净（mtime 门）", async () => {
   const entry = path.join(packageDir, "dist", "cli", "main.js");
   const original = statSync(entry).mtime;

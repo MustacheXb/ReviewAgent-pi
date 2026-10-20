@@ -1,0 +1,22 @@
+{
+  // 呈现投影引擎编译程序（ADR-0010 消费端接线）：入口
+  // src/presentation/engine-zh.ts + import 闭包（src/presentation →
+  // src/instrument/contracts 类型闭包 + review-llm），产物
+  // .tmp-gen/presentation/engine-zh.js ——经 .env.local 的
+  // REVIEW_PI_PRESENTATION_ENGINE 供 review-pi CLI 呈现缝动态加载。
+  // 必须走 -p 而非内联 flags：内联 flags 忽略 tsconfig → baseUrl/paths
+  // 失效（同 tsconfig.experiment.json 注释）。
+  // files + include 覆盖（extends 的 include 不残留）：只编入口及其闭包。
+  // rootDir 不钉——闭包全部在 src/ 下，公共根即 src；产物以裸名 import
+  // "review-llm"，node 经 node_modules 正常解析（同 experiment 模式）。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": ".tmp-gen"
+  },
+  "files": ["src/presentation/engine-zh.ts"],
+  "include": [],
+  "exclude": ["node_modules", "dist", ".tmp-gen"]
+}

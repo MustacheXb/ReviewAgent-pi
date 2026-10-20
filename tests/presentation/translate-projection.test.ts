@@ -360,8 +360,10 @@ describe("presentationSourceOf — RunResult 呈现面圈定（E 形态端到端
 });
 
 describe("模块纪律（零 pi import——核外呈现层）", () => {
-  it("src/presentation 模块的 import 面零 pi 依赖（只有 root 内相对路径 / node: 内建）", async () => {
-    const moduleNames = ["translate-projection.ts", "terminology.ts"];
+  it("src/presentation 模块的 import 面零 pi 依赖（root 相对路径 / node: 内建 / review-llm 共享客户端）", async () => {
+    // engine-zh.ts 是核外真引擎装配：网关/凭据解析走 review-llm 单源（共享
+    // LLM 客户端件，非 pi 内核/测量面——与检视链 CLI 同款解析，无第二真源）
+    const moduleNames = ["translate-projection.ts", "terminology.ts", "engine-zh.ts"];
     for (const moduleName of moduleNames) {
       const modulePath = fileURLToPath(new URL(`../../src/presentation/${moduleName}`, import.meta.url));
       const source = await readFile(modulePath, "utf8");
@@ -369,10 +371,11 @@ describe("模块纪律（零 pi import——核外呈现层）", () => {
       expect(source.length, `${moduleName} should be readable and non-empty`).toBeGreaterThan(0);
       const specifiers = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1] ?? "");
       for (const specifier of specifiers) {
-        // 只允许 root 内相对路径与 node: 内建——review-pi / @earendil-works（pi 四包）/
-        // packages/ 转译路径全部禁止（纪律对齐 src/gate/migration-gate.ts 头注释）
+        // 只允许 root 内相对路径、node: 内建与 review-llm 裸包名——review-pi /
+        // @earendil-works（pi 四包）/ packages/ 转译路径全部禁止（纪律对齐
+        // src/gate/migration-gate.ts 头注释）
         expect(
-          specifier.startsWith(".") || specifier.startsWith("node:"),
+          specifier.startsWith(".") || specifier.startsWith("node:") || specifier === "review-llm",
           `${moduleName} imports "${specifier}"`,
         ).toBe(true);
         expect(specifier, `${moduleName} imports "${specifier}"`).not.toMatch(

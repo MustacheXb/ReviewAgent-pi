@@ -1,4 +1,5 @@
 import type { AuditFileContent } from "../audit/audit-writer.js";
+import type { PresentationProvenance } from "./presentation-projection.js";
 
 /**
  * #7 review-pi CLI 结果呈现（进程内主缝）：stdout 形状契约。
@@ -12,11 +13,26 @@ import type { AuditFileContent } from "../audit/audit-writer.js";
  * JSON 中携带信号；呈现层不区分对待。
  */
 
+/**
+ * 呈现投影 stdout 留痕（ADR-0010，尾部追加键——缺席省键纪律：未配置投影
+ * 引擎时整键缺席，stdout 逐字节同投影缝落地前形态）：引擎成功 = 投影
+ * provenance（language / terminologyVersion / findingLinks）；引擎失败降级
+ * = { language: "en", degraded: true }（人话原因走 stderr，stdout 只报事实）。
+ * 审计与 RunRecord 恒无语言键（检视审计零改动）——留痕只进呈现面。
+ */
+export type PresentationFootprint =
+  | PresentationProvenance
+  | { readonly language: "en"; readonly degraded: true };
+
 /** 一次检视的呈现面：导出审计的顶层摘要经 Pick 锚定（审计字段漂移即编译错） */
 export type ReviewOutcome = Pick<
   AuditFileContent,
   "caseId" | "configId" | "runId" | "truncated" | "rounds" | "toolCalls" | "findings"
-> & { readonly auditPath: string };
+> & {
+  readonly auditPath: string;
+  /** 呈现投影留痕（未配置引擎时缺席——现状形态） */
+  readonly presentation?: PresentationFootprint;
+};
 
 /** ok 包络 + 两空格缩进 JSON 整写 + 尾随换行（stdout 单文档纪律的公共面；disposition 命令复用） */
 export function renderJsonDocument(document: Record<string, unknown>): string {
