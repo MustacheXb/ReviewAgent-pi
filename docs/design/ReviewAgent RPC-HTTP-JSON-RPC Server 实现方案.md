@@ -421,6 +421,12 @@ export interface ReviewJobStore {
 - `review.cancel` 返回最新 JobView；`queued` 直接 `cancelled`；`running` 进入 `cancelling`
   后 `cancelled`；已终态返回 409 语义的 JSON-RPC error `-32005 cancel_not_allowed`。
 
+> **互注**（2026-10-21，stdio 线拍板）：姊妹篇《ReviewAgent stdio JSONL 长驻模式
+> 实现方案》v1 已实现 running cancel（同款 `cancelling` 流转），但终态 cancel
+> 采用**幂等返回终态 view**（`-32005` 为保留码不发射）、`review.list` 暂只有
+> `status?`。stdio v1 契约是本文的子集 + 上述两处已知分歧，待 HTTP 线启动时
+> 统一收口（分歧清单见该篇 §12.10）。
+
 ### 4.3 SSE 事件
 
 ```text
