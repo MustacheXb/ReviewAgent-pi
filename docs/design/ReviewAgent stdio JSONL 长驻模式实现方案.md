@@ -229,11 +229,18 @@ rpc 进程真跑过 fetch 后退出必须：flush → `process.exitCode` 置码 
 | -32004 | payload_too_large |
 | -32005 | cancel_not_allowed（保留码：v1 不发射——终态 cancel 幂等返回 view；留待与 HTTP 方案 409 语义对齐时启用或删除） |
 | -32010 | server_draining |
+| -32011 | cancel_not_supported（保留/过渡期；running cancel 可用时不发射） |
+| -32012 | repo_not_found |
+| -32013 | rate_limited（stdio v1 不发射，保留与 HTTP 对齐） |
+| -32014 | job_timeout（stdio v1 不发射，保留与 HTTP 对齐） |
+| -32015 | server_restart（stdio v1 不发射，保留与 HTTP 对齐） |
+| -32016 | idempotency_conflict（stdio v1 不发射；v2 幂等落地后启用） |
+| -32017 | artifact_expired（stdio v1 无 artifact 下载面，保留与 HTTP 对齐） |
 
 不支持 JSON-RPC batch（数组信封）→ `-32600 invalid request`。
 
 `error.data` 只放安全细节：`jobId` / `limit` / `maxDiffBytes` 等；不放路径、key、
-内部堆栈。
+内部堆栈。完整错误码来源 = RPC/HTTP 方案 §4.4；stdio 侧只发射其能力子集。
 
 ---
 
@@ -471,6 +478,24 @@ v1 = S0–S3（running cancel 已拍板进 v1，原「内核改造 S3」提前�
 10. 两方案契约分歧处置：stdio v1 契约 = HTTP 方案契约的子集；已知分歧
     （终态 cancel 幂等 vs `-32005`、`review.list` 无分页参数）在两侧文档互注，
     待 HTTP 线启动时统一收口。
+
+跨传输对齐二次拍板（2026-10-21，用户接受推荐）：
+
+11. 共享的是**方法名与状态机语义**，不是逐字相同的 params：HTTP=`{kind:"inline",repoId}`，
+    stdio=`{kind:"local-path",repoPath}`；内部归一化为同一个 `ReviewSubmitInput.source`。
+12. `clientRequestId`：HTTP v1 支持；stdio v1 不做，capabilities 声明
+    `features.idempotency=false`；S4 持久化落地后再开。
+13. `review.list`：HTTP 支持 `status/caseId/limit/cursor`；stdio v1 只支持 `status`；
+    能力经 `features.listFilters` 声明。
+14. 终态 `review.cancel`：两侧统一幂等返回终态 view；`-32005` 保留不发射。
+15. `shutdown`：stdio 保留方法；HTTP 走 SIGTERM，不提供同名 JSON-RPC 方法。
+16. `jobId`：对外为不透明字符串；HTTP 可用 UUIDv7/ULID，stdio 维持
+    `job-<启动毫秒>-<序号>`，调用方不得解析。
+17. 错误码：以 RPC/HTTP 方案 §4.4 为单一来源；stdio 侧已同步保留码，
+    只发射其能力子集。
+18. 并发默认：stdio 与 HTTP P1 都默认 1；HTTP P3 worker 池验证后生产可配 2。
+19. 差异总表与触发流程以 RPC/HTTP 方案 §4.6/§4.7 为准；stdio 本文只保留
+    本地可信面差异（无鉴权、无 SSE、无 artifact 下载、`repoPath`）。
 
 ---
 

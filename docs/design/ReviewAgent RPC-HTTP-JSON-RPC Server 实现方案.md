@@ -9,6 +9,9 @@
 > 有界 review job 队列」。两者在传输、寻址语义、会话模型、鉴权与部署形态上都不同。推荐新增
 > `review-pi-server` 包：以 `ReviewService` 为深模块，`runReview` 为执行适配器，HTTP/JSON-RPC
 > 只做薄传输适配；pi 栈仅作为协议设计参照，后续如有真实 pi 客户端需求再加兼容适配器。
+>
+> **2026-10-21 补充**：补齐调用方触发流程、服务启动与部署、鉴权线格式、RepoRegistry、产物下载、
+> SSE 调用契约，以及与 stdio v1 的契约对齐表；见 §4.6 / §4.7 / §8.6 / §8.7。
 
 ---
 
@@ -25,6 +28,14 @@
 | 与 pi 内核的关系 | 只依赖 `runReview` 与 `Agent`/agent-loop 稳定面；**不依赖 harness/session/chord**（上游 1.x 会移除这些） |
 | 默认配置 | `configId` 必填显式（ADR-0011）；服务端不给隐式缺省 |
 | 与 pi-protocol 兼容 | 作为 P4 可选适配器；不作为核心协议，因为上游已于 `7472cda0d`（2026-10-12）移除该实验栈 |
+| 调用方主路径 | 异步 job：`capabilities → submit → SSE/poll → terminal → artifact`；不做同步阻塞式 `review.run` |
+| 服务启动 | `review-pi-server` 长驻进程；HTTP 监听 + 单实例 job 执行；SIGTERM 优雅 drain |
+| Node 运行时（SQLite 适配器） | `node:sqlite` 内置，无 npm 依赖；启用时 `engines.node` 至少 `>=22.13.0`，建议对齐 pi 的 `>=22.19.0` |
+| 多实例 | v1 单实例；job 状态绑定执行者。多实例需 sticky routing 或 lease/fence，另立 ADR |
+
+> **拍板状态（2026-10-21）**：本表与 §4.7 的推荐内容已被接受，作为 RPC/HTTP 线
+> 的落地决策；实现时不再逐项重新讨论。后续如要正式 ADR 化，可从 §4.7 + §8.6 直接
+> 收成 ADR-0013。
 
 ---
 
@@ -201,6 +212,7 @@ packages/review-pi-server/
     review-pi-server.js          # 薄入口：argv/env → startServer → 退出码
   src/
     index.ts                     # 公开面：createReviewService / startHttpServer
+    config.ts                    # ServerConfig：host/port/data-dir/repo-root/auth/limits
     service.ts                   # ReviewService 深模块
     contracts.ts                 # JobView / 状态 / 错误码 / CallContext
     store.ts                     # ReviewJobStore 端口
@@ -214,11 +226,14 @@ packages/review-pi-server/
       run-review.ts              # runReview 适配器（P1）
       worker.ts / worker-pool.ts # worker_threads 执行池（P3）
     source.ts                    # ReviewSourceProvider 端口（inline / MR provider）
+    repo-registry.ts             # repoId → allowlisted path 解析
+    artifacts.ts                 # 产物引用解析与下载（audit / record）
     http/
       server.ts                  # node:http 路由 + 生命周期
       json-rpc.ts                # JSON-RPC 2.0 解析/校验/错误映射
       sse.ts                     # text/event-stream + Last-Event-ID
       auth.ts                    # Authenticator 端口 + bearer/mTLS 实现
+      artifacts.ts               # GET /v1/jobs/{id}/artifacts/{kind}
     testing/
       fake-executor.ts
       memory-store.ts
@@ -301,6 +316,54 @@ export interface ReviewJobStore {
 }
 ```
 
+### 3.4 调用方契约相关端口
+
+```ts
+export interface Principal {
+  readonly tenantId: string;
+  readonly subject: string;
+  readonly scopes: readonly (
+    | "review:submit"
+    | "review:read"
+    | "review:cancel"
+    | "artifact:read"
+    | "admin"
+  )[];
+}
+
+export interface CallContext {
+  readonly principal: Principal;
+  readonly requestId: string;
+  readonly signal: AbortSignal;
+}
+
+export interface Authenticator {
+  /** 未认证返回 undefined；401 由 HTTP 适配器映射。 */
+  authenticate(header: string | undefined): Promise<Principal | undefined>;
+}
+
+/** repoId → allowlist 根下的真实路径；unknown repoId 抛 repo_not_found。 */
+export interface RepoRegistry {
+  resolve(repoId: string, principal: Principal): Promise<string>;
+  list(principal: Principal): Promise<readonly { repoId: string; displayName: string }[]>;
+}
+
+export interface ArtifactRef {
+  readonly kind: "audit" | "record";
+  readonly ref: string;
+}
+
+export interface ArtifactStore {
+  resolve(jobId: string, kind: ArtifactRef["kind"], principal: Principal): Promise<string | undefined>;
+  /** 返回逻辑引用，不返回服务器绝对路径。 */
+  refFor(jobId: string, kind: ArtifactRef["kind"]): ArtifactRef;
+}
+```
+
+调用方不直接构造 `Principal`；它来自 HTTP `Authorization` 头经 `Authenticator` 解析。
+`RepoRegistry` 与 `ArtifactStore` 都必须在 store 查询层按 tenant 过滤，越权统一按 not found
+处理，避免泄漏资源存在性。
+
 ---
 
 ## 4. 对外协议契约
@@ -311,6 +374,7 @@ export interface ReviewJobStore {
 |---|---|---|
 | `POST` | `/rpc` | JSON-RPC 2.0（单请求；batch 可选后置） |
 | `GET` | `/v1/jobs/{jobId}/events` | SSE 事件流；支持 `Last-Event-ID` |
+| `GET` | `/v1/jobs/{jobId}/artifacts/{audit\|record}` | 产物下载；需 `artifact:read` |
 | `GET` | `/healthz` | liveness；只证明进程在 |
 | `GET` | `/readyz` | readiness；store 可写、worker 池已启动 |
 | `GET` | `/v1/capabilities` | 协议版本、方法表、limits、serverId、版本信息 |
@@ -319,8 +383,14 @@ export interface ReviewJobStore {
 
 - JSON-RPC 错误仍返回 HTTP 200 + JSON-RPC error object；鉴权失败、body 过大、限流在
   HTTP 层返回 401/403/413/429。
+- **已拍板**：`review.submit` 成功返回 `202 Accepted` + `Location: /v1/jobs/{jobId}`；
+  其余 JSON-RPC 方法成功返回 `200 OK`。capabilities 声明 `submitHttpStatus: 202`；
+  若未来必须兼容严格 JSON-RPC over HTTP 的单一状态码，再通过版本化协商改。
 - `POST /rpc` 要求 `Content-Type: application/json`；body 上限默认 32 MiB。
 - 不接受客户端传入的 `apiKey` / 任意 `baseUrl`；模型接入点由 server 配置决定。
+- 认证：`Authorization: Bearer <token>`（SSE 与产物下载同头）；调用方可带
+  `X-Request-Id`，服务端回显并在日志中透传。
+- `GET /healthz` 可不鉴权；`/readyz`、`/v1/capabilities`、`/rpc`、SSE、产物下载都走鉴权。
 
 ### 4.2 JSON-RPC 方法
 
@@ -341,8 +411,20 @@ export interface ReviewJobStore {
   "result": {
     "protocolVersion": 1,
     "serverId": "0f2f...",
-    "methods": ["review.submit", "review.get", "review.list", "review.cancel"],
-    "limits": { "maxBodyBytes": 33554432, "maxDiffBytes": 8388608, "maxQueueDepth": 100 }
+    "methods": ["server.capabilities", "review.submit", "review.get", "review.list", "review.cancel"],
+    "features": {
+      "sse": true,
+      "artifactDownload": true,
+      "idempotency": true,
+      "listFilters": ["status", "caseId", "cursor"]
+    },
+    "limits": {
+      "maxBodyBytes": 33554432,
+      "maxDiffBytes": 8388608,
+      "maxQueueDepth": 100,
+      "maxConcurrentJobs": 2
+    },
+    "build": { "version": "0.1.0", "node": "22.19.0", "sqliteBackend": "node:sqlite" }
   }
 }
 ```
@@ -419,13 +501,14 @@ export interface ReviewJobStore {
 
 - `review.list` 参数：`status?`、`caseId?`、`limit?`、`cursor?`。
 - `review.cancel` 返回最新 JobView；`queued` 直接 `cancelled`；`running` 进入 `cancelling`
-  后 `cancelled`；已终态返回 409 语义的 JSON-RPC error `-32005 cancel_not_allowed`。
+  后 `cancelled`；已终态**幂等返回终态 view**（`-32005` 为保留码，不发射，与 ADR-0012
+  / stdio v1 对齐）。
 
 > **互注**（2026-10-21，stdio 线拍板）：姊妹篇《ReviewAgent stdio JSONL 长驻模式
-> 实现方案》v1 已实现 running cancel（同款 `cancelling` 流转），但终态 cancel
-> 采用**幂等返回终态 view**（`-32005` 为保留码不发射）、`review.list` 暂只有
-> `status?`。stdio v1 契约是本文的子集 + 上述两处已知分歧，待 HTTP 线启动时
-> 统一收口（分歧清单见该篇 §12.10）。
+> 实现方案》v1 已拍板 running cancel、终态 cancel 幂等返回 view、`review.list`
+> 暂只有 `status?`、`clientRequestId` 幂等留 v2、本地 `repoPath` allowlist。
+> HTTP 线与 stdio v1 的**完整契约对齐表见 §4.7**；§4.2 示例是 HTTP 目标形态，
+> 不是 stdio v1 的逐字契约。
 
 ### 4.3 SSE 事件
 
@@ -450,6 +533,9 @@ data: {"seq":8,"jobId":"01J...","status":"running","progress":{"phase":"Deep Rea
 `Last-Event-ID` 之后的事件从 `job_events` 表重放；不能重放（超出保留窗口）时发
 `event: reset` + 最新快照，要求客户端重新 `review.get`。
 
+**已拍板**：v1 只做 SSE，不做 WebSocket；SSE 需要心跳（建议 15–30s）与 `retry:`，
+跨重启 replay 等 SQLite v2 再开。
+
 ### 4.4 错误码
 
 JSON-RPC 标准码：
@@ -470,14 +556,22 @@ JSON-RPC 标准码：
 | -32002 | `queue_full` | 429 |
 | -32003 | `repo_not_allowed` | 403 |
 | -32004 | `payload_too_large` | 413 |
-| -32005 | `cancel_not_allowed` | 200 + error |
+| -32005 | `cancel_not_allowed`（保留码；与 stdio v1 统一为「终态幂等返回 view」后不发射） | 200 + error |
 | -32006 | `unauthorized` | 401 |
 | -32007 | `forbidden` | 403 |
 | -32008 | `gateway_unavailable` | 502 |
 | -32009 | `job_failed` | 200 + error |
 | -32010 | `server_draining` | 503 |
+| -32011 | `cancel_not_supported`（保留/过渡期；running cancel 可用时不发射） | 200 + error |
+| -32012 | `repo_not_found` | 404/200 + error |
+| -32013 | `rate_limited`（与 queue_full 区分：租户级限流） | 429 |
+| -32014 | `job_timeout` | 200 + error |
+| -32015 | `server_restart`（重启恢复时 running → failed） | 200 + error |
+| -32016 | `idempotency_conflict`（同 clientRequestId 不同参数） | 200 + error |
+| -32017 | `artifact_expired`（产物超出保留窗口） | 404/200 + error |
 
 `error.data` 只放安全细节：`jobId`、`caseId`、`limit`、`retryAfterMs`；不放路径、key、内部堆栈。
+`429` 响应必须带 `Retry-After`（秒）；`503 server_draining` 同样应带 `Retry-After`。
 
 ### 4.5 版本与能力协商
 
@@ -485,6 +579,182 @@ JSON-RPC 标准码：
 - 客户端可在 `hello`/`capabilities` 阶段比对；服务端拒绝未知 major。
 - `serverId` 是逻辑身份（UUID），不是地址；用于日志与多实例排障。
 - `capabilities` 返回方法表与 limits，客户端据此降级或提示。
+- `features` 明确声明 transport 能力：SSE、产物下载、幂等、列表过滤。stdio v1 的
+  capabilities 是 HTTP 的子集（无 SSE/artifactDownload，idempotency=false，
+  listFilters=["status"]）。
+- `build.node` 与 `build.sqliteBackend` 用于排障：启用 SQLite 时要求 `node:sqlite`
+  可用，并在启动时检测失败 fail fast。
+
+### 4.6 调用方触发流程（HTTP 目标形态）
+
+> 本节描述方案落地后的调用契约。当前仓库尚无可用的 HTTP server；调用方不应按本节
+> 对接未完成的实现。今天的可用路径是 `review-pi review` 进程调用、进程内 `runReview`
+> 或已拍板的 stdio 模式（见姊妹篇）。
+
+#### 4.6.1 前置条件
+
+1. `review-pi-server` 已启动，并在 `GET /readyz` 返回 ready。
+2. 调用方持有 bearer token，且具备 `review:submit` / `review:read` /
+   `review:cancel` / `artifact:read` 中所需的 scope。
+3. 调用方使用的 `repoId` 已注册到 `RepoRegistry`；对应仓库快照停在 MR 的 **base 侧**
+   （server 不 apply diff）。
+4. `REVIEWER_URL` / `REVIEWER_API_KEY` 已由 server 运维面配置；调用方不传这些值。
+
+#### 4.6.2 触发序列
+
+```text
+GET  /v1/capabilities              # 可选：协议版本 / limits / features
+POST /rpc  server.capabilities     # 可选：JSON-RPC 形态同样能力
+POST /rpc  review.submit           # 202 + jobId
+GET  /v1/jobs/{jobId}/events       # SSE（或轮询 review.get）
+POST /rpc  review.get              # SSE 断线 / 不支持 SSE 时轮询
+POST /rpc  review.cancel           # 可选：显式取消
+GET  /v1/jobs/{jobId}/artifacts/audit|record   # 可选：取审计/记录
+```
+
+#### 4.6.3 最小 curl 触发
+
+能力发现：
+
+```bash
+curl -sS https://review.example.com/v1/capabilities \
+  -H "Authorization: Bearer $REVIEW_TOKEN"
+```
+
+提交 job：
+
+```bash
+curl -sS -X POST https://review.example.com/rpc \
+  -H "Authorization: Bearer $REVIEW_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Request-Id: 9f2c7b1e" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "2",
+    "method": "review.submit",
+    "params": {
+      "clientRequestId": "mr-12345-rev-1",
+      "caseId": "MR-12345",
+      "source": {
+        "kind": "inline",
+        "repoId": "platform-x/base",
+        "diff": "diff --git ...",
+        "issueDescription": "CVE-..."
+      },
+      "configId": "E",
+      "modelId": "deepseek-v4-flash",
+      "metadata": { "project": "platform-x", "mr": "12345" }
+    }
+  }'
+```
+
+预期：
+
+```http
+202 Accepted
+Location: /v1/jobs/01J...
+```
+
+```json
+{"jsonrpc":"2.0","id":"2","result":{"jobId":"01J...","status":"queued","submittedAt":"..."}}
+```
+
+SSE 跟踪：
+
+```bash
+curl -N https://review.example.com/v1/jobs/01J.../events \
+  -H "Authorization: Bearer $REVIEW_TOKEN" \
+  -H "Accept: text/event-stream" \
+  -H "Last-Event-ID: 7"
+```
+
+```text
+id: 8
+event: job
+data: {"seq":8,"jobId":"01J...","status":"running","progress":{"phase":"Deep Reasoning","round":1,"toolCalls":2}}
+
+id: 9
+event: job
+data: {"seq":9,"jobId":"01J...","status":"succeeded","result":{"runId":"...","findings":[],"usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0},"rounds":1,"toolCalls":0,"truncated":false,"auditRef":"artifact:audit/...","recordRef":"artifact:record/..."}}
+```
+
+轮询替代：
+
+```json
+{"jsonrpc":"2.0","id":"3","method":"review.get","params":{"jobId":"01J..."}}
+```
+
+显式取消：
+
+```json
+{"jsonrpc":"2.0","id":"4","method":"review.cancel","params":{"jobId":"01J..."}}
+```
+
+产物下载：
+
+```bash
+curl -sS https://review.example.com/v1/jobs/01J.../artifacts/audit \
+  -H "Authorization: Bearer $REVIEW_TOKEN" \
+  -o audit.json
+```
+
+#### 4.6.4 调用方状态处理
+
+| 终态 | 调用方动作 |
+|---|---|
+| `succeeded` | 读 `result.findings` / usage / rounds / toolCalls / truncated；按需下载 artifact |
+| `failed` | 读 `error.code` / `error.message`；按错误分类决定重试 |
+| `cancelled` | 不再当成功处理；如需重评，用新的 `clientRequestId` 重新 submit |
+
+`HTTP 连接断开不等于取消 job`：只有显式 `review.cancel` 或服务端 drain 才取消。
+SSE 断线后用 `Last-Event-ID` 重连；若服务端返回 `event: reset`，改走 `review.get`
+取快照。
+
+#### 4.6.5 调用方重试策略
+
+| 情况 | 动作 |
+|---|---|
+| `401` / `403` | 检查 token / scope；不重试 |
+| `413 payload_too_large` | 缩小 diff/body；不重试原请求 |
+| `429 queue_full` / `rate_limited` | 读 `Retry-After`，指数退避后重试 |
+| `502 gateway_unavailable` | 可重试；同 `clientRequestId` 避免重复 job |
+| `503 server_draining` | 等 `Retry-After` 或换实例；不取消已有 job |
+| JSON-RPC 业务错误 | 按 `error.code` 分类；不要只看 HTTP 200 |
+
+幂等约定：`review.submit` 对 `(tenantId, clientRequestId)` 唯一；重复提交返回既有
+job。若同一 `clientRequestId` 携带不同参数，返回 `idempotency_conflict`（建议
+`-32016`），调用方必须换 id。
+
+### 4.7 与 stdio v1 的契约对齐表
+
+stdio v1 的拍板记录见 ADR-0012 与姊妹篇 §12。以下内容已于 2026-10-21 拍板：
+
+| 契约点 | HTTP 方案 | stdio v1 | 已拍板落法（2026-10-21） | 状态 |
+|---|---|---|---|---|
+| `review.submit` 仓库参数 | 嵌套 `source: {kind:"inline", repoId, diff, issueDescription}` | 扁平 `repoPath` / `diff` / `issueDescription` | 内部归一化为 `ReviewSubmitInput.source`；HTTP=`{kind:"inline",repoId}`，stdio=`{kind:"local-path",repoPath}`；两者不强行共用一个 wire 字段 | 已拍板 |
+| `clientRequestId` | HTTP 支持幂等 | v1 不做 | capabilities `features.idempotency` 显式声明；HTTP=true，stdio v1=false；客户端按能力分支 | 已拍板 |
+| `review.list` | `status/caseId/limit/cursor` | 只 `status?` | capabilities `features.listFilters` 声明；HTTP 全量，stdio v1 仅 status | 已拍板 |
+| 终态 `review.cancel` | 原写 `-32005` | 幂等返回终态 view | 统一幂等返回终态 view；`-32005` 保留但不发射 | 已拍板（与 ADR-0012 一致） |
+| `shutdown` 方法 | HTTP 无（SIGTERM） | stdio 有 `shutdown` | 保持差异：HTTP 用进程信号，stdio 用方法；capabilities 方法表各自声明 | 已拍板 |
+| `jobId` 格式 | 示例 ULID 形 `01J...` | `job-<启动毫秒>-<序号>` | 对外统一为**不透明字符串**；调用方不得解析格式 | 已拍板 |
+| 错误码表 | 缺 `-32011`～`-32017` | 仅 `-32011` | 以 §4.4 扩展表为准；stdio 侧同步补齐 | 已拍板 |
+| `maxConcurrentJobs` 默认 | §7.2 写 2 | 默认 1 | P1 统一默认 1；P3 worker 池验证后再把生产默认调到 2 | 已拍板 |
+
+补充拍板（同一次评审通过）：
+
+| 议题 | 已拍板落法 |
+|---|---|
+| `review.submit` HTTP 状态 | `202 Accepted` + `Location`；其余方法 200；capabilities 声明 `submitHttpStatus: 202` |
+| 鉴权模型 | P1 `Authorization: Bearer`；tenant 从 principal 派生；scopes 分 `review:submit/read/cancel`、`artifact:read`、`admin`；P3 再加 mTLS |
+| SQLite / Node | 只使用 `node:sqlite`；启用 SQLite 适配器时 `engines.node >=22.19.0`（最低 `>=22.13.0` 免 flag），启动时检测 fail fast；不引 `better-sqlite3` |
+| 产物下载 | `GET /v1/jobs/{jobId}/artifacts/{audit\|record}`；`audit` 需独立 `artifact:read`；默认保留 30 天，可配；过期 `artifact_expired` |
+| 多实例 | v1 明确单实例；SQLite 只解决重启恢复；多实例需 sticky routing 或 lease/fence，另立 ADR |
+| 事件传输 | v1 只做 SSE，不做 WebSocket；支持 `Last-Event-ID` + 心跳 + `retry:`；跨重启 replay 等 SQLite v2 |
+| `repoId` 语义 | 指向不可变 base 快照（建议带 commit sha，如 `platform-x/base@<sha>`），不用可变分支名 |
+| diff 传输 | v1 只做 inline JSON 字符串，上限 8 MiB；不做 base64；更大 diff 走 P4 artifact/upload |
+
+**关键结论**：两条传输面共享的是**方法名与状态机语义**，不是逐字相同的 params 结构。
+调用方应按 `server.capabilities` 的 `features` 分支，而不是假设 stdio/HTTP 完全同构。
 
 ---
 
@@ -515,6 +785,10 @@ queued ──> running ──> succeeded
 
 - `(tenantId, clientRequestId)` 唯一；重复 `review.submit` 返回既有 job。
 - 没有 `clientRequestId` 时不去重；客户端重试需自带稳定 id。
+- 同一 `clientRequestId` 携带不同 params → `idempotency_conflict`（建议 -32016），
+  不覆盖既有 job。
+- 幂等记录保留窗口建议 ≥ 7 天；过期后可复用同一 id（不建议，调用方应使用新 id）。
+- `429` / `503` 返回 `Retry-After`；调用方按该值退避，不自行无限重试。
 - `queued` job 在服务重启后可恢复（input blob + repo snapshot 仍在）。
 - `running` / `cancelling` job 在服务重启后标记 `failed`，错误码 `SERVER_RESTART`；
   不假装续跑，因为当前 `runReview` 没有 checkpoint/resume 语义。
@@ -572,6 +846,11 @@ CREATE INDEX jobs_status_submitted ON jobs (tenant_id, status, submitted_at);
 - `experimentId = jobId`，保证 audit/record 目录互不冲突；`runId` 仍由内核生成并返回。
 - API 返回 artifact 的**逻辑引用**（`artifact:audit/<runId>`），不返回服务器绝对路径；
   admin scope 才可走单独 artifact 下载接口。
+- 下载端点：`GET /v1/jobs/{jobId}/artifacts/{audit|record}`，要求 `artifact:read`；
+  返回 `application/json`（审计为 JSON 文档）。`audit` 与 `record` 分开授权，避免
+  审计原文（含 wireBody）被普通读权限拉到。
+- 产物保留窗口由 `--artifact-retention-days` 配置；过期后下载返回 404 +
+  `artifact_expired`（建议 -32017），但 job 元数据仍可按保留策略保留。
 
 ---
 
@@ -593,6 +872,9 @@ CREATE INDEX jobs_status_submitted ON jobs (tenant_id, status, submitted_at);
    P1 允许无 partial audit；P2 再补「partial audit flush + 引用」。
 
 验收：取消响应的 p95 上界（不含网关在飞请求）、不写半截 record、不污染指标数据。
+对调用方：queued → 直接 `cancelled`；running → `cancelling` → `cancelled`；已终态
+`review.cancel` **幂等返回终态 view**（不发射 -32005，与 ADR-0012 对齐）。HTTP
+连接断开不触发取消。
 
 ### 6.2 进度：`ReviewRunInput.onProgress`
 
@@ -654,10 +936,14 @@ export interface ReviewRunSummary {
 ### 7.2 队列与背压
 
 - `maxQueueDepth`：默认 100；满则 `-32002 queue_full` / HTTP 429。
-- `maxConcurrentJobs`：默认 2；与 worker 池一一对应。
+- `maxConcurrentJobs`：**已拍板** P1 默认 **1**（与 stdio v1 对齐）；P3 worker 池验证后
+  生产可配 2。
 - 每 tenant 可加 `maxInFlight`，防单租户饿死其它租户。
 - `queued` 超时（默认 30 min）自动 `failed`，错误码 `QUEUE_TIMEOUT`。
 - `jobTimeoutMs`：默认 60 min；超时 abort + `failed`，错误码 `JOB_TIMEOUT`。
+- SSE 每 job 订阅者上限默认 8、每 tenant 默认 32；慢消费者超过写队列上限后断开，
+  客户端靠 `Last-Event-ID` 重连或 `review.get` 快照恢复。
+- `429` 与 `503` 都必须带 `Retry-After`（秒）。
 
 ### 7.3 内存与仓库规模
 
@@ -674,14 +960,35 @@ export interface ReviewRunSummary {
 - `Authenticator` 端口：P1 支持 bearer token；P3 支持 mTLS / 企业网关头。
 - `Principal`：`tenantId`、`subject`、`scopes`（`review:submit` / `review:read` /
   `review:cancel` / `artifact:read` / `admin`）。
+- wire 约定：`Authorization: Bearer <token>`；token 由 server 运维面签发/轮换，
+  `tenantId` 从 token principal 派生，客户端不得在 params 里自报 tenant。
+- 所有端点（`/rpc`、SSE、artifact 下载）都走同一认证；`/healthz` 可匿名，
+  `/readyz` 与 `/v1/capabilities` 默认也要求认证（便于限流与审计）。
 - 授权在 service 层按 principal 执行；store 查询强制 tenant 过滤。
 - 未授权不泄漏资源存在性：统一 `job_not_found`。
+- 401 = 缺 token / token 无效；403 = token 有效但 scope 不足。两者都在 HTTP 层
+  返回，不进入 JSON-RPC envelope。
 
 ### 8.2 仓库与路径
 
 - 客户端只传 `repoId`，由 `RepoRegistry` 解析到 allowlist 根下的路径。
 - 解析必须 `realpath` + 根前缀校验，拒绝 symlink/junction 逃逸、绝对路径、`..`。
 - P4 MR provider 模式：`projectId/mrId` → 平台 API → 临时物化仓；物化目录受同一 allowlist 管理。
+- RepoRegistry 配置示例（P1 可用 JSON 文件或 env 映射）：
+  ```json
+  {
+    "roots": ["/srv/repos"],
+    "repos": {
+      "platform-x/base": { "path": "platform-x/base", "tenantId": "platform-x" },
+      "vul4j/VUL4J-1": { "path": "vul4j/VUL4J-1-f5903fa564", "tenantId": "eval" }
+    }
+  }
+  ```
+- 未知 `repoId` → `-32012 repo_not_found`；越权 repoId 与不存在统一按 not found，
+  不泄漏跨 tenant 仓库存在性。
+- base 快照语义：仓库必须停在 MR 的 **base 侧**；server 只读，不 apply diff、不写仓库。
+  快照由调用方/物化流水线保证，server 只做路径与可读性校验。`repoId` 应指向不可变
+  快照（建议带 commit sha，如 `platform-x/base@<sha>`），不要绑定可变分支名。
 
 ### 8.3 秘钥与出站
 
@@ -693,9 +1000,11 @@ export interface ReviewRunSummary {
 
 - 结构化日志字段：`requestId`、`jobId`、`tenantId`、`caseId`、`configId`、`modelId`、
   `status`、`durationMs`、`rounds`、`usage`、`errorCode`。
+- `X-Request-Id`：调用方可带；服务端回显同一值并在所有日志/事件中透传；缺失则生成。
 - `/healthz`：进程活着即可；`/readyz`：store 可写 + worker 池 ready + 不在 drain。
 - 可选 `/metrics`：计数器（submit/success/fail/cancel/queue_full）、直方图（queue wait、
   run duration）、gauge（queue depth、running jobs）。
+- access log 至少记录：method、path、status、requestId、tenantId、jobId、durationMs。
 
 ### 8.5 生命周期
 
@@ -703,17 +1012,84 @@ export interface ReviewRunSummary {
 - drain 超时（默认 60s）后 abort 剩余 job，标记 `cancelled`（reason=`SERVER_DRAIN`）。
 - `close()` 幂等；重复调用返回同一 Promise。
 
+### 8.6 服务启动与部署
+
+> 本节是补齐项：原方案只有包布局，没有启动/部署契约。以下形态已于 2026-10-21 拍板，
+> 编码按此实现；生产地址/端口可经 CLI 或环境变量覆盖。
+
+启动命令（建议形态）：
+
+```bash
+pnpm build:pi
+pnpm --filter review-pi-server build
+
+review-pi-server \
+  --host 127.0.0.1 \
+  --port 8787 \
+  --data-dir /var/lib/review-agent \
+  --repo-root /srv/repos \
+  --repo-registry /etc/review-agent/repos.json \
+  --auth-token-file /etc/review-agent/rpc-token \
+  --concurrency 2 \
+  --max-body-bytes 33554432 \
+  --max-diff-bytes 8388608 \
+  --artifact-retention-days 30
+```
+
+| 配置 | 说明 |
+|---|---|
+| `--host` / `--port` | 监听地址；已拍板默认 `127.0.0.1:8787`，可经 `--host/--port` 或 `HOST/PORT` 环境变量覆盖；生产由反代对外 |
+| `--data-dir` | `jobs.sqlite`、blobs、runs/audit 落盘根 |
+| `--repo-root` / `--repo-registry` | 仓库 allowlist 与 repoId 映射 |
+| `--auth-token-file` | bearer token 或 token→principal 映射文件；支持轮换 |
+| `--concurrency` | 执行并发；P1 默认 1，P3 worker 池验证后可调 2 |
+| `--max-body-bytes` / `--max-diff-bytes` | 请求与 diff 上限 |
+| `--artifact-retention-days` | 审计/记录产物保留窗口 |
+
+环境变量：
+
+```ini
+REVIEWER_URL=...      # 评审模型网关（服务端专属，客户端不可覆盖）
+REVIEWER_API_KEY=...  # 只在服务端注入；日志/事件/审计绝不回显
+```
+
+Node 运行时：
+
+```text
+engines.node >=22.19.0              # 启用 SQLite 适配器时（对齐 pi sqlite backend）
+最低 node:sqlite 可用线 >=22.13.0   # 免 --experimental-sqlite
+启动检测 node:sqlite；不可用则 fail fast，不静默降级
+```
+
+部署边界：
+
+- v1 单实例；job 状态与执行者绑定，SQLite 只解决重启恢复，不解决多实例。
+- 多实例需 sticky routing 或 lease/fence，另立 ADR；在此之前不要把同一租户打到多实例。
+- TLS 建议由反向代理终止；server 默认只监听内网/本机。若直连 TLS，后续加
+  `--tls-cert` / `--tls-key`。
+- `/readyz` 作为滚动发布门；SIGTERM 后先失败 readiness，再 drain。
+
+### 8.7 调用方网络与 SSE 注意
+
+- 反向代理需为 SSE 关闭响应缓冲（`X-Accel-Buffering: no`）、放宽 read timeout，
+  并把 `Last-Event-ID` 原样透传。
+- SSE 连接必须带 `Authorization`；浏览器直连需 CORS 预检与 `Access-Control-Allow-Headers`
+  包含 `Authorization`、`Last-Event-ID`、`X-Request-Id`。服务到服务集成不需要 CORS。
+- 调用方 HTTP 超时应短于 job 超时；`review.submit` 是异步受理，不要用长连接等结果。
+- 代理对 429/503 的 `Retry-After` 不要改写；调用方按该值退避。
+
 ---
 
 ## 9. 实施顺序与验收
 
 | 阶段 | 内容 | 验收 | 估计 |
 |---|---|---|---|
+| P-1 | 调用方契约收口：§4.6 触发流程、§4.7 stdio 对齐表、§8.6 启动/部署 | **已完成拍板**（2026-10-21）；调用方可用 §4.6 curl 契约评审 | 已收口 |
 | P0 | 内核 seam：`signal`、`onProgress`、`ReviewRunSummary` | 单测：取消不写 succeeded record；progress 钩子开启/关闭 t1–t5 字节门零漂移；`pnpm test` 全绿 | 0.5–1 天 |
 | P1 | `review-pi-server` 包 + `ReviewService` + memory store + fake executor + in-process executor | 服务接口测试：submit/get/list/cancel/幂等/队列满/tenant 隔离/取消/close drain；无 HTTP 参与 | 1–2 天 |
-| P2 | HTTP JSON-RPC + SSE + auth + limits + `/healthz` `/readyz` | 原始 HTTP 契约测试：JSON-RPC 错误码、401/403/413/429、SSE `Last-Event-ID` 重放、断线不取消 job | 1–2 天 |
-| P3 | SQLite store + worker 池 + 重启恢复 + drain | 崩溃恢复（queued 恢复、running 标 failed/SERVER_RESTART）、worker 取消、并发 soak、内存上限 | 2–3 天 |
-| P4 | 可选适配器：MR source provider / stdio JSONL / pi-protocol v8 / artifact 下载 | 每个适配器只加 transport/source 测试，不动 ReviewService | 视需求 2–5 天/项 |
+| P2 | HTTP JSON-RPC + SSE + auth + limits + `/healthz` `/readyz` + artifact 下载 | 原始 HTTP 契约测试：JSON-RPC 错误码、401/403/413/429、SSE `Last-Event-ID` 重放、断线不取消 job、artifact 权限 | 1–2 天 |
+| P3 | SQLite store + worker 池 + 重启恢复 + drain；启动时检测 `node:sqlite` | 崩溃恢复（queued 恢复、running 标 failed/SERVER_RESTART）、worker 取消、并发 soak、内存上限；Node 版本门 | 2–3 天 |
+| P4 | 可选适配器：MR source provider / stdio JSONL / pi-protocol v8 | 每个适配器只加 transport/source 测试，不动 ReviewService | 视需求 2–5 天/项 |
 
 建议先立 ADR（编号顺延）记录：
 
@@ -721,6 +1097,8 @@ export interface ReviewRunSummary {
 2. job 生命周期与持久化：SQLite job store + job-oriented（非 pi Session）；
 3. 取消语义：协作式 abort + worker 硬终止边界，取消不入指标；
 4. repo 安全模型：repoId + allowlist，禁止客户端绝对路径。
+5. 调用方契约：HTTP JSON-RPC 触发流程、stdio v1 对齐表、artifact 下载与错误码表
+   （已写入本方案 §4.6/§4.7/§8.6；如需正式 ADR，可据此生成 ADR-0013）。
 
 ---
 
@@ -728,14 +1106,19 @@ export interface ReviewRunSummary {
 
 | 风险/问题 | 说明 | 建议 |
 |---|---|---|
-| 鉴权模型未定 | bearer vs mTLS vs 平台网关注入 | P2 前定；Authenticator 端口先留 |
+| 鉴权模型 | bearer token 为 P1 默认；mTLS / 网关注入为 P3 | **已拍板**：按 §8.1 落地；token 轮换与 tenant 映射实现时定 |
 | 仓库来源未定 | allowlist 本地仓 vs 平台拉取 | P1 用 repoId + inline diff；P4 加 MR provider |
 | 取消粒度 | 网关在飞请求无法瞬时终止 | 定义「取消响应上界」；worker 超时 terminate |
 | partial audit | abort 时可能没有完整 record | P1 允许无 audit；P2 补 partial flush |
-| SSE vs WebSocket | SSE 单向但简单；WebSocket 双向但复杂 | 先用 SSE；有双向交互需求再评 |
+| SSE vs WebSocket | SSE 单向但简单；WebSocket 双向但复杂 | **已拍板**：v1 只用 SSE；WebSocket 后置 |
 | pi-protocol 兼容 | 上游已删除该栈 | 仅当有真实 pi 客户端时做 P4 适配器 |
 | 并发 parser | 进程级 memoized parser | P3 worker 池隔离；P1 concurrency=1 |
-| 多实例部署 | job 状态与执行者绑定 | P3 先单实例；多实例需 lease/fence，另立 ADR |
+| 多实例部署 | job 状态与执行者绑定 | **已拍板**：v1 单实例；多实例需 lease/fence，另立 ADR |
+| `node:sqlite` 版本/实验性 | Node <22.13 需要 flag；当前 Node 仍打 ExperimentalWarning | **已拍板**：启用时 `engines.node >=22.19.0`；启动检测 fail fast；不引 `better-sqlite3` |
+| stdio/HTTP 契约分歧 | params 结构、幂等、列表过滤、终态 cancel 等未逐字对齐 | **已拍板**：以 §4.7 对齐表为准；capabilities `features` 声明能力 |
+| SSE 慢消费者 | 写队列膨胀会拖垮 server | 每 job/tenant 订阅上限 + 慢消费者断开 + `Last-Event-ID` 重连 |
+| artifact 保留 | audit 含 wireBody，体积与敏感度都高 | **已拍板**：独立 scope、默认 30 天保留窗口、过期 `artifact_expired` |
+| 调用方重试重复 job | 网络抖动可能重复 submit | `clientRequestId` 幂等；`idempotency_conflict` 拒绝不同参数 |
 
 ---
 
@@ -747,6 +1130,10 @@ export interface ReviewRunSummary {
 - 不做同步阻塞式 `review.run`（检视分钟级，HTTP 超时不可控）；只做 submit + poll/SSE。
 - 不允许客户端传绝对 `repoPath`、`apiKey`、任意 `baseUrl`。
 - 不改变 Zone A/B、六阶段指令、Finding/Evidence 契约与判定链口径。
+- v1 不做多实例共享执行；SQLite 不等于多实例 job 调度。
+- 不把 `jobId` 格式当契约；调用方只能把它当不透明字符串。
+- 不要求 stdio v1 与 HTTP 的 params 逐字相同；共享方法名/状态机，能力差异由
+  `server.capabilities.features` 声明。
 
 ---
 
