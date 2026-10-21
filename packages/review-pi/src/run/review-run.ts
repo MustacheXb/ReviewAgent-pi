@@ -4,7 +4,7 @@ import { buildAuditFileContent, buildRunId, writeAuditFile } from "../audit/audi
 import { CONFIGS, type ConfigId, type ReviewConfig } from "../contracts/config.js";
 import type { LlmMessage } from "../contracts/llm.js";
 import { DEFAULT_PREFETCH_BUDGETS } from "../contracts/prefetch.js";
-import type { RunResult } from "../contracts/run.js";
+import { ReviewAbortedError, type RunResult, type ReviewRunProgress } from "../contracts/run.js";
 import { buildRunRecord, writeRunRecord, type RunRecord } from "../experiment/run-record.js";
 import { runAgentReviewLoop } from "../loop/agent-review-loop.js";
 import { buildInitialContextMessages, buildInitialUserMessage } from "../loop/messages.js";
@@ -21,6 +21,11 @@ import {
 import { loadRepoContext, type RepoContext } from "../zoneb/repo-context.js";
 import { buildPrefetchContext, type PrefetchContext } from "../zoneb/prefetch.js";
 import { guardMrBoundary, type MrBoundaryDecision } from "./mr-boundary-guard.js";
+
+// S2 内核缝契约再出口（#23）：消费方（rpc executor / 根侧）经内核入口单点
+// 取 ReviewAbortedError 与进度事件类型，不直探 contracts 层。
+export { ReviewAbortedError } from "../contracts/run.js";
+export type { ReviewRunProgress } from "../contracts/run.js";
 
 // 单案全链入口（#3 P1a 离线全链；#4 起真跑同缝泛化；#5 起 config A/B 双驱；
 // #6 P3a 起 C/D/E 工具驱动 agentLoop）：
@@ -67,6 +72,17 @@ export interface ReviewRunInput {
   readonly persistRecord?: boolean;
   /** 起始时间戳（测试确定性钩子；缺省当前时间） */
   readonly startedAt?: Date;
+  /**
+   * 取消信号（#23 S2 rpc 缝）：中止时上抛 ReviewAbortedError——审计与
+   * RunRecord 均不落盘（半途中止无对照价值）。A/B 直驱透传 provider
+   * signal + 边界止步；C/D/E 调 agent.abort() + 边界止步。
+   */
+  readonly signal?: AbortSignal;
+  /**
+   * 进度观测（#23 S2 rpc 缝）：phase/round 边界（phase 入口）调用。
+   * 纯观测——不进 wire、不改消息序；未配置时字节行为不变（缺席省键）。
+   */
+  readonly onProgress?: (progress: ReviewRunProgress) => void;
 }
 
 export interface ReviewRunResult {
@@ -78,6 +94,10 @@ export interface ReviewRunResult {
 }
 
 export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult> {
+  // 取消前置检查（#23 S2）：signal 已中止 → 任何工作（含预取/全仓扫描）都不开始
+  if (input.signal?.aborted) {
+    throw new ReviewAbortedError();
+  }
   // configId 必填显式（ADR-0011 切流：程序化接口无缺省，缺省只在 CLI 用户面 = E）
   const configId = input.configId;
   const config = CONFIGS[configId];
@@ -123,6 +143,7 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
       ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
       ...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
       fetch: input.fetch,
+      ...(input.signal !== undefined ? { signal: input.signal } : {}),
     });
     return { message, wire, usage: piUsageToLlmUsage(message.usage) };
   };
@@ -131,6 +152,8 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     initialContextMessages,
     ...(prefetch !== undefined ? { prefetchRecords: prefetch.records } : {}),
     runTurn,
+    ...(input.signal !== undefined ? { signal: input.signal } : {}),
+    ...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
   });
 
   // 审计投影：AuditFileContent（requests[].wireBody 可重放字节）→ RunRecord
@@ -259,6 +282,8 @@ async function runToolDrivenReview(
     ...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
     fetch: input.fetch,
     includeLedgerAudit: config.ledger,
+    ...(input.signal !== undefined ? { signal: input.signal } : {}),
+    ...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
   });
 
   // 审计投影：fullRepo 记账并入 RunAudit（AuditLight/审计文件同源投影）

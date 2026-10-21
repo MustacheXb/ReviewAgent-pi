@@ -114,6 +114,37 @@ export interface RunAudit {
   readonly ledger?: readonly LedgerEntry[];
 }
 
+/**
+ * 内核进度观测事件（#23 S2 缝）：phase/round 边界发出（phase 入口），
+ * toolCalls / usage 为边界时点累计快照。纯观测——不进 wire、不改消息序；
+ * 未配置 onProgress 时字节行为不变（缺席省键纪律）。
+ */
+export interface ReviewRunProgress {
+  /** 当前进入的六阶段名 */
+  readonly phase: ReviewPhase;
+  readonly round: number;
+  /** 边界时点累计工具调用数（A/B 直驱恒 0） */
+  readonly toolCalls: number;
+  /** 边界时点累计 usage（可选键——A/B 直驱路径未必有工具轮次口径） */
+  readonly usage?: LlmUsage;
+}
+
+/**
+ * 取消中止错误（#23 S2 缝）：runReview 在 signal 中止时上抛。
+ * 半途中止无对照价值——审计与 RunRecord 均不落盘（现行内核审计在循环
+ * 完成后统一落盘，中止在循环内抛出即天然零落盘）。
+ *
+ * 落位于契约层的唯一例外（运行时类）：循环层（loop/）与执行入口（run/）
+ * 都要抛它，而 loop 不能反向 import run（依赖方向 run → loop）——这里是
+ * 两者的最低公共层。消费方统一经内核入口再出口取（run/review-run.ts）。
+ */
+export class ReviewAbortedError extends Error {
+  constructor(message = "review run aborted") {
+    super(message);
+    this.name = "ReviewAbortedError";
+  }
+}
+
 /** 六阶段循环一次完整运行的结果（审计投影的输入） */
 export interface RunResult {
   readonly caseId: string;

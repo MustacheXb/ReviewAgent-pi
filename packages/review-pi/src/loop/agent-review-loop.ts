@@ -4,12 +4,14 @@ import type { AssistantMessage, FetchFunction, Model } from "@earendil-works/pi-
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type { Finding } from "../contracts/finding.js";
 import type { LlmMessage, LlmUsage } from "../contracts/llm.js";
-import type {
-  CandidateRejection,
-  PhaseRecord,
-  RunAudit,
-  ToolCallRecord,
-  WireRequest,
+import {
+  ReviewAbortedError,
+  type CandidateRejection,
+  type PhaseRecord,
+  type ReviewRunProgress,
+  type RunAudit,
+  type ToolCallRecord,
+  type WireRequest,
 } from "../contracts/run.js";
 import { applyCandidateGate } from "../gate/candidate-gate.js";
 import {
@@ -64,6 +66,15 @@ export interface AgentReviewLoopInputs {
   readonly fetch?: FetchFunction;
   /** 审计投影 ledger 键（config E）；缺省不投影 */
   readonly includeLedgerAudit?: boolean;
+  /**
+   * 取消信号（#23 S2 缝）：abort → agent.abort()（pi 内核取消面，spec #21
+   * §6 / ADR-0012 决策 4）；prompt 返回后 signal 已中止 → 上抛
+   * ReviewAbortedError。fake 适配器不感知 signal——shouldStopAfterTurn
+   * 边界短路是离线确定性止步点（真路径 provider signal 先行中断）。
+   */
+  readonly signal?: AbortSignal;
+  /** 进度观测（#23 S2 缝）：phase/round 边界（phase 入口）调用；纯观测，未配置零介入 */
+  readonly onProgress?: (progress: ReviewRunProgress) => void;
 }
 
 export interface AgentReviewLoopOutcome {
@@ -83,6 +94,11 @@ const VERIFICATION_PHASE_INDEX = 5;
 export async function runAgentReviewLoop(
   inputs: AgentReviewLoopInputs,
 ): Promise<AgentReviewLoopOutcome> {
+  // 取消前置检查（#23 S2）：中止信号已到 → 任何工作不开始（与 runReview
+  // 入口检查同谓词；覆盖 config C 全仓扫描 / toolkit 组装的长窗口）
+  if (inputs.signal?.aborted) {
+    throw new ReviewAbortedError();
+  }
   // 审计累积面（run 内顺序单写；产出时整体冻结为 readonly 投影）
   const requests: WireRequest[] = [];
   const toolCallLog: ToolCallRecord[] = [];
@@ -172,6 +188,11 @@ export async function runAgentReviewLoop(
       phaseRequestCount += 1;
     },
     shouldStopAfterTurn: (context): boolean => {
+      // 取消边界短路（#23 S2）：signal 已中止 → 不再推进阶段（fake 路径的
+      // 确定性止步点；真路径 provider signal 已先行中断，此处兜底收口）
+      if (inputs.signal?.aborted) {
+        return true;
+      }
       const message = context.message;
       usage = addUsage(usage, piUsageToLlmUsage(message.usage));
       if (message.content.some((block) => block.type === "toolCall")) {
@@ -184,7 +205,35 @@ export async function runAgentReviewLoop(
     agent.followUp(message);
   };
 
-  await agent.prompt(phaseInstruction(0));
+  // 进度观测（#23 S2 缝）：phase/round 边界（phase 入口）发射——累计
+  // toolCalls/usage 快照；可选链保证未配置时零对象构造、零介入
+  const emitProgress = (): void => {
+    inputs.onProgress?.({
+      phase: phaseNameOf(phaseIndex),
+      round,
+      toolCalls: executedToolCalls,
+      usage,
+    });
+  };
+  emitProgress();
+
+  // 取消接线（#23 S2）：input signal → agent.abort()——pi 内核取消面
+  // （Agent.abort 只中止当前 run 的内部 controller；run 间隙触发为安全空操作）
+  const onAbort = (): void => {
+    agent.abort();
+  };
+  inputs.signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    await agent.prompt(phaseInstruction(0));
+  } finally {
+    inputs.signal?.removeEventListener("abort", onAbort);
+  }
+  // 取消收口（#23 S2）：prompt 正常返回但 signal 已中止（fake 路径经
+  // shouldStopAfterTurn 边界短路止步）→ ReviewAbortedError——半途中止无
+  // 对照价值，审计与 RunRecord 均不落盘；先于 error 检查（abort 优先归因）
+  if (inputs.signal?.aborted) {
+    throw new ReviewAbortedError();
+  }
 
   // pi-ai 对 provider 错误不 reject（resolve 出 stopReason "error" 的消息后
   // agent 即止）：缝必须显式拦截，错误永不静默成一次"成功" run。
@@ -230,6 +279,7 @@ export async function runAgentReviewLoop(
     if (phaseIndex < PHASE_COUNT - 1) {
       phaseIndex += 1;
       resetPhaseCounters();
+      emitProgress();
       followUp(phaseInstruction(phaseIndex));
       return false;
     }
@@ -259,6 +309,7 @@ export async function runAgentReviewLoop(
     roundCandidates = [];
     roundVerdicts = new Map();
     roundComplete = false;
+    emitProgress();
     followUp(phaseInstruction(0));
     return false;
   }

@@ -53,6 +53,13 @@ export interface ReviewTurnInput {
   readonly modelId?: string;
   /** 传输层注入；缺省线上 global fetch（离线测试恒注入 fake 适配器） */
   readonly fetch?: FetchFunction;
+  /**
+   * 取消信号（#23 S2 缝）：透传 pi-ai ProviderRequestOptions.signal——
+   * 真 fetch 路径在传输层中断请求（pi-ai 把中止折算为 stopReason
+   * "aborted" 的消息，不 reject）；缺省不进 provider 选项（缺席省键，
+   * 请求字节面零变化——signal 不参与序列化）。
+   */
+  readonly signal?: AbortSignal;
 }
 
 export interface ReviewTurnOutcome {
@@ -68,6 +75,7 @@ export async function runReviewTurn(input: ReviewTurnInput): Promise<ReviewTurnO
   const stream = deepseekProvider().stream(model, input.context, {
     apiKey: input.apiKey,
     ...(input.fetch !== undefined ? { fetch: input.fetch } : {}),
+    ...(input.signal !== undefined ? { signal: input.signal } : {}),
     reasoningEffort: LOCKED_REASONING_EFFORT,
     onPayload: (payload) => {
       wire = captureWire(payload);

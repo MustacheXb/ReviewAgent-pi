@@ -8,7 +8,13 @@
 // 纪律：本文件只做 re-export，零逻辑；新增导出需先过 package.json
 // exports map 与 dist 构建验证（types 链到 vendored pi-ai dist d.ts）。
 
-export { runReview, type ReviewRunInput, type ReviewRunResult } from "./run/review-run.js";
+export {
+  runReview,
+  ReviewAbortedError,
+  type ReviewRunInput,
+  type ReviewRunResult,
+  type ReviewRunProgress,
+} from "./run/review-run.js";
 export type {
   AuditLight,
   RunRecord,

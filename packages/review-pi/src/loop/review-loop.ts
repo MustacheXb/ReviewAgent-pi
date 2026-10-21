@@ -2,7 +2,14 @@ import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import type { Finding } from "../contracts/finding.js";
 import type { LlmMessage, LlmUsage } from "../contracts/llm.js";
 import type { PrefetchLayerRecord } from "../contracts/prefetch.js";
-import type { CandidateRejection, PhaseRecord, RunAudit, WireRequest } from "../contracts/run.js";
+import {
+  ReviewAbortedError,
+  type CandidateRejection,
+  type PhaseRecord,
+  type ReviewRunProgress,
+  type RunAudit,
+  type WireRequest,
+} from "../contracts/run.js";
 import { applyCandidateGate } from "../gate/candidate-gate.js";
 import { assistantText } from "../provider/pi-client.js";
 import { addUsage, ZERO_USAGE } from "../provider/usage-map.js";
@@ -36,6 +43,14 @@ export interface ReviewLoopInputs {
   /** 预取注入层记账（透传进 audit.prefetch） */
   readonly prefetchRecords?: readonly PrefetchLayerRecord[];
   readonly runTurn: ReviewTurnRunner;
+  /**
+   * 取消信号（#23 S2 缝）：中止在 phase/round 边界生效——上抛 ReviewAbortedError。
+   * fake 适配器不感知 signal，边界检查是离线确定性取消的唯一止步点
+   * （真 fetch 路径由 provider signal 先行中断，边界检查兜底收口）。
+   */
+  readonly signal?: AbortSignal;
+  /** 进度观测（#23 S2 缝）：phase 入口调用；纯观测，未配置零介入 */
+  readonly onProgress?: (progress: ReviewRunProgress) => void;
 }
 
 export interface ReviewLoopOutcome {
@@ -76,8 +91,19 @@ export async function runReviewLoop(inputs: ReviewLoopInputs): Promise<ReviewLoo
       if (instruction === undefined) {
         throw new Error(`missing phase instruction at index ${phaseIndex}`);
       }
+      // 进度观测（phase 入口；可选链保证未配置时零对象构造、零介入）
+      inputs.onProgress?.({
+        phase: phaseNameOf(phaseIndex),
+        round,
+        toolCalls: 0,
+        usage,
+      });
+      // 边界中止检查（onProgress 之后：观测先行，止步在后）
+      throwIfAborted(inputs.signal);
       messages = [...messages, { role: "user", content: instruction, timestamp: 0 }];
       const turn = await inputs.runTurn({ systemPrompt: inputs.systemPrompt, messages });
+      // 回合后中止检查（中止发生在请求进行中时，下一止步点在此）
+      throwIfAborted(inputs.signal);
       messages = [...messages, turn.message];
       usage = addUsage(usage, turn.usage);
       requests.push(turn.wire);
@@ -136,6 +162,13 @@ function phaseNameOf(phaseIndex: number): PhaseRecord["phase"] {
     throw new Error(`missing phase name at index ${phaseIndex}`);
   }
   return name as PhaseRecord["phase"];
+}
+
+/** 边界中止检查（#23 S2 缝）：signal 缺席时零介入（缺席省键纪律） */
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new ReviewAbortedError();
+  }
 }
 
 /** LlmMessage → pi-ai UserMessage（timestamp 为内核内部字段，不参与序列化） */
