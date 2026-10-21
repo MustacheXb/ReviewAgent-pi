@@ -1,16 +1,34 @@
 /**
- * #22 S1/S3 main：rpc 子命令的会话核心与进程装配。
+ * #22 S1 / #24 S3 main：rpc 子命令的会话核心与进程装配。
  *
  * S1 交付纯会话核心 createRpcSession：parse（protocol）→ dispatch → 全部输出
  * （响应 + review.event 通知）经单一 onOutput 缝——进程内可测，无 stdin/stdout
- * 依赖。S3 在其外包进程面：stdin 行循环（jsonl reader）、stdio-guard 接管、
- * EOF/信号 drain、Windows 退出纪律。
+ * 依赖。S3（runRpcMain）在其外包进程面：endpoint fail fast、service/executor
+ * 装配、stdio-guard 接管、stdin LF-only 读循环（jsonl reader）、EOF/信号 drain。
  *
  * shutdown 语义（spec §2.3）：先回响应 → 停止收单（draining，submit → -32010）
  * → 取消 queued → 等 running → 由进程面退出。事件通知与响应同缝，天然保序。
+ *
+ * 退出语义（spec §1 表，128+信号号惯例——pi 同款，本仓加 SIGINT）：
+ * - shutdown / stdin EOF → 排空已读入的命令 → drain → flush → 0；
+ * - SIGINT → 130 / SIGTERM → 143 / SIGHUP（非 win32）→ 129——信号路径跳过
+ *   stdout flush（信号到达时宿主可能已停读，flush 会卡死；pi 实证）；
+ * - 启动失败 / stdout 写失败 → 1（cli/main.ts reportErrorAndExit / stdio-guard）。
+ *
+ * 「已读入」边界 = stdin reader 已 emit 的行；drain 排空 in-flight 行处理后
+ * close（取消 queued、等 running）。Windows 退出纪律（cli/main.ts exitGracefully
+ * 实证）：runRpcMain 只做 flush（如适用）后返回退出码，process.exitCode 置码与
+ * 自然排干（含 8s unref 兜底）由 cli/main.ts 统一施加——真跑过 fetch 后立即
+ * process.exit 与句柄清理竞态会崩 0xC0000409。
  */
 
-import { serializeJsonLine } from "./jsonl.js";
+import { resolve } from "node:path";
+import type { Readable } from "node:stream";
+
+import type { RpcCliArgs } from "../cli/args.js";
+import { resolveReviewerEndpoint, type ReviewerEndpoint } from "../provider/reviewer-endpoint.js";
+import { KernelReviewRunExecutor, type ReviewRunExecutor } from "./executor.js";
+import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import {
   JSON_RPC_ERROR,
   RPC_METHOD,
@@ -26,6 +44,8 @@ import {
   type JsonRpcId,
 } from "./protocol.js";
 import type { ReviewService } from "./service.js";
+import { createReviewService } from "./service.js";
+import { createStdioGuard, type RawStdioSink } from "./stdio-guard.js";
 
 /** server.capabilities payload（spec §4/§5：协议版本、serverId、方法表、limits；S3 装配时 limits 从 service 派生） */
 export interface RpcServerInfo {
@@ -154,4 +174,202 @@ export function createRpcSession(options: RpcSessionOptions): RpcSession {
       }
     },
   };
+}
+
+// ---- S3 进程面（#24：stdin 读循环 + EOF/信号 drain）----
+
+/** 信号 → 退出码映射（128+信号号惯例；SIGHUP 仅非 win32 注册/可达） */
+const SIGNAL_EXIT_CODES = {
+  SIGINT: 130,
+  SIGTERM: 143,
+  SIGHUP: 129,
+} as const;
+
+/** 信号面抽象：process 天然满足；测试注入受控触发器（EventEmitter）模拟信号 */
+export interface RpcSignalTarget {
+  on(signal: NodeJS.Signals, handler: () => void): unknown;
+  off(signal: NodeJS.Signals, handler: () => void): unknown;
+}
+
+/**
+ * runRpcMain 的注入缝（缺省全真）：stdin/stdout/stderr/信号面给进程内测试
+ * 替身；endpoint/executor 缺省走真装配（endpoint 启动期解析一次、真适配器
+ * runsRoot = resolve(--out)），测试注入 fake executor 时完全离线。
+ */
+export interface RpcMainIo {
+  /** 命令流（缺省 process.stdin） */
+  readonly stdin?: Readable;
+  /** 协议流目标（缺省 process.stdout——经 stdio-guard 接管） */
+  readonly stdout?: RawStdioSink;
+  /** 诊断改道目标（缺省 process.stderr） */
+  readonly stderr?: RawStdioSink;
+  /** 已解析接入点（缺省 resolveReviewerEndpoint()——缺 key 上抛由调用方退 1） */
+  readonly endpoint?: ReviewerEndpoint;
+  /** 执行器（缺省 KernelReviewRunExecutor——runReview 的唯一调用方） */
+  readonly executor?: ReviewRunExecutor;
+  /** 信号面（缺省 process） */
+  readonly signals?: RpcSignalTarget;
+  /** serverId 启动毫秒单源（缺省 Date.now） */
+  readonly nowMs?: () => number;
+}
+
+/**
+ * rpc 进程面主缝：装配（endpoint → executor/service → stdio-guard → session）
+ * → stdin LF-only 读循环 → 长驻。resolve 值 = 进程退出码（shutdown/EOF 0、
+ * SIGINT 130、SIGTERM 143、SIGHUP 129）；启动失败经异常上抛 → cli/main.ts
+ * reportErrorAndExit → 1。进程退出（exitCode 置码 + 事件循环自然排干 +
+ * 8s unref 兜底）由 cli/main.ts exitGracefully 统一施加（Windows 纪律）。
+ */
+export async function runRpcMain(args: RpcCliArgs, io: RpcMainIo = {}): Promise<number> {
+  const endpoint = io.endpoint ?? resolveReviewerEndpoint();
+  const executor =
+    io.executor ??
+    new KernelReviewRunExecutor({
+      endpoint,
+      runsRoot: resolve(args.out),
+    });
+  const service = createReviewService({
+    executor,
+    concurrency: args.concurrency,
+    ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
+  });
+  const serverInfo: RpcServerInfo = {
+    protocolVersion: 1,
+    serverId: `${process.pid}-${(io.nowMs ?? Date.now)()}`,
+    methods: [
+      RPC_METHOD.CAPABILITIES,
+      RPC_METHOD.SUBMIT,
+      RPC_METHOD.GET,
+      RPC_METHOD.LIST,
+      RPC_METHOD.CANCEL,
+      RPC_METHOD.SHUTDOWN,
+    ],
+    limits: {
+      maxDiffBytes: service.limits.maxDiffBytes,
+      maxQueueDepth: service.limits.maxQueueDepth,
+      concurrency: args.concurrency,
+      repoRootEnforced: args.repoRoot !== undefined,
+    },
+  };
+
+  // stdout 接管：此后一切绕过协议层的直写（console.log / 第三方库）改道 stderr。
+  // 尾链致命写失败不立即 process.exit（缺省行为——Windows 0xC0000409 竞态：
+  // 真 fetch 在飞时立即 exit 与 undici/AbortSignal 句柄清理撞车）；改走 drain
+  // 收场退 1（跳 flush——stdout 已坏，再 flush 只会再失败）
+  const guard = createStdioGuard({
+    ...(io.stdout !== undefined ? { stdout: io.stdout } : {}),
+    ...(io.stderr !== undefined ? { stderr: io.stderr } : {}),
+    onFatalError: () => triggerDrain(1, false),
+  });
+  guard.takeOverStdout();
+  const session = createRpcSession({
+    service,
+    serverInfo,
+    onOutput: (line) => guard.writeRawStdout(line),
+  });
+
+  // in-flight 行处理跟踪 = drain 的「已读入」边界。行处理并发（pi rpc-mode
+  // 同款 fire-and-forget——响应按完成序写出）；每行收尾等写队列 backpressure，
+  // 宿主停读 stdout 时消费自然降速，不无限积压。
+  const inFlight = new Set<Promise<void>>();
+  const handleLine = async (line: string): Promise<void> => {
+    await session.handleLine(line);
+    await guard.waitForRawStdoutBackpressure();
+    // shutdown 方法落定（响应已回、close 已 await）→ 进程面 drain 收尾。
+    // isDraining 只由 close 置位：drain 自身的 close 触发此处时为幂等 no-op
+    // （drain 定序由首个触发者一次性定死，非首触发不改判）。
+    if (service.isDraining()) {
+      triggerDrain(0, true);
+    }
+  };
+  const onLine = (line: string): void => {
+    // handleLine 内部全兜底（session catch-all + 写队列尾链不 reject）；
+    // 此处 catch 只是防意外逃逸成 unhandledRejection 的护栏
+    const handling = handleLine(line).catch(() => undefined);
+    inFlight.add(handling);
+    void handling.finally(() => {
+      inFlight.delete(handling);
+    });
+  };
+
+  // drain 单例：首个触发者一次性定序（EOF/shutdown → 0+flush；信号 →
+  // 128+n+跳过 flush——宿主可能已停读，flush 只会卡死）；非首触发一律
+  // no-op。drain 开闸即注销信号处理器（runDrain 同步前奏），此后到达的
+  // 信号走默认处置（进程即死，128+n 退出码由 bin 的 close 映射保证——
+  // 与 pi 上游 rpc-mode 同语义），不存在「drain 进行中覆写退出码」的路径。
+  let drainState: { code: number; flush: boolean } | undefined;
+  let settleExit!: (code: number) => void;
+  const exited = new Promise<number>((resolvePromise) => {
+    settleExit = resolvePromise;
+  });
+
+  const detachStdin = (() => {
+    // 先挂 reader 再挂 end 监听：reader 的 onEnd（尾行冲刷）先于 EOF drain
+    // 触发运行，尾行进 inFlight 后 drain 才快照
+    const detachReader = attachJsonlLineReader(io.stdin ?? process.stdin, onLine);
+    const onStdinEnd = (): void => {
+      triggerDrain(0, true);
+    };
+    (io.stdin ?? process.stdin).on("end", onStdinEnd);
+    return () => {
+      detachReader();
+      (io.stdin ?? process.stdin).off("end", onStdinEnd);
+    };
+  })();
+
+  const signalCleanup: Array<() => void> = [];
+  const registerSignal = (signal: NodeJS.Signals, code: number): void => {
+    const handler = (): void => {
+      triggerDrain(code, false);
+    };
+    (io.signals ?? process).on(signal, handler);
+    signalCleanup.push(() => (io.signals ?? process).off(signal, handler));
+  };
+
+  const runDrain = async (): Promise<void> => {
+    // 信号处理只负责首触发；drain 开闸后注销，重复信号不再进 handler
+    for (const cleanup of signalCleanup.splice(0)) {
+      cleanup();
+    }
+    detachStdin();
+    (io.stdin ?? process.stdin).pause();
+    while (inFlight.size > 0) {
+      await Promise.all([...inFlight]);
+    }
+    // settleExit 必须无条件执行：exited 永悬 = cli/main.ts 的 then 不落定、
+    // 8s 兜底不挂——只能靠 unhandledRejection 崩溃救场（时序不定）。
+    // close / flush 的失败面就地收口为 1（契约：内部错误 / stdout 写失败
+    // → 1）；flushRawStdout 的零字节直写绕过尾链 catch，EPIPE 在此上抛。
+    let exitCode = drainState?.code ?? 1;
+    try {
+      await service.close();
+    } catch {
+      exitCode = 1;
+    }
+    if (drainState?.flush) {
+      try {
+        await guard.flushRawStdout();
+      } catch {
+        exitCode = 1;
+      }
+    }
+    settleExit(exitCode);
+  };
+
+  const triggerDrain = (code: number, flush: boolean): void => {
+    if (drainState === undefined) {
+      drainState = { code, flush };
+      void runDrain();
+    }
+  };
+
+  registerSignal("SIGINT", SIGNAL_EXIT_CODES.SIGINT);
+  registerSignal("SIGTERM", SIGNAL_EXIT_CODES.SIGTERM);
+  if (process.platform !== "win32") {
+    registerSignal("SIGHUP", SIGNAL_EXIT_CODES.SIGHUP);
+  }
+
+  // 长驻：drain 落定（EOF/shutdown/信号）前不 resolve；事件循环由 stdin
+  // 流与信号监听保活
+  return exited;
 }

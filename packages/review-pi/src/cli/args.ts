@@ -20,7 +20,10 @@ import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
  * - disposition（#15）本地数据面：无网络无凭据；--decision 三值枚举在
  *   parse 层校验；处置库 --store 显式与 --out 派生根互斥，缺省派生
  *   <out>/<CLI_EXPERIMENT_ID>/dispositions.json（与 review 落盘的 runs/
- *   同层）。
+ *   同层）；
+ * - rpc（#24 S3，ADR-0012）stdio JSONL 长驻模式：--out / --repo-root /
+ *   --concurrency 三旗标全可选；concurrency 正整数在 parse 层校验
+ *   （>1 的安全前提未验证，usage 文案标注实验性）。
  *
  * model 是实验数据（#45 语义）：自由 id 透传，缺省单源 = 钉住的评审模型
  * （REVIEW_MODEL_ID），无 model 环境变量。与 DSH 线 review bin 的
@@ -60,12 +63,17 @@ const KNOWN_DISPOSITION_FLAGS: readonly string[] = [
 /** disposition 子命令（KPI 面）的已知旗标（--stats 本身无值，进入旗标循环前剥离） */
 const KNOWN_DISPOSITION_STATS_FLAGS: readonly string[] = ["--store", "--out"];
 
+/** rpc 子命令（#24 S3）的已知旗标（全可选） */
+const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--repo-root", "--concurrency"];
+
 /** 用法文案（stderr 错误路径的同款文案，单一来源） */
 export const USAGE_TEXT = `usage: review-pi review --repo <path> --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
        review-pi smoke [--model <id>]
+       review-pi rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]
        review-pi disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
        review-pi disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
+  （rpc = stdio JSONL 长驻模式：stdin 收 JSON-RPC 命令、stdout 回 JSON 行、stderr 诊断——ADR-0012）
   （disposition = Finding 人工处置落库 + 接受率 KPI：本地数据面，无网络、不碰凭据与 .env.local）
 
 review 旗标：
@@ -78,6 +86,11 @@ review 旗标：
 
 smoke 旗标：
   --model   <id>         冒烟模型 id（同缺省与校验；端点/key 走 REVIEWER_* 环境变量或 .env.local，绝不回显）
+
+rpc 旗标（全可选；退出码 shutdown/EOF 0、SIGINT 130、SIGTERM 143、SIGHUP 129（非 Windows）；协议见 ADR-0012）：
+  --out        <dir>     审计与运行记录落盘根（缺省 ${DEFAULT_OUT_DIR}）
+  --repo-root  <dir>     repoPath allowlist 根（submit 的 repoPath realpath 后必须落在其下；缺省不设）
+  --concurrency <n>      并发执行 job 数（缺省 1；>1 实验性——安全前提未验证）
 
 disposition 旗标（记录处置）：
   --run      <file>      产生该 finding 的 run record JSON 文件（必需；回溯锚与 finding 校验都以它为准）
@@ -111,6 +124,20 @@ export interface SmokeCliArgs {
   readonly model: string;
 }
 
+/**
+ * 解析后的 rpc 命令参数（#24 S3，ADR-0012——全可选旗标）。
+ * repoRoot 缺席 = 不设 allowlist（submit 的 repoPath 只要求可 realpath）；
+ * out/concurrency 的落位语义见 rpc/main.ts 装配。
+ */
+export interface RpcCliArgs {
+  /** 审计与运行记录落盘根（与 review 同缺省） */
+  readonly out: string;
+  /** repoPath allowlist 根（可选——缺席省键） */
+  readonly repoRoot?: string;
+  /** 并发执行 job 数（正整数；缺省 1） */
+  readonly concurrency: number;
+}
+
 /** 解析后的 disposition 记录面参数（store 已解析：--store 显式或 --out 派生） */
 export interface DispositionRecordArgs {
   /** 产生该 finding 的 run record JSON 文件路径（必需） */
@@ -136,6 +163,7 @@ export type DispositionCliArgs =
 export type ParseCliArgsResult =
   | { readonly ok: true; readonly command: "review"; readonly args: ReviewCliArgs }
   | { readonly ok: true; readonly command: "smoke"; readonly args: SmokeCliArgs }
+  | { readonly ok: true; readonly command: "rpc"; readonly args: RpcCliArgs }
   | { readonly ok: true; readonly command: "disposition"; readonly args: DispositionCliArgs }
   | { readonly ok: false; readonly message: string };
 
@@ -282,18 +310,26 @@ function parseDispositionRecordArgs(values: Map<string, string>, store: string):
 
 export function parseCliArgs(argv: readonly string[]): ParseCliArgsResult {
   const [command, ...rest] = argv;
-  if (command !== "review" && command !== "smoke" && command !== "disposition") {
+  if (
+    command !== "review" &&
+    command !== "smoke" &&
+    command !== "rpc" &&
+    command !== "disposition"
+  ) {
     return {
       ok: false,
       message:
         argv.length === 0
-          ? "missing command (expected `review`, `smoke` or `disposition`)"
-          : `unknown command ${JSON.stringify(command)} (expected \`review\`, \`smoke\` or \`disposition\`)`,
+          ? "missing command (expected `review`, `smoke`, `rpc` or `disposition`)"
+          : `unknown command ${JSON.stringify(command)} (expected \`review\`, \`smoke\`, \`rpc\` or \`disposition\`)`,
     };
   }
   if (command === "disposition") {
     const disposition = parseDispositionArgs(rest);
     return disposition.ok ? { ok: true, command: "disposition", args: disposition.args } : disposition;
+  }
+  if (command === "rpc") {
+    return parseRpcArgs(rest);
   }
   const flags = parseFlags(rest, command === "review" ? KNOWN_REVIEW_FLAGS : KNOWN_SMOKE_FLAGS);
   if (!flags.ok) {
@@ -307,6 +343,36 @@ export function parseCliArgs(argv: readonly string[]): ParseCliArgsResult {
     return { ok: true, command: "smoke", args: { model: model.model } };
   }
   return parseReviewArgs(flags.values, model.model);
+}
+
+/**
+ * rpc 子命令解析（#24 S3）：三旗标全可选；concurrency 正整数校验
+ * （0/负数/小数/非数字都 fail fast——worker 池派生前把配置错误挡在 parse 层）。
+ */
+function parseRpcArgs(
+  rest: readonly string[],
+): { readonly ok: true; readonly command: "rpc"; readonly args: RpcCliArgs } | { readonly ok: false; readonly message: string } {
+  const flags = parseFlags(rest, KNOWN_RPC_FLAGS);
+  if (!flags.ok) {
+    return flags;
+  }
+  const concurrencyRaw = flags.values.get("--concurrency");
+  if (concurrencyRaw !== undefined && !/^[1-9]\d*$/.test(concurrencyRaw)) {
+    return {
+      ok: false,
+      message: `invalid --concurrency ${JSON.stringify(concurrencyRaw)}: must be a positive integer`,
+    };
+  }
+  const repoRoot = flags.values.get("--repo-root");
+  return {
+    ok: true,
+    command: "rpc",
+    args: {
+      out: flags.values.get("--out") ?? DEFAULT_OUT_DIR,
+      concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : 1,
+      ...(repoRoot !== undefined ? { repoRoot } : {}),
+    },
+  };
 }
 
 /** review 面必填与缺省：--repo / --mr（caseId = 文件名去扩展名）、--config 缺省 E（ADR-0011 切流）、--issue 缺省空 */

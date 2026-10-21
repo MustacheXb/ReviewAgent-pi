@@ -12,6 +12,11 @@
  *   （render.ts，已测）；
  * - smoke：双探针（网关健康 + 模型可达，gateway-probe.ts 已测）→ stdout
  *   人话报告；
+ * - rpc（#24 S3，ADR-0012）：stdio JSONL 长驻模式——装配与 stdin 循环全在
+ *   rpc/main.ts runRpcMain（endpoint fail fast 在此上抛 → 1）；本文件只透传
+ *   .env.local 装载与退出收尾。退出码：shutdown / stdin EOF 0、SIGINT 130、
+ *   SIGTERM 143、SIGHUP 129（非 win32）、启动失败 1——均经 exitGracefully
+ *   （drain 与 flush 的 sequencing 在 runRpcMain 内完成）；
  * - disposition（#15）：Finding 人工处置落库 + 接受率 KPI，编排全在
  *   disposition/command.ts（已测）——本地数据面：无网络、不解析凭据、
  *   不碰 .env.local（与 review/smoke 的实质差异，分发在装载面之前）。
@@ -31,6 +36,7 @@
  * 进程调用形态：review-pi review --repo <path> --mr <diff-file>
  *   [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
  *   review-pi smoke [--model <id>]
+ *   review-pi rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]
  *   review-pi disposition --run <run-record.json> --finding <id>
  *   --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
  *   review-pi disposition --stats ([--store <file>] | [--out <dir>])
@@ -43,6 +49,7 @@ import { runDispositionCommand } from "../disposition/command.js";
 import { formatSmokeDiagnostics, runSmokeProbes } from "../provider/gateway-probe.js";
 import { resolveReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runReview } from "../run/review-run.js";
+import { runRpcMain } from "../rpc/main.js";
 import { formatEnvLocalSummary, loadEnvLocalFile } from "../shared/env-local.js";
 import { CLI_EXPERIMENT_ID, parseCliArgs, USAGE_TEXT, type ReviewCliArgs, type SmokeCliArgs } from "./args.js";
 import { applyPresentationProjection, isPresentationProjectionConfigured } from "./presentation-projection.js";
@@ -194,7 +201,15 @@ function main(): void {
     return;
   }
 
-  const command = parsed.command === "smoke" ? runSmokeCommand(parsed.args) : runReviewCommand(parsed.args);
+  // rpc：进程面主缝在 runRpcMain（stdin 循环 + EOF/信号 drain；resolve 值
+  // = 退出码，启动失败异常上抛 → reportErrorAndExit → 1）。.env.local 已在
+  // 上方共享路径装载（spec 启动顺序：env.local 先于 endpoint 解析）。
+  const command =
+    parsed.command === "smoke"
+      ? runSmokeCommand(parsed.args)
+      : parsed.command === "rpc"
+        ? runRpcMain(parsed.args)
+        : runReviewCommand(parsed.args);
   command.then((code) => exitGracefully(code)).catch(reportErrorAndExit);
 }
 

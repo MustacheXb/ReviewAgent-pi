@@ -17,11 +17,11 @@ import { parseCliArgs, USAGE_TEXT } from "./args.js";
 test("空 argv 与未知子命令 → 用法错误（不抛异常）", () => {
   expect(parseCliArgs([])).toEqual({
     ok: false,
-    message: "missing command (expected `review`, `smoke` or `disposition`)",
+    message: "missing command (expected `review`, `smoke`, `rpc` or `disposition`)",
   });
   expect(parseCliArgs(["deploy"])).toEqual({
     ok: false,
-    message: 'unknown command "deploy" (expected `review`, `smoke` or `disposition`)',
+    message: 'unknown command "deploy" (expected `review`, `smoke`, `rpc` or `disposition`)',
   });
 });
 
@@ -333,5 +333,63 @@ describe("disposition 子命令（#15 处置落库 + KPI）", () => {
     expect(USAGE_TEXT).toContain("review-pi disposition --run");
     expect(USAGE_TEXT).toContain("review-pi disposition --stats");
     expect(USAGE_TEXT).toContain("accept|reject|false-positive");
+  });
+});
+
+// ---- rpc 子命令（#24 S3，ADR-0012：三旗标全可选） ----
+
+describe("rpc 子命令", () => {
+  test("最小 argv：全旗标缺省（out=review-pi-output、concurrency=1、repoRoot 省键）", () => {
+    expect(parseCliArgs(["rpc"])).toEqual({
+      ok: true,
+      command: "rpc",
+      args: { out: "review-pi-output", concurrency: 1 },
+    });
+  });
+
+  test("全旗标显式：out / repoRoot / concurrency 透传", () => {
+    const parsed = parseCliArgs([
+      "rpc",
+      "--out",
+      "runs/rpc",
+      "--repo-root",
+      "repos",
+      "--concurrency",
+      "4",
+    ]);
+    expect(parsed).toEqual({
+      ok: true,
+      command: "rpc",
+      args: { out: "runs/rpc", repoRoot: "repos", concurrency: 4 },
+    });
+  });
+
+  test("--concurrency 非正整数（0/负数/小数/非数字）→ 用法错误", () => {
+    for (const bad of ["0", "-1", "1.5", "two", ""]) {
+      expect(parseCliArgs(["rpc", "--concurrency", bad])).toEqual({
+        ok: false,
+        message: `invalid --concurrency ${JSON.stringify(bad)}: must be a positive integer`,
+      });
+    }
+  });
+
+  test("未知旗标 / 重复旗标 / 值缺席 → 用法错误（旗标循环共用）", () => {
+    expect(parseCliArgs(["rpc", "--repo", "r"])).toEqual({
+      ok: false,
+      message: 'unknown flag "--repo"',
+    });
+    expect(parseCliArgs(["rpc", "--out", "a", "--out", "b"])).toEqual({
+      ok: false,
+      message: "duplicate flag --out",
+    });
+    expect(parseCliArgs(["rpc", "--out"])).toEqual({
+      ok: false,
+      message: "flag --out requires a value",
+    });
+  });
+
+  test("USAGE_TEXT 宣告 rpc 用法面（单一来源）", () => {
+    expect(USAGE_TEXT).toContain("review-pi rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]");
+    expect(USAGE_TEXT).toContain("stdio JSONL 长驻模式");
   });
 });
