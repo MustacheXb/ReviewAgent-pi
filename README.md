@@ -81,6 +81,56 @@ CI（push / PR）跑 `suites`（root + review-llm 两包 typecheck + 全量测�
 - **内核面向 Java**：角色提示词为 senior Java code reviewer、符号索引基于 tree-sitter-java；检视非 Java 仓可运行但质量不保证。
 - **基线态语义**：检视读的上下文以仓内现状为准（CLI 不 apply diff）；评测约定仓停在 diff 的 base 侧。
 
+## stdio 长驻模式（`review-pi rpc`）
+
+`review-pi` CLI 的第三形态（ADR-0012，#21–#24）：**stdin 收 JSON-RPC 命令行（LF-only JSONL）、stdout 回 JSON 行、stderr 出诊断**。单进程长驻，可连续提交多个检视 job——面向宿主消费者（评测驱动器 / IDE 扩展 / MCP 网关），与单次执行 CLI（`review-pi review`）互不替代。
+
+### 逐步命令（开发态体验，真网关 + 测试数据）
+
+前置：仓库根执行（凭据从 `.env.local` 自动装载，见下节）；内核产物新鲜（bin 有 mtime 门，源码改动后 `pnpm --filter review-pi build`）。
+
+```bash
+# 启动长驻会话（--out 可选，缺省 review-pi-output）
+node packages/review-pi/bin/review-pi.js rpc --out review-pi-output
+```
+
+进程停住等 stdin——每行一个 JSON-RPC 命令，回车即发，stdout 即时回响应：
+
+```jsonc
+{"jsonrpc":"2.0","id":1,"method":"server.capabilities"}  // 握手：协议版本 / 方法表 / limits
+{"jsonrpc":"2.0","id":2,"method":"review.submit","params":{"caseId":"VUL4J-1","repoPath":"<绝对路径>","diff":"<diff 全文>","configId":"B"}}
+{"jsonrpc":"2.0","id":3,"method":"review.get","params":{"jobId":"job-...-1"}}  // jobId 从 submit 响应或事件里抄
+{"jsonrpc":"2.0","id":4,"method":"review.list"}
+{"jsonrpc":"2.0","id":9,"method":"shutdown"}             // 响应先回，drain 等在跑 job 落定后自退
+```
+
+`review.event` 通知与响应同缝流出（job 状态转移 + 六相位进度，seq 单调）。submit 的 `diff` 参数是全文转义的 JSON 字符串，手敲不现实——从黄金夹具生成后粘贴：
+
+```bash
+node -e 'const fs=require("fs");const diff=fs.readFileSync("packages/review-pi/testdata/golden/vul4j-1.diff","utf8");console.log(JSON.stringify({jsonrpc:"2.0",id:2,method:"review.submit",params:{caseId:"VUL4J-1",repoPath:process.argv[1],diff,configId:"B"}}))' "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi\\packages\\review-pi\\testdata\\repos\\sample"
+```
+
+落盘与 review CLI 同根不同实验目录：`<out>/review-pi-rpc/`（`audit/vul4j/<案>/<配置>/rep-1/audit/*.json` + `runs/vul4j/<案>/<配置>/rep-1.json`）。
+
+### 协议速览
+
+| 面 | 契约 |
+|---|---|
+| 帧 | LF-only 分行，每行恰好一个 JSON 文档；空行忽略；batch 拒绝 -32600 |
+| 方法 | `server.capabilities` / `review.submit` / `review.get` / `review.list` / `review.cancel` / `shutdown` |
+| 状态机 | `queued → running → succeeded / failed / cancelled`；cancel 对 running 走 `cancelling → cancelled`（abort 零落盘），对终态幂等 |
+| 错误码 | -32001 job_not_found / -32002 queue_full / -32003 repo_not_allowed / -32004 payload_too_large / -32010 server_draining（全表见 ADR-0012） |
+| 退出码 | `shutdown` / stdin EOF → 0；SIGINT → 130、SIGTERM → 143、SIGHUP（POSIX）→ 129——信号路径跳过 stdout flush；启动失败 → 1 |
+
+### 使用注意
+
+- **凭据**：启动期单次解析（`REVIEWER_*` > `DEEPSEEK_*` > `.env.local`，按 cwd 解析——与单次 CLI 同约定，从仓库根执行）；key 绝不回显。命令行前缀注入 key 有终端回显风险，走 `.env.local` 更稳。
+- **configId**：submit 必填；`B` 是最小成本形态（六相位单轮零工具），生产入口是 `E`（自主拉取 + Context Ledger，ADR-0011，消耗大得多）。
+- **`--repo-root <dir>`**：submit 的 repoPath realpath 后必须落在其下（不设则只要求可 realpath）——不可信输入 / 多租户场景建议显式设置。
+- **`--concurrency <n>`**：>1 为实验性（安全前提未验证）。
+- **Windows**：优雅退出走 stdin EOF（无信号语义，`Ctrl+Z` 回车；Git Bash `Ctrl+D`）；真 fetch 后的退出纪律是 exitCode + 事件循环自然排干（0xC0000409 竞态，有测试锚定）。
+- **宿主编程消费**：`packages/review-pi/src/rpc/client.ts` 的 `ReviewRpcClient`——spawn 真 bin + typed 六方法 + `review.event` 订阅 + stop() 三级升级链（stdin EOF → POSIX 组 SIGTERM → SIGKILL / Windows `taskkill /T /F`）；进程边界消费者，不进包导出面。
+
 ## 凭据配置（.env.local，绝不入库）
 
 实验运行器（仓库根执行）自动装载 `.env.local`（gitignored）：已有非空环境变量优先、不被覆盖；装载摘要只报键名与行号，key 值绝不回显。key 缺失即启动报错并给清单。注意 `.env.local` 按调用进程的 cwd 解析（pi 线 CLI 落地后同样约定从仓库根执行）：
@@ -146,7 +196,7 @@ cd reference_project/pi  && git checkout 6671c604   # 其余同理
 | 文档 | 内容 |
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | 领域词汇表（Minimal Sufficient Context / Zone A–C / Finding 等术语唯一权威） |
-| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0009（POC1 独立 harness / 模型钉扎 / 零构建静态代码情报 / S 级判据 / DSH 迁移姿态 / DSH 内核形态 / 对齐门协议 v2 / 被测模型可换 + 指标按 provider 能力分口径 / 从 0 基于 pi 内核重写） |
+| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0012（POC1 独立 harness / 模型钉扎 / 零构建静态代码情报 / S 级判据 / DSH 迁移姿态 / DSH 内核形态 / 对齐门协议 v2 / 被测模型可换 + 指标按 provider 能力分口径 / 从 0 基于 pi 内核重写 / CLI 中文呈现投影 / 生产入口切流 config E / stdio JSONL 长驻模式） |
 | [`docs/design/`](docs/design/) | 总体架构设计方案 / Pi 内核从零实现方案 / Pi 内核定制基线方案 / VUL4J 评测方案与数据复制指南 / DSH 偏差清单 |
 | [`docs/report/`](docs/report/) | POC1 实现报告 / DSH 迁移实现报告 / DSH 指标对齐门报告（含噪声底）/ Phase 2 主数据分析报告 / Phase 2 pi-S1 五配置对照报告（advisory）/ 兄弟项目调查报告 |
 | [`docs/plan/`](docs/plan/) | 项目分阶段实现计划书 |
