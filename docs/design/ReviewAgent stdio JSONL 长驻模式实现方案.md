@@ -8,10 +8,18 @@
 > **一句话结论**：pi 在锚定版本已有完整的 stdio JSONL RPC 实现（`rpc-mode.ts` +
 > `rpc-client.ts` + `jsonl.ts` + `output-guard.ts`）。本方案**复用其传输/进程/输出
 > 纪律与客户端相关机制**，但**不复用其命令语义**——pi 的命令是 coding-agent 会话
-> 命令，ReviewAgent 需要的是 review job 命令。实现形态为 `review-pi rpc`：stdin/stdout
+> 命令，ReviewAgent 需要的是 review job 命令。实现形态为 `reviewagent rpc`：stdin/stdout
 > 严格 LF-only JSONL，每行一个 JSON-RPC 2.0 文档；`ReviewService` 作为唯一深模块
 > 承载 job 状态机、队列、取消与事件；`runReview` 经 `ReviewRunExecutor` 端口执行。
 > v1 只做本地可信集成，不做网络服务面。
+>
+> **2026-10-23 落地注记**：用户可见命令统一为 `reviewagent`，构建入口统一为
+> `pnpm build:reviewagent`；文档中的 `review-pi rpc` 是历史命令形态，实际启动
+> 命令为 `reviewagent rpc`。
+>
+> **2026-10-24 修订**：拍板 20/21/22 按统一契约修订（repo 判别联合 → 扁平
+> `repoPath`、删 legacy alias、`--repo-root`/allowlist 移除换 `--cwd`）；决策源
+> 为 **ADR-0013**（HTTP server 线唯一权威决策源，本文与其冲突处以 ADR 为准）。
 >
 > **校验记录**（2026-10-21，两侧逐项核验后合入本文）：pi 侧 18 项机制断言
 > 14 属实 / 3 部分属实（U+2028 写侧不转义、SIGTERM 跳过 flush、backpressure
@@ -34,7 +42,7 @@
 
 stdio 模式解决的是「宿主进程需要以子进程方式嵌入 ReviewAgent」：
 
-- 宿主保持一个长驻 `review-pi rpc` 子进程；
+- 宿主保持一个长驻 `reviewagent rpc` 子进程；
 - stdin 发命令，stdout 收响应与事件；
 - 一次进程启动可连续提交多个 MR 检视 job；
 - 宿主可按 job 查询、取消、订阅进度；
@@ -45,7 +53,7 @@ stdio 模式解决的是「宿主进程需要以子进程方式嵌入 ReviewAgen
 - 不做 HTTP / TCP / SSE / WebSocket。
 - 不做多租户鉴权与网络暴露；stdio 假设调用方是本地可信宿主。
 - 不做 pi-protocol v8（CBOR 帧 + Unix socket + Chord service + Session attachment）。
-- 不改现有 `review-pi review` / `review-pi smoke` / `review-pi disposition` 的
+- 不改现有 `reviewagent review` / `reviewagent smoke` / `reviewagent disposition` 的
   stdout 单文档契约。
 - 不复用 pi coding-agent 的命令集（`prompt` / `bash` / `set_model` / session 管理等）；
   ReviewAgent 使用自己的 review job 方法名。
@@ -67,7 +75,7 @@ pi 在锚定版本 `6671c604` 确实已经有完整的 stdio JSONL RPC 实现。
 | `modes/rpc/rpc-types.ts` | `RpcCommand` / `RpcResponse` / 事件类型全集（prompt/session/model/bash 等） | **只参考形状**，不复用命令集；ReviewAgent 定义 `review.submit/get/list/cancel` |
 | `modes/rpc/rpc-mode.ts` | `runRpcMode(runtimeHost)`：stdin 循环、id 相关、事件流、stdout 接管、backpressure（写队列 + 事件管线阻塞，**不暂停 stdin**）、shutdown；退出码 EOF→0 / SIGTERM→143 / SIGHUP→129 / 写失败→1；**SIGTERM 时跳过 stdout flush**（宿主可能已停读，flush 会卡死） | **复用进程/输出/退出纪律**；不复用 `AgentSessionRuntime` 与 extension UI |
 | `modes/rpc/rpc-client.ts` | spawn 子进程、stderr 捕获、pendingRequests 按 id 相关、30s 超时、进程退出错误、事件监听 | **镜像到 ReviewAgent 客户端**：同样的相关/超时/退出错误机制，typed review 方法 |
-| `src/rpc-entry.ts` | 独立 RPC 入口：设置进程标题/env、`main(["--mode","rpc",...])` | **形态参考**；ReviewAgent 用 `review-pi rpc`，不引入 coding-agent main |
+| `src/rpc-entry.ts` | 独立 RPC 入口：设置进程标题/env、`main(["--mode","rpc",...])` | **形态参考**；ReviewAgent 用 `reviewagent rpc`，不引入 coding-agent main |
 | `src/core/output-guard.ts` | `takeOverStdout()`：把直接 stdout 写入改道 stderr；raw stdout 写队列；ENOBUFS/EAGAIN 重试；`waitForRawStdoutBackpressure` / `flushRawStdout` | **必须吸收**：这是 stdout 协议纯度的 pi 实证机制，本方案 v1 必须等价具备 |
 | `packages/coding-agent/docs/rpc.md`（HEAD 版已把命令表拆至 `rpc-commands.md`） | framing、id 相关、生命周期、错误纪律 | 参考 framing 与相关纪律；命令表换成 review job 方法 |
 | `packages/coding-agent/docs/sdk.md` | `AgentSession` 进程内嵌入；Node/TS 优先于子进程 | 不采用；ReviewAgent 的 stdio 是子进程集成面，内核仍是 `runReview` |
@@ -116,23 +124,28 @@ follow_up 响应增加 `disposition` 字段、事件监听器快照遍历）。�
 ### 2.1 命令形态
 
 ```text
-review-pi rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]
+reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
 ```
 
 进程级参数：
 
 | 参数 | 必需 | 说明 |
 |---|---|---|
-| `--out <dir>` | 否 | 审计与运行记录落盘根；缺省 `review-pi-output` |
-| `--repo-root <dir>` | 否 | 仓库 allowlist 根；submit 的 `repoPath` 必须落在其下 |
+| `--out <dir>` | 否 | 审计与运行记录落盘根；缺省 `reviewagent-output` |
+| `--cwd <dir>` | 否 | 省略 `repoPath` 时的默认检视目录；缺省 `process.cwd()`（pi 风格「当前打开文件夹」） |
 | `--concurrency <n>` | 否 | 并发执行 job 数；缺省 1；正整数 |
 
-每案参数（`configId` / `modelId` / `diff` / issue）经 stdin 逐 job 传入，不做进程级
-隐式缺省。
+每案参数（`repoPath?` / `configId` / `modelId?` / `diff` / issue）经 stdin 逐 job 传入；
+唯一的进程级默认是 `repoPath` 省略时的 `--cwd` / `process.cwd()`。
+
+> v1 曾以 `--repo-root` 作 stdio-only 路径 guard；v2 统一契约移除该参数与
+> allowlist 校验（ADR-0013，随 #27 落地）——路径默认由 `--cwd` 承担：省略
+> `repoPath` 时取 `--cwd <dir>`（未给则 `process.cwd()`）；显式 `repoPath`
+> 直传，不设 root 约束。
 
 内核参数派生（对齐 `runReview` 必填面，镜像 CLI 装配 `cli/main.ts`）：`--out` →
-`runsRoot`；`experimentId` 恒 `RPC_EXPERIMENT_ID = "review-pi-rpc"`（镜像
-`CLI_EXPERIMENT_ID` 模式——审计落 `{out}/review-pi-rpc/audit/vul4j/...`）；
+`runsRoot`；`experimentId` 恒 `RPC_EXPERIMENT_ID = "reviewagent-rpc"`（镜像
+`CLI_EXPERIMENT_ID` 模式——审计落 `{out}/reviewagent-rpc/audit/vul4j/...`）；
 `rep` 恒 1（宿主重跑即再 submit）；`apiKey` / `baseUrl` 启动期经
 `resolveReviewerEndpoint()` 解析一次；`fetch` 恒 `globalThis.fetch`。
 
@@ -166,9 +179,11 @@ rpc 进程真跑过 fetch 后退出必须：flush → `process.exitCode` 置码 
 
 ### 2.4 bin 形态
 
-`review-pi` bin 对 `rpc` 子命令必须使用异步 `spawn` + SIGINT/SIGTERM 转发；
+`review-pi` bin（开发态直跑入口 `packages/review-pi/bin/review-pi.js`）对 `rpc`
+子命令必须使用异步 `spawn` + SIGINT/SIGTERM 转发；
 普通一次性子命令继续走现有 `spawnSync`。原因：`spawnSync` 会让父进程阻塞，无法
-正确转发信号，长驻子进程的中断语义不可控。
+正确转发信号，长驻子进程的中断语义不可控。产品包 `reviewagent` bin 直接
+require 单 bundle（`dist/cli.mjs`），无 spawn 转发层。
 
 ---
 
@@ -195,7 +210,14 @@ rpc 进程真跑过 fetch 后退出必须：flush → `process.exitCode` 置码 
 ```
 
 ```json
-{"jsonrpc":"2.0","id":"2","method":"review.submit","params":{"caseId":"VUL4J-1","repoPath":".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564","diff":"...","issueDescription":"...","configId":"E","modelId":"deepseek-v4-flash"}}
+{"jsonrpc":"2.0","id":"2","method":"review.submit","params":{"caseId":"VUL4J-1","repoPath":".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564","diff":{"kind":"inline","text":"..."},"issueDescription":"...","configId":"E","modelId":"deepseek-v4-flash"}}
+```
+
+`repoPath` 可省略：省略时默认使用 `--cwd <dir>`，未给 `--cwd` 则用 `process.cwd()`
+（pi 风格「当前打开文件夹」）：
+
+```json
+{"jsonrpc":"2.0","id":"3","method":"review.submit","params":{"caseId":"VUL4J-1","diff":{"kind":"inline","text":"..."},"configId":"E"}}
 ```
 
 ### 4.2 响应
@@ -225,17 +247,18 @@ rpc 进程真跑过 fetch 后退出必须：flush → `process.exitCode` 置码 
 | -32603 | internal error |
 | -32001 | job_not_found |
 | -32002 | queue_full |
-| -32003 | repo_not_allowed |
+| -32003 | repo_not_allowed（v1 仅在 `--repo-root` allowlist 命中时发射；v2 移除 allowlist 后不再发射——ADR-0013） |
 | -32004 | payload_too_large |
-| -32005 | cancel_not_allowed（保留码：v1 不发射——终态 cancel 幂等返回 view；留待与 HTTP 方案 409 语义对齐时启用或删除） |
+| -32005 | cancel_not_allowed（保留码：不发射——终态 cancel 幂等返回终态 view，ADR-0013） |
 | -32010 | server_draining |
 | -32011 | cancel_not_supported（保留/过渡期；running cancel 可用时不发射） |
 | -32012 | repo_not_found |
 | -32013 | rate_limited（stdio v1 不发射，保留与 HTTP 对齐） |
 | -32014 | job_timeout（stdio v1 不发射，保留与 HTTP 对齐） |
 | -32015 | server_restart（stdio v1 不发射，保留与 HTTP 对齐） |
-| -32016 | idempotency_conflict（stdio v1 不发射；v2 幂等落地后启用） |
+| -32016 | idempotency_conflict（stdio 不发射——幂等随 S4 持久化落地后再开，ADR-0013 决策 4） |
 | -32017 | artifact_expired（stdio v1 无 artifact 下载面，保留与 HTTP 对齐） |
+| -32018 | queue_timeout（stdio 不发射，保留与 HTTP 对齐） |
 
 不支持 JSON-RPC batch（数组信封）→ `-32600 invalid request`。
 
@@ -249,7 +272,7 @@ rpc 进程真跑过 fetch 后退出必须：flush → `process.exitCode` 置码 
 | 方法 | 参数 | 返回 | 语义 |
 |---|---|---|---|
 | `server.capabilities` | 无 | 协议版本、serverId、方法表、limits | 握手与能力协商 |
-| `review.submit` | `caseId` / `repoPath` / `diff` / `issueDescription?` / `configId` / `modelId?` | `jobId` + `status` | 校验、入队、立即返回；不阻塞等检视完成 |
+| `review.submit` | 统一 `ReviewRequest`：`clientRequestId?` / `caseId` / `repoPath?` / `diff{kind,inline\|file}` / `issueDescription?` / `configId` / `modelId?` / `metadata?` | `jobId` + `status` | 校验、入队、立即返回；不阻塞等检视完成 |
 | `review.get` | `jobId` | job view | 查询状态、进度、结果或错误 |
 | `review.list` | `status?` | `{ jobs }` | 列出 job，按提交时间倒序 |
 | `review.cancel` | `jobId` | job view | queued → 直接 `cancelled`；running → `cancelling` → `cancelled`（内核 AbortSignal，v1 实装）；已终态 → **幂等返回终态 view**（不报错） |
@@ -257,13 +280,21 @@ rpc 进程真跑过 fetch 后退出必须：flush → `process.exitCode` 置码 
 
 参数纪律：
 
+- **三形态统一**：CLI flags 映射到同一 `ReviewRequest`；stdio 与 HTTP 的
+  `review.submit.params` 直接使用该模型。`repoPath` 绝对/相对路径都允许，
+  `diff.kind=inline|file` 都允许；本次不引入 `repoId` / registry / allowlist。
+- `repoPath` 可省略：stdio 缺省用 `--cwd <dir>`，未给 `--cwd` 则用 `process.cwd()`
+  （pi 风格「当前打开文件夹」）；HTTP 无 cwd 默认，必须显式传 `repoPath`（可绝对）。
 - `configId` 必填，合法值 `A–E`；stdio 层不设隐式缺省。
 - `issueDescription` 可省，缺省空串（内核面是必填 `string`，service 层补齐）。
 - `modelId` 可省，缺省走内核 `REVIEW_MODEL_ID`。
-- `diff` 必须有最大字节数上限（建议 8 MiB，可配置）；inline 传入（拍板 2026-10-21，
-  文件路径形态留 v2 参数扩展）。
-- `repoPath` 相对路径以进程 cwd 为基准解析（与 CLI `--repo` 同语义）；在设置
-  `--repo-root` 时必须落在 allowlist 根内。
+- `diff.text` 必须有最大字节数上限（建议 8 MiB，可配置）；`diff.kind=file` 的
+  `diff.path` 相对路径以进程 cwd 为基准解析（与 CLI `--mr` 同语义）。
+- `repoPath` 相对路径以进程 cwd 为基准解析（与 CLI `--repo` 同语义）；绝对路径
+  直接使用。
+- 旧的 stdio v1 参数形（`diff` 为纯字符串、无 `diff.kind` 判别）**不保留
+  legacy alias 过渡窗口**——stdio v1 零外部调用方，`protocolVersion` 升至
+  **2** 即唯一切换信号，旧形直接 `invalid_params` 拒绝（ADR-0013 决策 3）。
 - `review.get` 的 findings 恒为**原始英文源**，不应用 ADR-0010 呈现投影
   （投影是 CLI 人话呈现档的事，不进机对机协议；宿主要中文呈现自行投影）。
 
@@ -300,16 +331,20 @@ queued ──> running ──> succeeded
   （spec 阶段确认；worker 池隔离仍是 v2）。
 - `review.cancel` 支持 queued 与 running（running 经内核 AbortSignal）；已终态
   幂等返回终态 view（拍板 2026-10-21）。
-- 事件是 live-only；客户端断线后用 `review.get` 查快照，不做事件重放。
+- 事件是 live-only；客户端断线后用 `review.get` 查快照，不做事件重放
+  （跨重启 replay 已在 HTTP 线随 SQLite store 提前开——ADR-0013 决策 7；
+  stdio 侧重放随自身持久化（S4）落地）。
 - 事件粒度 = 阶段/轮次边界 + 计数快照（累计 toolCalls / usage），不逐 toolCall
   发事件（拍板 2026-10-21）。
-- `clientRequestId` 幂等 v1 不做（S4 与 HTTP 方案 tenant 幂等一并对齐）。
+- `clientRequestId` 幂等 v1 不做（capabilities 声明 `features.idempotency=false`；
+  随 S4 持久化落地后再开——HTTP 线已在 #28 落地，ADR-0013 决策 4）。
 - jobId 为进程内单调 id（`job-<启动毫秒>-<序号>`，repo 无 ULID 依赖不引入），
   与内核 `runId` 是两个标识；v2 持久化时再议 ULID。
 
 ### 6.3 v2 扩展
 
-- append-only job event log + 断线重放。
+- append-only job event log + 断线重放（HTTP 线已随 SQLite store 提前开——
+  ADR-0013 决策 7；stdio 侧随自身持久化落地）。
 - SQLite job store + 重启恢复。
 - worker 池隔离 CPU / tree-sitter parser。
 
@@ -405,8 +440,8 @@ v1 就要 running cancel，内核改造（下述四项）随 v1 交付，且必�
 ## 9. 安全与运行纪律
 
 - stdio 模式假定调用方是本地可信宿主，不直接暴露到网络。
-- `repoPath` 必须受 `--repo-root` allowlist 约束；相对路径以进程 cwd 为基准，
-  解析后做 realpath + 根前缀校验，拒绝绝对路径逃逸与 symlink/junction 逃逸。
+- `repoPath` 绝对/相对路径都允许；相对路径以进程 cwd 为基准，绝对路径直接使用。
+  本次不引入 `--repo-root` allowlist；统一 v2 只做 realpath + 目录存在性校验。
 - API key 只从 `REVIEWER_URL` / `REVIEWER_API_KEY`（> 旧 `DEEPSEEK_*` 别名）或
   `.env.local` 读取（已有环境变量优先），绝不回显。
 - `diff` 设最大字节数；队列设最大深度；job 设超时。
@@ -421,7 +456,7 @@ v1 就要 running cancel，内核改造（下述四项）随 v1 交付，且必�
 
 - JSONL：分片、合并、CRLF、U+2028/U+2029、EOF 尾行。
 - Protocol：信封校验、id 相关、错误码、参数校验。
-- Service：排队、并发、queued cancel、terminal cancel、close drain、repo allowlist。
+- Service：排队、并发、queued cancel、terminal cancel、close drain、repoPath 解析。
 
 ### 10.2 进程测试
 
@@ -464,11 +499,14 @@ v1 = S0–S3（running cancel 已拍板进 v1，原「内核改造 S3」提前�
 
 1. v1 必须 running cancel → **是**。内核 signal 透传进 v1（S2），字节门零漂移
    证明随 S2 验收。
-2. `clientRequestId` 幂等 → v1 不做，S4 与 HTTP 方案 tenant 幂等一并对齐。
-3. 事件跨断线重放 → v1 live-only + `review.get` 快照，v2 再做 replay。
-4. `repoPath` → 本地 allowlist 路径（`repoId` 是多租户网络面概念，stdio 不需要）。
+2. `clientRequestId` 幂等 → v1 接受字段但不承诺跨进程幂等；stdio 随 S4 持久化
+   落地后再开（HTTP 线已在 #28 落地，ADR-0013 决策 4）。
+3. 事件跨断线重放 → v1 live-only + `review.get` 快照；replay 随持久化落地
+   （HTTP 线已随 SQLite store 提前开——ADR-0013 决策 7；stdio 侧随 S4）。
+4. `repoPath` → 统一字符串，绝对/相对路径都允许；本次不引入 repoId/registry。
 5. 默认并发 → 1。
-6. diff → inline 传入 + 8 MiB 上限（可配置）；文件路径形态留 v2 参数扩展。
+6. `diff` → 统一 `{kind:"inline"|"file"}`；三形态都允许 inline/file；inline 文本
+   8 MiB 上限（可配置）。
 
 校验时追加拍板：
 
@@ -477,12 +515,14 @@ v1 = S0–S3（running cancel 已拍板进 v1，原「内核改造 S3」提前�
 9. `review.get` findings → 原始英文源，不应用 ADR-0010 呈现投影。
 10. 两方案契约分歧处置：stdio v1 契约 = HTTP 方案契约的子集；已知分歧
     （终态 cancel 幂等 vs `-32005`、`review.list` 无分页参数）在两侧文档互注，
-    待 HTTP 线启动时统一收口。
+    已由 ADR-0013 统一收口（2026-10-24：`-32005` 保留不发射、`listFilters`
+    经 capabilities 声明）。
 
 跨传输对齐二次拍板（2026-10-21，用户接受推荐）：
 
-11. 共享的是**方法名与状态机语义**，不是逐字相同的 params：HTTP=`{kind:"inline",repoId}`，
-    stdio=`{kind:"local-path",repoPath}`；内部归一化为同一个 `ReviewSubmitInput.source`。
+11. 共享的是**方法名、状态机语义与统一 `ReviewRequest`**：CLI flags 映射到该模型；
+    stdio 与 HTTP 的 `review.submit.params` 直接使用该模型；`repoPath` 与
+    `diff.kind=inline|file` 三形态一致。
 12. `clientRequestId`：HTTP v1 支持；stdio v1 不做，capabilities 声明
     `features.idempotency=false`；S4 持久化落地后再开。
 13. `review.list`：HTTP 支持 `status/caseId/limit/cursor`；stdio v1 只支持 `status`；
@@ -495,17 +535,74 @@ v1 = S0–S3（running cancel 已拍板进 v1，原「内核改造 S3」提前�
     只发射其能力子集。
 18. 并发默认：stdio 与 HTTP P1 都默认 1；HTTP P3 worker 池验证后生产可配 2。
 19. 差异总表与触发流程以 RPC/HTTP 方案 §4.6/§4.7 为准；stdio 本文只保留
-    本地可信面差异（无鉴权、无 SSE、无 artifact 下载、`repoPath`）。
+    本地可信面差异（无鉴权、无 SSE、无 artifact 下载、可直接用 `repoPath`）。
+
+跨形态统一调用参数（2026-10-23 用户新增约束，已拍板）：
+
+20. 三形态共享同一个 `ReviewRequest`（2026-10-24 ADR-0013 修订：repo 判别
+    联合收敛为扁平 `repoPath`）：
+    ```ts
+    interface ReviewRequest {
+      clientRequestId?: string;
+      caseId: string;
+      repoPath?: string; // 扁平字符串，绝对/相对均可（HTTP 必填显式）
+      diff: { kind: "inline"; text: string } | { kind: "file"; path: string };
+      issueDescription?: string;
+      configId: "A" | "B" | "C" | "D" | "E";
+      modelId?: string;
+      metadata?: Record<string, unknown>;
+    }
+    ```
+21. CLI flags 映射到 `ReviewRequest`（2026-10-24 修订：删 `--repo-id`）：
+    - `--repo <path>` → `repoPath`
+    - `--mr <file>` / `--diff-file <file>` → `diff={kind:"file",path}`
+    - `--diff <text>` → `diff={kind:"inline",text}`
+    - `--case-id <id>` → `caseId`（缺省仍可从 `--mr` 文件名派生）
+    - `--issue <text>` / `--issue-description <text>` → `issueDescription`
+    - `--config <A-E>` → `configId`
+    - `--model <id>` / `--model-id <id>` → `modelId`
+    - `--client-request-id <id>` → `clientRequestId`
+    - `--metadata <json>` → `metadata`
+    - `--out <dir>` 是运行时产物根，不属于 `ReviewRequest`。
+22. （2026-10-24 修订）不保留 legacy alias 过渡窗口：stdio v1 零外部调用方
+    （唯一宿主是本仓评测驱动器与测试），`protocolVersion` 2 即唯一切换信号；
+    v1 旧参数形（`diff` 纯字符串、无 `diff.kind` 判别）在 v2 直接
+    `invalid_params` 拒绝（ADR-0013 决策 3）。
+23. 三形态一致：`repoPath` 绝对/相对都允许，`diff.kind=inline|file` 都允许。
+    HTTP 面向企业内部可信平台，允许绝对 `repoPath` / `diff.path`；本次不实现
+    `repoId` / `repo-registry` / `repo-root`。
+24. `clientRequestId`、`metadata` 字段三形态都接受；`clientRequestId` 的幂等语义由
+    capabilities `features.idempotency` 声明（HTTP 支持；stdio v1 仅接受字段，幂等落
+    S4；CLI 单次进程可接受但不承诺跨进程幂等）。
+
+默认工作目录（2026-10-24 用户新增约束，已拍板）：
+
+25. CLI/stdio 省略 `repoPath` 时默认 `process.cwd()`（「当前打开文件夹」）；stdio 增加
+    `--cwd <dir>` 进程级参数，仅覆盖该默认值。HTTP 不允许默认 cwd，必须显式传
+    `repoPath`（绝对/相对均可）。
+26. 参考 pi `packages/coding-agent/src/core/sdk.ts:174`：
+    `resolvePath(options.cwd ?? sessionManager?.getCwd() ?? process.cwd())`；
+    `DefaultResourceLoader` 用 `cwd` 做项目级发现，哲学是「omit to discover,
+    provide to override」。
+27. **可复用源码**：移植 pi `packages/coding-agent/src/utils/paths.ts` 的
+    `normalizePath` / `resolvePath` / `getCwdRelativePath`（MIT；#27 移植时在
+    `THIRD-PARTY-NOTICES.md` 补 coding-agent 条目——现行清单仅覆盖 vendored
+    四包）到 ReviewAgent 共享 `paths.ts`，带 fork 注释；
+    不 import / 不 vendor 整个 pi coding-agent。
 
 ---
 
 ## 13. 明确不做
 
-- 不把 stdio 模式与 HTTP/JSON-RPC 方案混写；两者共享方法契约（stdio v1 为其
-  子集，已知分歧见 §12.10），但传输与部署面独立。
+- 不把 stdio 模式与 HTTP/JSON-RPC 方案混写；两者共享方法契约（stdio 为其
+  子集；原已知分歧已由 ADR-0013 统一收口），但传输与部署面独立。
 - 不做网络监听、不做 SSE、不做多租户鉴权。
 - 不 vendor pi `protocol/client/server/session-backends`。
-- 不改现有 `review-pi review/smoke/disposition` 契约。
+- 不为 cwd 默认值 import/vendor 整个 pi coding-agent；只移植 `paths.ts` 的
+  `normalizePath` / `resolvePath` / `getCwdRelativePath` 小工具。
+- 不改现有 `reviewagent review/smoke/disposition` 契约。
+- 不保留 stdio v1 旧参数形的过渡窗口：`protocolVersion` 2 即唯一切换信号，
+  旧形 `invalid_params` 拒绝（ADR-0013）。
 - 不在 stdio 层改 Zone A/B、六阶段指令、Finding/Evidence 契约与判定链口径。
 - 不在 stdio 层做呈现投影（ADR-0010 投影是 CLI 人话呈现档专用，机对机协议
   返回原始 findings）。

@@ -62,7 +62,7 @@ _Avoid_: 评论、告警、issue（泛化）
 变更的风险分级（Low / Medium / High），决定 C 级上下文加载深度与证据等级。
 
 **处置（Disposition）**:
-人工对单条 Finding 的判定（accept / reject / false-positive），经 review-pi CLI 落库（append-only；回溯锚 = source/caseId/configId/rep/model + findingId，与 RunRecord 对齐）；同一 finding 重复处置按 notedAt latest-wins。
+人工对单条 Finding 的判定（accept / reject / false-positive），经 reviewagent CLI（`reviewagent disposition`）落库（append-only；回溯锚 = source/caseId/configId/rep/model + findingId，与 RunRecord 对齐）；同一 finding 重复处置按 notedAt latest-wins。
 _Avoid_: 判级（judge 属评测链；处置是人工生产面）
 
 **人工接受率（Acceptance Rate）**:
@@ -106,6 +106,24 @@ _Avoid_: 与字节门混流（A/B 逐字节、C/D/E 语义——两档口径各�
 **MR 边界护栏（Boundary Guard）**:
 内核入口处的 MR 输入边界检查（≤10 文件 / diff ≤2K 变更行，与数据集过滤口径同构、配置无关、config 分派之前）：界内路径零字节漂移（缺席省键）；超界或不可度量走显式降级——`domainWarning` 标注 + 审计 `mrBoundary` 留痕 + 照常执行，不拒检。
 _Avoid_: 输入校验（过泛）、大 MR 切分（v2 另立项）、静默截断（违背零静默纪律）
+
+### 服务面
+
+**ReviewJob（检视作业）**:
+一次 MR 检视的异步执行单元：submit 受理即入队，状态机 `queued → running → 终态`（`succeeded` / `failed` / `cancelled`，running 取消经 `cancelling`），单调推进、终态不可逆；同一 job 至多一个执行实例。jobId 对外是不透明字符串，调用方不得解析格式；连接断开不等于取消——只有显式 `review.cancel` 或服务端 drain 才取消。
+_Avoid_: 检视会话 / Session（pi durable Session 是多端会话模型；本线 job-oriented，见 ADR-0012/0013）
+
+**ReviewRequest**:
+三形态（CLI flags / stdio `review.submit` / HTTP `review.submit`）共享的统一提交参数模型：扁平 `repoPath`（绝对/相对；CLI/stdio 可省略走 cwd 默认，HTTP 必填显式）+ `diff` 判别联合 `{kind:"inline",text} | {kind:"file",path}` + `caseId` / `configId` 必填显式（A–E，无隐式缺省）。不引入 repoId / repo-registry / repo-root / allowlist。决策源 ADR-0013（决策 3）：`protocolVersion` 2 即切换信号，不保留 stdio v1 旧参数形 alias。
+_Avoid_: repo 判别联合含 `kind:"id"`（2026-10-23 旧形，已废）、repoId
+
+**Principal（调用方主体）**:
+server 面鉴权身份：`tenantId` / `subject` / `scopes`（`review:submit` / `review:read` / `review:cancel` / `artifact:read` / `admin`），由 HTTP `Authorization` 头经 `Authenticator` 解析派生（token→principal JSON 映射文件 + 每请求 mtime 热轮换，缺 token 文件 fail fast 拒启动），客户端不得在 params 自报 tenant；越权访问统一按 not found 处理（不泄漏资源存在性）。
+_Avoid_: 用户（server 面无自然人语义）、自报 tenant
+
+**reviewagent**:
+用户可见产品包：自包含 npm 包（bin `reviewagent`，bundle 内联 vendored pi 运行时），唯一发布/安装面，运行时依赖不含 `@earendil-works/pi-*`；子命令 review / rpc / disposition / smoke（server 随 #28 落地，ADR-0013 拓扑 B）。仓内实现包 `review-pi`（内核 + CLI + 传输）不对外发布。
+_Avoid_: 用 review-pi 指产品（对外名恒 reviewagent）
 
 ### 知识
 

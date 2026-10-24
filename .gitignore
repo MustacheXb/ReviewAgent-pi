@@ -34,6 +34,12 @@ runs/**
 # review-pi CLI 缺省输出目录（#7 --out 缺省 review-pi-output；审计与运行记录不入库）
 review-pi-output/
 
+# reviewagent CLI 缺省输出目录（review / rpc / disposition 共用 --out 缺省；审计与运行记录不入库）
+reviewagent-output/
+
+# 会话草稿（to-tickets / grilling 工作稿，不入库）
+.scratch/
+
 # clean MR 采集 API 快照缓存（断点续采用；清单与 diff 为交付物，正常入库）
 data/clean-mr/.cache/
 

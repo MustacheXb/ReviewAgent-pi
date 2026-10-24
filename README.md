@@ -36,7 +36,8 @@ packages/{ai,agent,chord,telemetry}/
                         Pi 内核 vendor 基座（@earendil-works/*，`pnpm build:pi` 拓扑构建，
                         见《Pi 内核定制基线方案》）
 packages/review-pi/     Review Runtime（pi 内核从 0 重写：六阶段骨架 + 七工具 +
-                        审计投影 + review-pi CLI + 字节纪律门本体，ADR-0009）
+                        审计投影 + 字节纪律门本体，ADR-0009）
+packages/reviewagent/   自包含产品包：reviewagent CLI + stdio 长驻（bundle pi 运行时）
 packages/review-llm/    LLM 接入共享包（judge 仪器客户端 + 画像/退役清单单源）
 scripts/                实验 / 门 / 分析 / 物化脚本入口（tsc 即编即跑，产物落 .tmp-gen/）
 data/                   数据集清单与 MR 物化（vul4j / defects4j / msb-java / clean-mr）
@@ -70,9 +71,37 @@ CI（push / PR）跑 `suites`（root + review-llm 两包 typecheck + 全量测�
 | `pnpm materialize:vul4j` | VUL4J 数据集物化（case → 本地仓库 + MR） |
 | `pnpm reference -- --id <id> --cases-file <file>` | Claude Code 外部参照运行器（单列报告，不进 S/A/B 主判定） |
 
+## npm 本地打包与安装
+
+```bash
+# 一条命令：构建 vendored pi + review runtime + 自包含 bundle，输出到 .artifacts/
+pnpm build:reviewagent
+
+# 本地 npm 安装 tarball
+npm install -g ./.artifacts/reviewagent/reviewagent-0.1.0.tgz
+
+# 用户可见命令统一为 reviewagent
+reviewagent --version
+
+# 在“当前打开文件夹”里直接检视（当前需显式 --repo；统一契约落地后可省，
+# 省略时默认 process.cwd()——ADR-0013，随 #27）
+cd /path/to/opened-repo
+reviewagent review --repo . --mr <diff-file> --config E
+
+reviewagent rpc --out reviewagent-output
+```
+
+`pnpm build:reviewagent` 会把 vendored pi 运行时内联进 bundle，用户侧 npm 不再解析
+`@earendil-works/pi-*`；`@vscode/ripgrep`、`web-tree-sitter`、`tree-sitter-java`
+作为普通 npm 依赖随包安装。
+
 ## 单次检视执行
 
-单案检视 CLI 随 pi 内核线 P3 票回归：`packages/review-pi` 的 `review-pi` CLI，形态对齐原 `review-agent`（解析 → `.env.local` 装载 → 装配 → run → 导出 → 呈现；stdout 单 JSON 文档；退出码：完成（含诚实截断）0 / 中止 1；被测模型缺省 `deepseek-v4-flash`，换模型加 `--model <id>`）。DSH 内核 CLI（`packages/review-dsh/bin/review-agent.js`）已随内核移除（ADR-0009）。届时回归的还有网关冒烟自检（双探针 + 人话诊断，探针走 pi-ai 生产序列化）。
+单案检视 CLI 由 `packages/reviewagent` 打包为用户命令 `reviewagent`（内核实现仍在 `packages/review-pi`）：
+`reviewagent review`，形态对齐原 `review-agent`（解析 → `.env.local` 装载 → 装配 → run → 导出 → 呈现；
+stdout 单 JSON 文档；退出码：完成（含诚实截断）0 / 中止 1；被测模型缺省 `deepseek-v4-flash`，
+换模型加 `--model <id>`）。DSH 内核 CLI（`packages/review-dsh/bin/review-agent.js`）已随内核移除（ADR-0009）。
+届时回归的还有网关冒烟自检（双探针 + 人话诊断，探针走 pi-ai 生产序列化）。
 
 在新 CLI 落地前，仍然有效的口径与注意（对评测复现与日常检视通用）：
 
@@ -81,17 +110,17 @@ CI（push / PR）跑 `suites`（root + review-llm 两包 typecheck + 全量测�
 - **内核面向 Java**：角色提示词为 senior Java code reviewer、符号索引基于 tree-sitter-java；检视非 Java 仓可运行但质量不保证。
 - **基线态语义**：检视读的上下文以仓内现状为准（CLI 不 apply diff）；评测约定仓停在 diff 的 base 侧。
 
-## stdio 长驻模式（`review-pi rpc`）
+## stdio 长驻模式（`reviewagent rpc`）
 
-`review-pi` CLI 的第三形态（ADR-0012，#21–#24）：**stdin 收 JSON-RPC 命令行（LF-only JSONL）、stdout 回 JSON 行、stderr 出诊断**。单进程长驻，可连续提交多个检视 job——面向宿主消费者（评测驱动器 / IDE 扩展 / MCP 网关），与单次执行 CLI（`review-pi review`）互不替代。
+`reviewagent` CLI 的第三形态（ADR-0012，#21–#24）：**stdin 收 JSON-RPC 命令行（LF-only JSONL）、stdout 回 JSON 行、stderr 出诊断**。单进程长驻，可连续提交多个检视 job——面向宿主消费者（评测驱动器 / IDE 扩展 / MCP 网关），与单次执行 CLI（`reviewagent review`）互不替代。
 
 ### 逐步命令（开发态体验，真网关 + 测试数据）
 
-前置：仓库根执行（凭据从 `.env.local` 自动装载，见下节）；内核产物新鲜（bin 有 mtime 门，源码改动后 `pnpm --filter review-pi build`）。
+前置：仓库根执行（凭据从 `.env.local` 自动装载，见下节）；源码改动后跑 `pnpm build:reviewagent` 重建自包含包。
 
 ```bash
-# 启动长驻会话（--out 可选，缺省 review-pi-output）
-node packages/review-pi/bin/review-pi.js rpc --out review-pi-output
+# 启动长驻会话（--out 可选，缺省 reviewagent-output）
+node packages/reviewagent/bin/reviewagent.js rpc --out reviewagent-output
 ```
 
 进程停住等 stdin——每行一个 JSON-RPC 命令，回车即发，stdout 即时回响应：
@@ -104,13 +133,18 @@ node packages/review-pi/bin/review-pi.js rpc --out review-pi-output
 {"jsonrpc":"2.0","id":9,"method":"shutdown"}             // 响应先回，drain 等在跑 job 落定后自退
 ```
 
+当前 v1 参数面是 `repoPath` 必填 + `diff` 字符串。统一契约 v2（ADR-0013，随 #27
+落地）将切换为 `repoPath` 可省（省略时默认 `--cwd <dir>` / `process.cwd()`）+
+`diff` 判别联合 `{kind:"inline",text} | {kind:"file",path}`，`protocolVersion` 升 2
+即切换信号、不保留旧形 alias。
+
 `review.event` 通知与响应同缝流出（job 状态转移 + 六相位进度，seq 单调）。submit 的 `diff` 参数是全文转义的 JSON 字符串，手敲不现实——从黄金夹具生成后粘贴：
 
 ```bash
 node -e 'const fs=require("fs");const diff=fs.readFileSync("packages/review-pi/testdata/golden/vul4j-1.diff","utf8");console.log(JSON.stringify({jsonrpc:"2.0",id:2,method:"review.submit",params:{caseId:"VUL4J-1",repoPath:process.argv[1],diff,configId:"B"}}))' "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi\\packages\\review-pi\\testdata\\repos\\sample"
 ```
 
-落盘与 review CLI 同根不同实验目录：`<out>/review-pi-rpc/`（`audit/vul4j/<案>/<配置>/rep-1/audit/*.json` + `runs/vul4j/<案>/<配置>/rep-1.json`）。
+落盘与 review CLI 同根不同实验目录：`<out>/reviewagent-rpc/`（`audit/vul4j/<案>/<配置>/rep-1/audit/*.json` + `runs/vul4j/<案>/<配置>/rep-1.json`）。
 
 ### 协议速览
 
@@ -126,7 +160,10 @@ node -e 'const fs=require("fs");const diff=fs.readFileSync("packages/review-pi/t
 
 - **凭据**：启动期单次解析（`REVIEWER_*` > `DEEPSEEK_*` > `.env.local`，按 cwd 解析——与单次 CLI 同约定，从仓库根执行）；key 绝不回显。命令行前缀注入 key 有终端回显风险，走 `.env.local` 更稳。
 - **configId**：submit 必填；`B` 是最小成本形态（六相位单轮零工具），生产入口是 `E`（自主拉取 + Context Ledger，ADR-0011，消耗大得多）。
-- **`--repo-root <dir>`**：submit 的 repoPath realpath 后必须落在其下（不设则只要求可 realpath）——不可信输入 / 多租户场景建议显式设置。
+- **仓库路径**：submit 直接传 `repoPath`（绝对/相对均可）；统一契约不引入
+  `repo-id` / `repo-registry` / `repo-root`（ADR-0013）。v1 的 `--repo-root` 是
+  stdio-only 内部 guard（allowlist 命中时才发射 -32003），v2（#27）移除，路径
+  默认由 `--cwd` 承担。
 - **`--concurrency <n>`**：>1 为实验性（安全前提未验证）。
 - **Windows**：优雅退出走 stdin EOF（无信号语义，`Ctrl+Z` 回车；Git Bash `Ctrl+D`）；真 fetch 后的退出纪律是 exitCode + 事件循环自然排干（0xC0000409 竞态，有测试锚定）。
 - **宿主编程消费**：`packages/review-pi/src/rpc/client.ts` 的 `ReviewRpcClient`——spawn 真 bin + typed 六方法 + `review.event` 订阅 + stop() 三级升级链（stdin EOF → POSIX 组 SIGTERM → SIGKILL / Windows `taskkill /T /F`）；进程边界消费者，不进包导出面。
