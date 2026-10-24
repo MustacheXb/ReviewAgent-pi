@@ -82,6 +82,8 @@ export interface RpcServerInfo {
     readonly maxDiffBytes: number;
     readonly maxQueueDepth: number;
     readonly concurrency: number;
+    /** HTTP 面专属（#28）：请求 body 上限；stdio 无传输上限概念——缺席省键 */
+    readonly maxBodyBytes?: number;
   };
 }
 

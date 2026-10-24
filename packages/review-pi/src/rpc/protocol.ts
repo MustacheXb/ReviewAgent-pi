@@ -93,8 +93,10 @@ export type RpcMethodName = (typeof RPC_METHOD)[keyof typeof RPC_METHOD];
  * capabilities `features` 能力声明（#27 v2，ADR-0013 中性后果项——按形态声明
  * 差异，客户端据此降级）。stdio v2：sse/artifactDownload/idempotency=false、
  * listFilters=["status"]、defaultRepo="cwd"、无 submitHttpStatus（无 HTTP 传输
- * 不声明）；HTTP（#28 起）：sse=true、artifactDownload=true、idempotency=true、
- * listFilters 全量、defaultRepo=null、submitHttpStatus=202。
+ * 不声明）。HTTP（#28 起，见 server/http-server.ts HTTP_RPC_FEATURES 单源）：
+ * idempotency=true、defaultRepo=null、submitHttpStatus=202；sse 与
+ * artifactDownload 在 #29（P2b 事件流与产物下载）落地前恒 false——声明 true
+ * 会诱导客户端连不存在的路由，listFilters 以实装过滤面为准（当前 ["status"]）。
  */
 export interface RpcFeatures {
   readonly sse: boolean;
@@ -104,6 +106,12 @@ export interface RpcFeatures {
   /** 省略 repoPath 时的默认值来源：stdio="cwd"（--cwd / process.cwd()）；HTTP=null（必填显式） */
   readonly defaultRepo: "cwd" | null;
   readonly diffKinds: readonly ("file" | "inline")[];
+  /**
+   * `review.submit` 成功的 HTTP 状态码（HTTP 面声明 202——202 + Location:
+   * /v1/jobs/{jobId}；stdio 等无 HTTP 传输的形态缺席不声明）。缺席省键，
+   * 不取 null——「无 HTTP 传输」与「HTTP 但 200」语义有别（后者未来可能出现）。
+   */
+  readonly submitHttpStatus?: 202;
 }
 
 /**
@@ -361,7 +369,11 @@ export function eventNotification(params: unknown): JsonRpcEventNotification {
   return { jsonrpc: "2.0", method: "review.event", params };
 }
 
-/** 解析一行入站文档：合法请求 → request；信封/解析违例 → error（可直接回写） */
+/**
+ * 解析一行入站文档：合法请求 → request；信封/解析违例 → error（可直接回写）。
+ * HTTP 面（#28）经 parseIncomingDocument 复用同一信封纪律（整个 body 一个
+ * JSON 文档，无行概念）。
+ */
 export function parseIncomingLine(line: string): ParsedIncomingLine {
   let value: unknown;
   try {
@@ -374,6 +386,14 @@ export function parseIncomingLine(line: string): ParsedIncomingLine {
       error: { code: JSON_RPC_ERROR.PARSE_ERROR, message: "Parse error" },
     };
   }
+  return parseIncomingDocument(value);
+}
+
+/**
+ * 校验一个已解析的入站文档（信封纪律单源，#28 起两传输共享）：
+ * 合法请求 → request；违例 → error（携带可提取 id 或 null）。
+ */
+export function parseIncomingDocument(value: unknown): ParsedIncomingLine {
   if (!isRecord(value)) {
     // batch（数组信封，spec §4.4 不支持）与一切非对象形态
     return invalidRequest(null);

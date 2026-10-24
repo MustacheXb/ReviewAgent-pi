@@ -32,3 +32,11 @@ export {
 // #27 v2（ADR-0013 中性后果项）：ReviewRunSummary 升公开面——stdio/HTTP 宿主
 // 与评测驱动只消费该 DTO，不触内核 RunRecord 内部字段（P0 半成品补完）。
 export type { ReviewRunSummary } from "./rpc/executor.js";
+// #28（ADR-0013 决策 1）：typed HTTP client 升公开面——宿主/评测驱动以编程
+// 方式消费 HTTP 形态（demo 与 P2b 集成同款入口）；异常基类 RpcResponseError
+// 一并导出（stdio / HTTP 两面共享的 error 契约）。
+export {
+  HttpRpcResponseError,
+  ReviewHttpClient,
+  type ReviewHttpClientOptions,
+} from "./server/http-client.js";

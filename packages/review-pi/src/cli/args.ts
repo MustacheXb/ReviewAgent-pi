@@ -73,14 +73,28 @@ const KNOWN_DISPOSITION_STATS_FLAGS: readonly string[] = ["--store", "--out"];
 /** rpc 子命令（#24 S3；#27 v2）的已知旗标（全可选） */
 const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--cwd", "--concurrency"];
 
+/** server 子命令（#28）的已知旗标（--auth-token-file 必填，其余可选） */
+const KNOWN_SERVER_FLAGS: readonly string[] = ["--host", "--port", "--out", "--auth-token-file", "--concurrency"];
+
+/** server 缺省绑定面（HOST / PORT 环境变量可覆盖；显式旗标再优先——#28） */
+const DEFAULT_SERVER_HOST = "127.0.0.1";
+const DEFAULT_SERVER_PORT = 8787;
+
+/** 端口合法域（1-65535；0 = 系统分配，只留给进程内测试注入，不进 CLI 面） */
+function isValidPort(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= 65_535;
+}
+
 /** 用法文案（stderr 错误路径的同款文案，单一来源） */
 export const USAGE_TEXT = `usage: reviewagent review [--repo <path>] --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
        reviewagent smoke [--model <id>]
        reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
+       reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>]
        reviewagent disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
        reviewagent disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
   （rpc = stdio JSONL 长驻模式：stdin 收 JSON-RPC 命令、stdout 回 JSON 行、stderr 诊断——ADR-0012；统一契约 v2 见 ADR-0013）
+  （server = HTTP JSON-RPC 长驻服务：POST /rpc + GET /healthz|/readyz|/v1/capabilities，Bearer 鉴权 + 幂等——ADR-0013）
   （disposition = Finding 人工处置落库 + 接受率 KPI：本地数据面，无网络、不碰凭据与 .env.local）
 
 review 旗标：
@@ -99,6 +113,14 @@ rpc 旗标（全可选；退出码 shutdown/EOF 0、SIGINT 130、SIGTERM 143、S
   --cwd        <dir>     repoPath 省略时的缺省值（缺省 process.cwd()——omit to discover, provide to override；
                          只覆盖缺省值：显式 repoPath 的相对解析基准仍是 process.cwd()）
   --concurrency <n>      并发执行 job 数（缺省 1；>1 实验性——安全前提未验证）
+
+server 旗标（HTTP JSON-RPC 长驻；退出码 SIGINT 130、SIGTERM 143、启动失败 1；协议见 ADR-0013）：
+  --auth-token-file <file>  Bearer token→principal 映射 JSON（必需；缺文件/非法内容拒启动；
+                            文件轮换（mtime/size 变化）热生效不重启）
+  --host      <addr>       绑定地址（缺省 HOST 环境变量，再缺省 ${DEFAULT_SERVER_HOST}——仅本机回环）
+  --port      <n>          绑定端口（缺省 PORT 环境变量，再缺省 ${DEFAULT_SERVER_PORT}）
+  --out       <dir>        审计与运行记录落盘根（缺省 ${DEFAULT_OUT_DIR}）
+  --concurrency <n>        并发执行 job 数（缺省 1；>1 实验性——安全前提未验证）
 
 disposition 旗标（记录处置）：
   --run      <file>      产生该 finding 的 run record JSON 文件（必需；回溯锚与 finding 校验都以它为准）
@@ -147,6 +169,20 @@ export interface RpcCliArgs {
   readonly concurrency: number;
 }
 
+/**
+ * 解析后的 server 命令参数（#28，ADR-0013）。host/port 的解析优先级：
+ * 显式旗标 > HOST / PORT 环境变量 > 缺省（环境变量坏值 fail fast——
+ * 运维靠环境变量注入时，配置错误要在 parse 层给出人话，不是 bind 时的 EADDRNOTAVAIL）。
+ */
+export interface ServerCliArgs {
+  readonly host: string;
+  readonly port: number;
+  readonly out: string;
+  /** Bearer token→principal 映射文件（必填——缺它鉴权器无从构造） */
+  readonly authTokenFile: string;
+  readonly concurrency: number;
+}
+
 /** 解析后的 disposition 记录面参数（store 已解析：--store 显式或 --out 派生） */
 export interface DispositionRecordArgs {
   /** 产生该 finding 的 run record JSON 文件路径（必需） */
@@ -173,6 +209,7 @@ export type ParseCliArgsResult =
   | { readonly ok: true; readonly command: "review"; readonly args: ReviewCliArgs }
   | { readonly ok: true; readonly command: "smoke"; readonly args: SmokeCliArgs }
   | { readonly ok: true; readonly command: "rpc"; readonly args: RpcCliArgs }
+  | { readonly ok: true; readonly command: "server"; readonly args: ServerCliArgs }
   | { readonly ok: true; readonly command: "disposition"; readonly args: DispositionCliArgs }
   | { readonly ok: false; readonly message: string };
 
@@ -323,14 +360,15 @@ export function parseCliArgs(argv: readonly string[]): ParseCliArgsResult {
     command !== "review" &&
     command !== "smoke" &&
     command !== "rpc" &&
+    command !== "server" &&
     command !== "disposition"
   ) {
     return {
       ok: false,
       message:
         argv.length === 0
-          ? "missing command (expected `review`, `smoke`, `rpc` or `disposition`)"
-          : `unknown command ${JSON.stringify(command)} (expected \`review\`, \`smoke\`, \`rpc\` or \`disposition\`)`,
+          ? "missing command (expected `review`, `smoke`, `rpc`, `server` or `disposition`)"
+          : `unknown command ${JSON.stringify(command)} (expected \`review\`, \`smoke\`, \`rpc\`, \`server\` or \`disposition\`)`,
     };
   }
   if (command === "disposition") {
@@ -339,6 +377,9 @@ export function parseCliArgs(argv: readonly string[]): ParseCliArgsResult {
   }
   if (command === "rpc") {
     return parseRpcArgs(rest);
+  }
+  if (command === "server") {
+    return parseServerArgs(rest);
   }
   const flags = parseFlags(rest, command === "review" ? KNOWN_REVIEW_FLAGS : KNOWN_SMOKE_FLAGS);
   if (!flags.ok) {
@@ -380,6 +421,76 @@ function parseRpcArgs(
       out: flags.values.get("--out") ?? DEFAULT_OUT_DIR,
       concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : 1,
       ...(cwd !== undefined ? { cwd } : {}),
+    },
+  };
+}
+
+/**
+ * server 子命令解析（#28）：--auth-token-file 必填（缺它鉴权器无从构造）；
+ * host/port 三级优先（显式旗标 > HOST / PORT 环境变量 > 缺省），环境变量
+ * 坏值 fail fast（PORT 非端口数 / HOST 空白——bind 期的 EADDRNOTAVAIL 不如
+ * parse 层人话）；concurrency 口径同 rpc。
+ */
+function parseServerArgs(
+  rest: readonly string[],
+): { readonly ok: true; readonly command: "server"; readonly args: ServerCliArgs } | { readonly ok: false; readonly message: string } {
+  const flags = parseFlags(rest, KNOWN_SERVER_FLAGS);
+  if (!flags.ok) {
+    return flags;
+  }
+  const authTokenFile = flags.values.get("--auth-token-file");
+  if (authTokenFile === undefined) {
+    return { ok: false, message: "missing required flag --auth-token-file" };
+  }
+
+  const hostFlag = flags.values.get("--host");
+  const hostEnv = process.env.HOST;
+  // 空白 HOST 视为坏值 fail fast（缺省链不静默穿过）；显式旗标在场则环境变量
+  // 不参与判定，无需校验
+  const hostEnvIsBlank = hostEnv !== undefined && hostEnv.trim().length === 0;
+  if (hostFlag === undefined && hostEnvIsBlank) {
+    return {
+      ok: false,
+      message: `invalid HOST environment variable ${JSON.stringify(hostEnv)}: must be a non-empty address`,
+    };
+  }
+  const host = hostFlag ?? (hostEnv !== undefined && !hostEnvIsBlank ? hostEnv : DEFAULT_SERVER_HOST);
+
+  const portFlag = flags.values.get("--port");
+  if (portFlag !== undefined && !isValidPort(Number(portFlag))) {
+    return {
+      ok: false,
+      message: `invalid --port ${JSON.stringify(portFlag)}: must be an integer between 1 and 65535`,
+    };
+  }
+  const portEnv = process.env.PORT;
+  if (portFlag === undefined && portEnv !== undefined) {
+    const portEnvValue = Number(portEnv);
+    if (!isValidPort(portEnvValue)) {
+      return {
+        ok: false,
+        message: `invalid PORT environment variable ${JSON.stringify(portEnv)}: must be an integer between 1 and 65535`,
+      };
+    }
+  }
+
+  const concurrencyRaw = flags.values.get("--concurrency");
+  if (concurrencyRaw !== undefined && !/^[1-9]\d*$/.test(concurrencyRaw)) {
+    return {
+      ok: false,
+      message: `invalid --concurrency ${JSON.stringify(concurrencyRaw)}: must be a positive integer`,
+    };
+  }
+
+  return {
+    ok: true,
+    command: "server",
+    args: {
+      host,
+      port: portFlag !== undefined ? Number(portFlag) : portEnv !== undefined ? Number(portEnv) : DEFAULT_SERVER_PORT,
+      out: flags.values.get("--out") ?? DEFAULT_OUT_DIR,
+      authTokenFile,
+      concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : 1,
     },
   };
 }

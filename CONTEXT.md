@@ -122,7 +122,7 @@ server 面鉴权身份：`tenantId` / `subject` / `scopes`（`review:submit` / `
 _Avoid_: 用户（server 面无自然人语义）、自报 tenant
 
 **reviewagent**:
-用户可见产品包：自包含 npm 包（bin `reviewagent`，bundle 内联 vendored pi 运行时），唯一发布/安装面，运行时依赖不含 `@earendil-works/pi-*`；子命令 review / rpc / disposition / smoke（server 随 #28 落地，ADR-0013 拓扑 B）。仓内实现包 `review-pi`（内核 + CLI + 传输）不对外发布。
+用户可见产品包：自包含 npm 包（bin `reviewagent`，bundle 内联 vendored pi 运行时），唯一发布/安装面，运行时依赖不含 `@earendil-works/pi-*`；子命令 review / rpc / server / disposition / smoke（server = HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等，#28 落地，ADR-0013 拓扑 B——`review-pi` 的 `src/server/` 子树，边界测试把口）。仓内实现包 `review-pi`（内核 + CLI + 传输）不对外发布。
 _Avoid_: 用 review-pi 指产品（对外名恒 reviewagent）
 
 ### 知识

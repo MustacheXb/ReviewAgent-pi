@@ -53,6 +53,7 @@ import { resolveReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runReview } from "../run/review-run.js";
 import { validateReviewRequest } from "../rpc/protocol.js";
 import { runRpcMain } from "../rpc/main.js";
+import { runServerMain } from "../server/main.js";
 import { formatEnvLocalSummary, loadEnvLocalFile } from "../shared/env-local.js";
 import {
   CLI_EXPERIMENT_ID,
@@ -236,12 +237,16 @@ function main(): void {
   // rpc：进程面主缝在 runRpcMain（stdin 循环 + EOF/信号 drain；resolve 值
   // = 退出码，启动失败异常上抛 → reportErrorAndExit → 1）。.env.local 已在
   // 上方共享路径装载（spec 启动顺序：env.local 先于 endpoint 解析）。
+  // server（#28）：同构——runServerMain 内含 token 文件 fail fast 与信号
+  // drain；退出码 SIGINT 130 / SIGTERM 143 / 启动失败 1。
   const command =
     parsed.command === "smoke"
       ? runSmokeCommand(parsed.args)
       : parsed.command === "rpc"
         ? runRpcMain(parsed.args)
-        : runReviewCommand(parsed.args);
+        : parsed.command === "server"
+          ? runServerMain(parsed.args)
+          : runReviewCommand(parsed.args);
   command.then((code) => exitGracefully(code)).catch(reportErrorAndExit);
 }
 

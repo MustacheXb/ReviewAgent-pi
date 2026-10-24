@@ -23,7 +23,8 @@
     "reference": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/run-claude-code-reference.ts && node .tmp-gen/scripts/run-claude-code-reference.js",
     "analyze:phase2": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --rootDir . --outDir .tmp-gen scripts/analyze-phase2.ts && node .tmp-gen/scripts/analyze-phase2.js",
     "analyze:p5b": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --rootDir . --outDir .tmp-gen scripts/analyze-p5b.ts && node .tmp-gen/scripts/analyze-p5b.js",
-    "materialize:vul4j": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/materialize-vul4j.ts && node .tmp-gen/scripts/materialize-vul4j.js"
+    "materialize:vul4j": "pnpm exec tsc --module NodeNext --moduleResolution NodeNext --target ES2023 --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --skipLibCheck --outDir .tmp-gen scripts/materialize-vul4j.ts && node .tmp-gen/scripts/materialize-vul4j.js",
+    "demo:http-server": "pnpm --filter review-pi build && pnpm exec tsc -p tsconfig.demo-http-server.json && node .tmp-gen/scripts/demo-http-server.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

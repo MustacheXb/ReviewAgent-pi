@@ -17,11 +17,11 @@ import { parseCliArgs, USAGE_TEXT } from "./args.js";
 test("空 argv 与未知子命令 → 用法错误（不抛异常）", () => {
   expect(parseCliArgs([])).toEqual({
     ok: false,
-    message: "missing command (expected `review`, `smoke`, `rpc` or `disposition`)",
+    message: "missing command (expected `review`, `smoke`, `rpc`, `server` or `disposition`)",
   });
   expect(parseCliArgs(["deploy"])).toEqual({
     ok: false,
-    message: 'unknown command "deploy" (expected `review`, `smoke`, `rpc` or `disposition`)',
+    message: 'unknown command "deploy" (expected `review`, `smoke`, `rpc`, `server` or `disposition`)',
   });
 });
 
@@ -406,5 +406,98 @@ describe("rpc 子命令", () => {
   test("USAGE_TEXT 宣告 rpc 用法面（单一来源）", () => {
     expect(USAGE_TEXT).toContain("reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]");
     expect(USAGE_TEXT).toContain("stdio JSONL 长驻模式");
+  });
+});
+
+// ---- server 子命令（#28，ADR-0013：HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等） ----
+
+describe("server 子命令", () => {
+  test("最小 argv：--auth-token-file 必填 + 全缺省（host=127.0.0.1、port=8787、out、concurrency=1）", () => {
+    expect(parseCliArgs(["server", "--auth-token-file", "tokens.json"])).toEqual({
+      ok: true,
+      command: "server",
+      args: {
+        host: "127.0.0.1",
+        port: 8787,
+        out: "reviewagent-output",
+        authTokenFile: "tokens.json",
+        concurrency: 1,
+      },
+    });
+  });
+
+  test("缺 --auth-token-file → 用法错误（鉴权器无从构造）", () => {
+    expect(parseCliArgs(["server"])).toEqual({
+      ok: false,
+      message: "missing required flag --auth-token-file",
+    });
+  });
+
+  test("HOST / PORT 环境变量覆盖缺省；显式旗标再优先（三级优先）", () => {
+    process.env.HOST = "0.0.0.0";
+    process.env.PORT = "9000";
+    try {
+      expect(parseCliArgs(["server", "--auth-token-file", "t.json"])).toEqual({
+        ok: true,
+        command: "server",
+        args: expect.objectContaining({ host: "0.0.0.0", port: 9000 }),
+      });
+      expect(
+        parseCliArgs(["server", "--auth-token-file", "t.json", "--host", "10.0.0.1", "--port", "8080"]),
+      ).toEqual({
+        ok: true,
+        command: "server",
+        args: expect.objectContaining({ host: "10.0.0.1", port: 8080 }),
+      });
+    } finally {
+      delete process.env.HOST;
+      delete process.env.PORT;
+    }
+  });
+
+  test("PORT 环境变量坏值 / --port 坏值 → parse 层人话（不等 bind 期 EADDRNOTAVAIL）", () => {
+    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--port", "99999"])).toEqual({
+      ok: false,
+      message: 'invalid --port "99999": must be an integer between 1 and 65535',
+    });
+    process.env.PORT = "not-a-port";
+    try {
+      expect(parseCliArgs(["server", "--auth-token-file", "t.json"])).toEqual({
+        ok: false,
+        message: 'invalid PORT environment variable "not-a-port": must be an integer between 1 and 65535',
+      });
+    } finally {
+      delete process.env.PORT;
+    }
+  });
+
+  test("HOST 环境变量空白 → 用法错误（缺省链不静默穿过坏值）", () => {
+    process.env.HOST = "   ";
+    try {
+      expect(parseCliArgs(["server", "--auth-token-file", "t.json"])).toEqual({
+        ok: false,
+        message: 'invalid HOST environment variable "   ": must be a non-empty address',
+      });
+    } finally {
+      delete process.env.HOST;
+    }
+  });
+
+  test("--concurrency 非正整数 / 未知旗标 → 用法错误（与 rpc 同口径）", () => {
+    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--concurrency", "0"])).toEqual({
+      ok: false,
+      message: 'invalid --concurrency "0": must be a positive integer',
+    });
+    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--tls"])).toEqual({
+      ok: false,
+      message: 'unknown flag "--tls"',
+    });
+  });
+
+  test("USAGE_TEXT 宣告 server 用法面（单一来源）", () => {
+    expect(USAGE_TEXT).toContain(
+      "reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>]",
+    );
+    expect(USAGE_TEXT).toContain("HTTP JSON-RPC 长驻服务");
   });
 });
