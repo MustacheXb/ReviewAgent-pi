@@ -13,6 +13,10 @@ import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
 import { goldenFixture } from "../testing/golden.js";
 import { repoFixturePath } from "../testing/repos.js";
+import {
+  acquireDistArtifactLock,
+  type DistArtifactLockRelease,
+} from "../testing/dist-artifact-lock.js";
 import { CLI_VERSION } from "./args.js";
 
 // #7 P3b 进程级烟测：spawn 真 bin（bin/review-pi.js → spawn dist/cli/main.js），
@@ -38,6 +42,10 @@ const DECOY_KEY = "sk-decoy-from-env-local";
 
 const tempDirs: string[] = [];
 
+/** 文件级 dist 产物锁（见 testing/dist-artifact-lock.ts）：本文件含 mtime 回拨
+ *  用例与自愈构建，与 rpc.process.test.ts 的真 bin spawn 跨 fork 互斥 */
+let releaseDistLock: DistArtifactLockRelease | undefined;
+
 function makeTempDir(prefix: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), prefix));
   tempDirs.push(dir);
@@ -45,6 +53,7 @@ function makeTempDir(prefix: string): string {
 }
 
 afterAll(() => {
+  releaseDistLock?.();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -53,7 +62,9 @@ afterAll(() => {
 // ---- 自愈构建：与 bin 同一真源判鲜（cli-runtime 腿表），陈旧即按腿重建 ----
 // CI 有显式 dist 前置构建（见 .github/workflows/ci.yml），本钩子通常 no-op；
 // 本地首次跑或源码新于产物时自愈，保证进程烟测永远对着新鲜产物。
+// 先取 dist 产物锁再判鲜/重建：回拨用例与并行 fork 的 spawn/重建互斥。
 beforeAll(async () => {
+  releaseDistLock = await acquireDistArtifactLock();
   const check = checkRuntimeArtifacts();
   if (check.ok) {
     return;

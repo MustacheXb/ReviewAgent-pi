@@ -11,6 +11,10 @@ import { checkRuntimeArtifacts } from "../../bin/lib/cli-runtime.js";
 import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { goldenFixture } from "../testing/golden.js";
 import { repoFixturePath } from "../testing/repos.js";
+import {
+  acquireDistArtifactLock,
+  type DistArtifactLockRelease,
+} from "../testing/dist-artifact-lock.js";
 import { ReviewRpcClient, RpcResponseError } from "./client.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import type { ReviewJobStatus } from "./protocol.js";
@@ -47,6 +51,10 @@ const DECOY_KEY = "sk-decoy-from-env-local";
 
 const tempDirs: string[] = [];
 
+/** 文件级 dist 产物锁（见 testing/dist-artifact-lock.ts）：本文件全程 spawn
+ *  真 bin，与 bin.process.test.ts 的 mtime 回拨用例/自愈构建跨 fork 互斥 */
+let releaseDistLock: DistArtifactLockRelease | undefined;
+
 function makeTempDir(prefix: string): string {
   const dir = mkdtempSync(path.join(tmpdir(), prefix));
   tempDirs.push(dir);
@@ -54,6 +62,7 @@ function makeTempDir(prefix: string): string {
 }
 
 afterAll(() => {
+  releaseDistLock?.();
   for (const dir of tempDirs.splice(0)) {
     try {
       rmSync(dir, { recursive: true, force: true });
@@ -66,7 +75,9 @@ afterAll(() => {
 
 // ---- 自愈构建：与 bin 同一真源判鲜（cli-runtime 腿表），陈旧即按腿重建 ----
 // CI 有显式 dist 前置构建，本钩子通常 no-op；本地源码新于产物时自愈。
+// 先取 dist 产物锁再判鲜/重建：真 bin spawn 与并行 fork 的回拨/重建互斥。
 beforeAll(async () => {
+  releaseDistLock = await acquireDistArtifactLock();
   const check = checkRuntimeArtifacts();
   if (check.ok) {
     return;
