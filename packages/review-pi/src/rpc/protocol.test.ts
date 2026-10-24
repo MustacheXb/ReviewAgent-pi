@@ -1,12 +1,15 @@
 /**
  * #22 S1 protocol：JSON-RPC 2.0 信封、错误码、参数校验（spec #21 §4/§5、
  * ADR-0012 决策 1）。与 pi 的 `{type,id,command,...}` 信封不同——本仓用标准
- * JSON-RPC 2.0 以与 HTTP 线共享方法契约（stdio v1 为其子集）。
+ * JSON-RPC 2.0 以与 HTTP 线共享方法契约（stdio 为其子集）。
+ * #27 v2：submit 参数切统一 ReviewRequest（ADR-0013 决策 3——diff 判别联合、
+ * repoPath 可省、clientRequestId/metadata 可选、无 v1 旧扁平形 alias）。
  */
 
 import { expect, test } from "vitest";
 
 import {
+  JSON_RPC_ERROR,
   errorResponse,
   eventNotification,
   parseIncomingLine,
@@ -14,7 +17,7 @@ import {
   validateCancelParams,
   validateGetParams,
   validateListParams,
-  validateSubmitParams,
+  validateReviewRequest,
   type ParsedIncomingError,
   type JsonRpcId,
 } from "./protocol.js";
@@ -77,75 +80,94 @@ test("parseIncomingLine：信封违例族 → -32600（id 可提取则回显，�
   );
 });
 
-test("validateSubmitParams：合法参数 → ok（issueDescription/modelId 可选，configId A–E）", () => {
+test("validateReviewRequest：合法参数 → ok（统一形：diff 判别联合、repoPath 可省、clientRequestId/metadata 可选）", () => {
+  // repoPath 省略 + inline diff（最小统一形；repoPath 缺省由形态面承担：stdio=--cwd、HTTP=必填）
   expect(
-    validateSubmitParams({
+    validateReviewRequest({
       caseId: "VUL4J-1",
-      repoPath: ".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564",
-      diff: "--- a\n+++ b\n",
+      diff: { kind: "inline", text: "--- a\n+++ b\n" },
       configId: "E",
     }),
   ).toEqual({
     ok: true,
     value: {
       caseId: "VUL4J-1",
-      repoPath: ".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564",
-      diff: "--- a\n+++ b\n",
+      diff: { kind: "inline", text: "--- a\n+++ b\n" },
       configId: "E",
     },
   });
+  // 全字段形态：repoPath 扁平字符串 + file diff + 可选四件
   expect(
-    validateSubmitParams({
+    validateReviewRequest({
+      clientRequestId: "mr-12345-rev-1",
       caseId: "VUL4J-1",
-      repoPath: "repo",
-      diff: "d",
+      repoPath: ".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564",
+      diff: { kind: "file", path: "/srv/diffs/VUL4J-1.diff" },
       issueDescription: "内存安全",
-      modelId: "deepseek-v4-flash",
       configId: "A",
+      modelId: "deepseek-v4-flash",
+      metadata: { project: "platform-x", mr: 12345 },
     }),
   ).toEqual({
     ok: true,
     value: {
+      clientRequestId: "mr-12345-rev-1",
       caseId: "VUL4J-1",
-      repoPath: "repo",
-      diff: "d",
+      repoPath: ".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564",
+      diff: { kind: "file", path: "/srv/diffs/VUL4J-1.diff" },
       issueDescription: "内存安全",
-      modelId: "deepseek-v4-flash",
       configId: "A",
+      modelId: "deepseek-v4-flash",
+      metadata: { project: "platform-x", mr: 12345 },
     },
   });
 });
 
-test("validateSubmitParams：违例族 → -32602（缺字段/空串/类型错/configId 越界/params 非对象）", () => {
+test("validateReviewRequest：违例族 → -32602（v1 旧扁平形拒绝、diff 联合违例、caseId/configId 越界）", () => {
   const valid = {
     caseId: "VUL4J-1",
     repoPath: "repo",
-    diff: "d",
+    diff: { kind: "inline", text: "d" },
     configId: "E",
-  };
+  } as const;
   const violations: readonly (readonly [string, unknown])[] = [
     ["params 非对象", "not an object"],
     ["params 为数组", [valid]],
     ["缺 caseId", { ...valid, caseId: undefined }],
     ["caseId 空串", { ...valid, caseId: "" }],
     ["caseId 非 string", { ...valid, caseId: 1 }],
-    ["缺 repoPath", { ...valid, repoPath: undefined }],
+    ["caseId 超 256 字符", { ...valid, caseId: "a".repeat(257) }],
+    ["caseId 含路径分隔符", { ...valid, caseId: "VUL4J/1" }],
+    ["caseId 含反斜杠转义序列", { ...valid, caseId: "VUL4J\\1" }],
+    ["caseId 为路径穿越段", { ...valid, caseId: ".." }],
+    ["repoPath 空串（在场即必须非空）", { ...valid, repoPath: "" }],
+    ["repoPath 非 string", { ...valid, repoPath: 5 }],
     ["缺 diff", { ...valid, diff: undefined }],
-    ["diff 空 string", { ...valid, diff: "" }],
+    ["v1 旧扁平形：diff 纯字符串（无 legacy alias，ADR-0013 决策 3）", { ...valid, diff: "--- a\n+++ b\n" }],
+    ["diff 非 object", { ...valid, diff: 42 }],
+    ["diff 缺 kind", { ...valid, diff: { text: "d" } }],
+    ["diff kind 越界", { ...valid, diff: { kind: "url", url: "https://x" } }],
+    ["inline 缺 text", { ...valid, diff: { kind: "inline" } }],
+    ["inline text 空串", { ...valid, diff: { kind: "inline", text: "" } }],
+    ["inline text 非 string", { ...valid, diff: { kind: "inline", text: 7 } }],
+    ["file 缺 path", { ...valid, diff: { kind: "file" } }],
+    ["file path 空串", { ...valid, diff: { kind: "file", path: "" } }],
+    ["file path 非 string", { ...valid, diff: { kind: "file", path: false } }],
     ["缺 configId", { ...valid, configId: undefined }],
     ["configId 越界", { ...valid, configId: "F" }],
     ["configId 非 string", { ...valid, configId: 3 }],
     ["configId 原型链成员 toString", { ...valid, configId: "toString" }],
     ["configId 原型链成员 constructor", { ...valid, configId: "constructor" }],
-    ["caseId 超 256 字符", { ...valid, caseId: "a".repeat(257) }],
-    ["caseId 含路径分隔符", { ...valid, caseId: "VUL4J/1" }],
-    ["caseId 含反斜杠转义序列", { ...valid, caseId: "VUL4J\\1" }],
-    ["caseId 为路径穿越段", { ...valid, caseId: ".." }],
     ["issueDescription 非 string", { ...valid, issueDescription: 7 }],
     ["modelId 非 string", { ...valid, modelId: true }],
+    ["clientRequestId 空串", { ...valid, clientRequestId: "" }],
+    ["clientRequestId 非 string", { ...valid, clientRequestId: 11 }],
+    ["metadata 非 object", { ...valid, metadata: "x" }],
+    ["metadata 为数组", { ...valid, metadata: [1, 2] }],
+    ["metadata 为 null", { ...valid, metadata: null }],
   ];
   for (const [label, params] of violations) {
-    const result = validateSubmitParams(params);
+    const result = validateReviewRequest(params);
     expect(result.ok, label).toBe(false);
     if (!result.ok) {
       expect(result.error.code, label).toBe(-32602);
@@ -221,4 +243,10 @@ test("响应构造器：success/error/event 形状（data 缺席省键、id 原�
     method: "review.event",
     params: { seq: 3, job: { jobId: "job-1" } },
   });
+});
+
+test("错误码表：-32012 repo_not_found 在场；-32003 保留不发射（ADR-0013 决策 9）", () => {
+  expect(JSON_RPC_ERROR.REPO_NOT_FOUND).toBe(-32012);
+  // -32003 repo_not_allowed：allowlist 随 --repo-root 移除而亡，常量保留防复用
+  expect(JSON_RPC_ERROR.REPO_NOT_ALLOWED).toBe(-32003);
 });

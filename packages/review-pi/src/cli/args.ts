@@ -21,9 +21,13 @@ import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
  *   parse 层校验；处置库 --store 显式与 --out 派生根互斥，缺省派生
  *   <out>/<CLI_EXPERIMENT_ID>/dispositions.json（与 review 落盘的 runs/
  *   同层）；
- * - rpc（#24 S3，ADR-0012）stdio JSONL 长驻模式：--out / --repo-root /
- *   --concurrency 三旗标全可选；concurrency 正整数在 parse 层校验
- *   （>1 的安全前提未验证，usage 文案标注实验性）。
+ * - rpc（#24 S3，ADR-0012；#27 v2 起 ADR-0013）stdio JSONL 长驻模式：
+ *   --out / --cwd / --concurrency 三旗标全可选；concurrency 正整数在 parse 层
+ *   校验（>1 的安全前提未验证，usage 文案标注实验性）；--cwd 是 repoPath 省略
+ *   时的缺省值（缺省 process.cwd()，「omit to discover, provide to override」）
+ *   ——v1 --repo-root/allowlist 已移除；
+ * - review --repo 可省（#27：缺省 process.cwd()，与统一 ReviewRequest 的
+ *   repoPath 缺省链同语义；stdout 单文档契约不变）。
  *
  * model 是实验数据（#45 语义）：自由 id 透传，缺省单源 = 钉住的评审模型
  * （REVIEW_MODEL_ID），无 model 环境变量。与 DSH 线 review bin 的
@@ -66,21 +70,21 @@ const KNOWN_DISPOSITION_FLAGS: readonly string[] = [
 /** disposition 子命令（KPI 面）的已知旗标（--stats 本身无值，进入旗标循环前剥离） */
 const KNOWN_DISPOSITION_STATS_FLAGS: readonly string[] = ["--store", "--out"];
 
-/** rpc 子命令（#24 S3）的已知旗标（全可选） */
-const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--repo-root", "--concurrency"];
+/** rpc 子命令（#24 S3；#27 v2）的已知旗标（全可选） */
+const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--cwd", "--concurrency"];
 
 /** 用法文案（stderr 错误路径的同款文案，单一来源） */
-export const USAGE_TEXT = `usage: reviewagent review --repo <path> --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
+export const USAGE_TEXT = `usage: reviewagent review [--repo <path>] --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
        reviewagent smoke [--model <id>]
-       reviewagent rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]
+       reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
        reviewagent disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
        reviewagent disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
-  （rpc = stdio JSONL 长驻模式：stdin 收 JSON-RPC 命令、stdout 回 JSON 行、stderr 诊断——ADR-0012）
+  （rpc = stdio JSONL 长驻模式：stdin 收 JSON-RPC 命令、stdout 回 JSON 行、stderr 诊断——ADR-0012；统一契约 v2 见 ADR-0013）
   （disposition = Finding 人工处置落库 + 接受率 KPI：本地数据面，无网络、不碰凭据与 .env.local）
 
 review 旗标：
-  --repo    <path>       仓库快照根目录（必需）
+  --repo    <path>       仓库快照根目录（缺省当前目录 process.cwd()；相对路径按它解析）
   --mr      <diff-file>  MR diff 文件路径（必需；caseId = 文件名去扩展名）
   --config  <A-E>        配置形态（缺省 E = 生产入口：自主拉取 + Context Ledger，ADR-0011 切流）
   --issue   <text>       MR 议题描述（缺省空）
@@ -90,9 +94,10 @@ review 旗标：
 smoke 旗标：
   --model   <id>         冒烟模型 id（同缺省与校验；端点/key 走 REVIEWER_* 环境变量或 .env.local，绝不回显）
 
-rpc 旗标（全可选；退出码 shutdown/EOF 0、SIGINT 130、SIGTERM 143、SIGHUP 129（非 Windows）；协议见 ADR-0012）：
+rpc 旗标（全可选；退出码 shutdown/EOF 0、SIGINT 130、SIGTERM 143、SIGHUP 129（非 Windows）；协议见 ADR-0012/ADR-0013）：
   --out        <dir>     审计与运行记录落盘根（缺省 ${DEFAULT_OUT_DIR}）
-  --repo-root  <dir>     repoPath allowlist 根（submit 的 repoPath realpath 后必须落在其下；缺省不设）
+  --cwd        <dir>     repoPath 省略时的缺省值（缺省 process.cwd()——omit to discover, provide to override；
+                         只覆盖缺省值：显式 repoPath 的相对解析基准仍是 process.cwd()）
   --concurrency <n>      并发执行 job 数（缺省 1；>1 实验性——安全前提未验证）
 
 disposition 旗标（记录处置）：
@@ -128,15 +133,16 @@ export interface SmokeCliArgs {
 }
 
 /**
- * 解析后的 rpc 命令参数（#24 S3，ADR-0012——全可选旗标）。
- * repoRoot 缺席 = 不设 allowlist（submit 的 repoPath 只要求可 realpath）；
+ * 解析后的 rpc 命令参数（#24 S3，ADR-0012；#27 v2 起 ADR-0013——全可选旗标）。
+ * cwd 是 repoPath 省略时的缺省值（缺席省键 = 由 service 层回退
+ * process.cwd()——「omit to discover, provide to override」）；
  * out/concurrency 的落位语义见 rpc/main.ts 装配。
  */
 export interface RpcCliArgs {
   /** 审计与运行记录落盘根（与 review 同缺省） */
   readonly out: string;
-  /** repoPath allowlist 根（可选——缺席省键） */
-  readonly repoRoot?: string;
+  /** repoPath 缺省值（可选——缺席省键） */
+  readonly cwd?: string;
   /** 并发执行 job 数（正整数；缺省 1） */
   readonly concurrency: number;
 }
@@ -349,7 +355,7 @@ export function parseCliArgs(argv: readonly string[]): ParseCliArgsResult {
 }
 
 /**
- * rpc 子命令解析（#24 S3）：三旗标全可选；concurrency 正整数校验
+ * rpc 子命令解析（#24 S3；#27 v2）：三旗标全可选；concurrency 正整数校验
  * （0/负数/小数/非数字都 fail fast——worker 池派生前把配置错误挡在 parse 层）。
  */
 function parseRpcArgs(
@@ -366,27 +372,24 @@ function parseRpcArgs(
       message: `invalid --concurrency ${JSON.stringify(concurrencyRaw)}: must be a positive integer`,
     };
   }
-  const repoRoot = flags.values.get("--repo-root");
+  const cwd = flags.values.get("--cwd");
   return {
     ok: true,
     command: "rpc",
     args: {
       out: flags.values.get("--out") ?? DEFAULT_OUT_DIR,
       concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : 1,
-      ...(repoRoot !== undefined ? { repoRoot } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
     },
   };
 }
 
-/** review 面必填与缺省：--repo / --mr（caseId = 文件名去扩展名）、--config 缺省 E（ADR-0011 切流）、--issue 缺省空 */
+/** review 面必填与缺省：--mr（caseId = 文件名去扩展名）、--repo 缺省 process.cwd()（#27）、--config 缺省 E（ADR-0011 切流）、--issue 缺省空 */
 function parseReviewArgs(
   values: Map<string, string>,
   model: string,
 ): { readonly ok: true; readonly command: "review"; readonly args: ReviewCliArgs } | { readonly ok: false; readonly message: string } {
-  const repo = values.get("--repo");
-  if (repo === undefined) {
-    return { ok: false, message: "missing required flag --repo" };
-  }
+  const repo = values.get("--repo") ?? process.cwd();
   const mr = values.get("--mr");
   if (mr === undefined) {
     return { ok: false, message: "missing required flag --mr" };

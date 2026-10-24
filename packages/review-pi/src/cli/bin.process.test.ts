@@ -575,6 +575,20 @@ test("用法错误：缺 --mr → exit 1 + 人话错误 + usage 文案 + stdout 
   expect(run.stderr).toContain("usage:");
 });
 
+test("统一校验器三形态共享（#27）：--mr 文件名派生的 caseId 违反路径安全字符集 → exit 1 + 人话错误 + stdout 干净", async () => {
+  const dir = makeTempDir("review-pi-cli-caseid-");
+  const badName = path.join(dir, "bad case.diff");
+  writeFileSync(badName, "--- a\n+++ b\n", "utf8");
+  const run = await runBin(["review", "--repo", repoFixturePath("sample"), "--mr", badName], {
+    env: stubEnv("http://127.0.0.1:9/v1"),
+    timeoutMs: 30_000,
+  });
+  expect(run.status).toBe(1);
+  expect(run.stdout).toBe("");
+  expect(run.stderr).toContain("reviewagent:");
+  expect(run.stderr).toContain("caseId must be");
+});
+
 test("--version / -v：stdout 单行 reviewagent <CLI_VERSION> + exit 0（先于 argv 解析与凭据装载）", async () => {
   const run = await runBin(["--version"], { timeoutMs: 30_000 });
   expect(run.status).toBe(0);

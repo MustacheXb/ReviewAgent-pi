@@ -29,3 +29,6 @@ export {
   type SmokeProbeInput,
   type SmokeProbesResult,
 } from "./provider/gateway-probe.js";
+// #27 v2（ADR-0013 中性后果项）：ReviewRunSummary 升公开面——stdio/HTTP 宿主
+// 与评测驱动只消费该 DTO，不触内核 RunRecord 内部字段（P0 半成品补完）。
+export type { ReviewRunSummary } from "./rpc/executor.js";

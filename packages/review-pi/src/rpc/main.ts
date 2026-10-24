@@ -9,6 +9,13 @@
  * shutdown 语义（spec §2.3）：先回响应 → 停止收单（draining，submit → -32010）
  * → 取消 queued → 等 running → 由进程面退出。事件通知与响应同缝，天然保序。
  *
+ * #27 v2（ADR-0013）：submit 参数切统一 `ReviewRequest`（validateReviewRequest
+ * 单源校验）；`CallContext` 贯穿 service 全方法（stdio 面合成 local principal，
+ * requestId 逐请求生成）；capabilities `protocolVersion` 2 + `features` 按形态
+ * 声明差异（stdio：sse/artifactDownload/idempotency=false、listFilters=
+ * ["status"]、defaultRepo="cwd"）；--repo-root/allowlist 装配移除换 --cwd
+ * （repoPath 缺省值，缺席省键 = service 回退 process.cwd()）。
+ *
  * 退出语义（spec §1 表，128+信号号惯例——pi 同款，本仓加 SIGINT）：
  * - shutdown / stdin EOF → 排空已读入的命令 → drain → flush → 0；
  * - SIGINT → 130 / SIGTERM → 143 / SIGHUP（非 win32）→ 129——信号路径跳过
@@ -27,6 +34,7 @@ import type { Readable } from "node:stream";
 
 import type { RpcCliArgs } from "../cli/args.js";
 import { resolveReviewerEndpoint, type ReviewerEndpoint } from "../provider/reviewer-endpoint.js";
+import { localCallContext, type CallContext } from "./context.js";
 import { KernelReviewRunExecutor, type ReviewRunExecutor } from "./executor.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import {
@@ -40,25 +48,40 @@ import {
   validateCancelParams,
   validateGetParams,
   validateListParams,
-  validateSubmitParams,
+  validateReviewRequest,
   type JsonRpcId,
+  type RpcFeatures,
 } from "./protocol.js";
 import type { ReviewService } from "./service.js";
 import { createReviewService } from "./service.js";
 import { createStdioGuard, type RawStdioSink } from "./stdio-guard.js";
 
-/** server.capabilities payload（spec §4/§5：协议版本、serverId、方法表、limits；S3 装配时 limits 从 service 派生） */
+/**
+ * stdio v2 能力声明（ADR-0013 中性后果项——按形态声明差异，客户端据此降级）：
+ * 无 SSE / 产物下载 / 幂等（#28 起 HTTP 面 sse=artifactDownload=idempotency=true）；
+ * list 只支持 status 过滤；repoPath 省略时缺省来自 cwd；diff 双 kind。
+ */
+const STDIO_RPC_FEATURES: RpcFeatures = {
+  sse: false,
+  artifactDownload: false,
+  idempotency: false,
+  listFilters: ["status"],
+  defaultRepo: "cwd",
+  diffKinds: ["file", "inline"],
+};
+
+/** server.capabilities payload（spec §4/§5：协议版本、serverId、方法表、features、limits；S3 装配时 limits 从 service 派生） */
 export interface RpcServerInfo {
-  /** spec §4：协议版本为数字（v1 = 1） */
+  /** spec §4：协议版本为数字（v2 = 2，统一契约代数——ADR-0013 决策 3） */
   readonly protocolVersion: number;
   readonly serverId: string;
   readonly methods: readonly string[];
+  /** 按形态声明的能力差异（stdio 见 STDIO_RPC_FEATURES；HTTP #28 起另声明） */
+  readonly features: RpcFeatures;
   readonly limits: {
     readonly maxDiffBytes: number;
     readonly maxQueueDepth: number;
     readonly concurrency: number;
-    /** repoPath allowlist 是否生效（--repo-root 装配面） */
-    readonly repoRootEnforced: boolean;
   };
 }
 
@@ -81,8 +104,17 @@ export function createRpcSession(options: RpcSessionOptions): RpcSession {
     onOutput(serializeJsonLine(document));
   };
 
-  // job 事件 → review.event 通知（与响应同一输出缝，写队列保序）
-  service.subscribe((event) => write(eventNotification(event)));
+  // job 事件 → review.event 通知（与响应同一输出缝，写队列保序）。会话级
+  // ctx：stdio 单会话单 local principal，全租户事件 = 本租户事件
+  service.subscribe((event) => write(eventNotification(event)), localCallContext("rpc-events"));
+
+  // stdio 面合成 local principal（ADR-0013 决策 5）：requestId 逐请求生成
+  // （日志/审计锚点，service 不解释）
+  let requestCounter = 0;
+  const nextContext = (): CallContext => {
+    requestCounter += 1;
+    return localCallContext(`rpc-${requestCounter}`);
+  };
 
   const dispatch = async (id: JsonRpcId, method: string, params: unknown): Promise<void> => {
     switch (method) {
@@ -91,12 +123,12 @@ export function createRpcSession(options: RpcSessionOptions): RpcSession {
         return;
       }
       case RPC_METHOD.SUBMIT: {
-        const validation = validateSubmitParams(params);
+        const validation = validateReviewRequest(params);
         if (!validation.ok) {
           writeRpcError(id, validation.error);
           return;
         }
-        write(successResponse(id, await service.submit(validation.value)));
+        write(successResponse(id, await service.submit(validation.value, nextContext())));
         return;
       }
       case RPC_METHOD.GET: {
@@ -105,7 +137,7 @@ export function createRpcSession(options: RpcSessionOptions): RpcSession {
           writeRpcError(id, validation.error);
           return;
         }
-        const view = service.get(validation.value.jobId);
+        const view = await service.get(validation.value.jobId, nextContext());
         if (view === undefined) {
           write(
             errorResponse(
@@ -126,7 +158,7 @@ export function createRpcSession(options: RpcSessionOptions): RpcSession {
           writeRpcError(id, validation.error);
           return;
         }
-        write(successResponse(id, service.list(validation.value)));
+        write(successResponse(id, await service.list(validation.value, nextContext())));
         return;
       }
       case RPC_METHOD.CANCEL: {
@@ -135,7 +167,9 @@ export function createRpcSession(options: RpcSessionOptions): RpcSession {
           writeRpcError(id, validation.error);
           return;
         }
-        write(successResponse(id, await service.cancel(validation.value.jobId)));
+        write(
+          successResponse(id, await service.cancel(validation.value.jobId, nextContext())),
+        );
         return;
       }
       case RPC_METHOD.SHUTDOWN: {
@@ -231,10 +265,12 @@ export async function runRpcMain(args: RpcCliArgs, io: RpcMainIo = {}): Promise<
   const service = createReviewService({
     executor,
     concurrency: args.concurrency,
-    ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
+    // --cwd 仅覆盖 repoPath 缺省值（缺席省键 = service 回退 process.cwd()；
+    // 「omit to discover, provide to override」，ADR-0013 决策 3）
+    ...(args.cwd !== undefined ? { defaultRepoPath: args.cwd } : {}),
   });
   const serverInfo: RpcServerInfo = {
-    protocolVersion: 1,
+    protocolVersion: 2,
     serverId: `${process.pid}-${(io.nowMs ?? Date.now)()}`,
     methods: [
       RPC_METHOD.CAPABILITIES,
@@ -244,11 +280,11 @@ export async function runRpcMain(args: RpcCliArgs, io: RpcMainIo = {}): Promise<
       RPC_METHOD.CANCEL,
       RPC_METHOD.SHUTDOWN,
     ],
+    features: STDIO_RPC_FEATURES,
     limits: {
       maxDiffBytes: service.limits.maxDiffBytes,
       maxQueueDepth: service.limits.maxQueueDepth,
       concurrency: args.concurrency,
-      repoRootEnforced: args.repoRoot !== undefined,
     },
   };
 

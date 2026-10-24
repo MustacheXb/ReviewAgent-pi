@@ -5,8 +5,10 @@
  * 检视行为本体全部留在内核（runReview / P1b 双探针）。
  *
  * 命令面：
- * - review：凭据 fail fast（resolveReviewerEndpoint 构造期）→ config B 全链
- *   （缺省；--config A-E 透传内核配置矩阵）→ 审计/记录落盘（--out）→
+ * - review：统一 ReviewRequest 校验（validateReviewRequest 单源，#27——
+ *   旗标投影为统一模型，与 stdio/HTTP 同一实现）→ 凭据 fail fast
+ *   （resolveReviewerEndpoint 构造期）→ config E 全链（缺省，ADR-0011 切流；
+ *   --config A-E 透传内核配置矩阵）→ 审计/记录落盘（--out）→
  *   呈现投影（ADR-0010：REVIEW_PI_PRESENTATION_ENGINE 注入引擎时 stdout
  *   呈现档译中文，失败降级英文源；未配置恒等直通）→ stdout 单 JSON 文档
  *   （render.ts，已测）；
@@ -33,10 +35,10 @@
  * DEEPSEEK_* 别名）环境变量或进程 cwd 的 .env.local（已有环境变量优先），
  * key 绝不回显。
  *
- * 进程调用形态：review-pi review --repo <path> --mr <diff-file>
+ * 进程调用形态：review-pi review [--repo <path>] --mr <diff-file>
  *   [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
  *   review-pi smoke [--model <id>]
- *   review-pi rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]
+ *   review-pi rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
  *   review-pi disposition --run <run-record.json> --finding <id>
  *   --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
  *   review-pi disposition --stats ([--store <file>] | [--out <dir>])
@@ -49,6 +51,7 @@ import { runDispositionCommand } from "../disposition/command.js";
 import { formatSmokeDiagnostics, runSmokeProbes } from "../provider/gateway-probe.js";
 import { resolveReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runReview } from "../run/review-run.js";
+import { validateReviewRequest } from "../rpc/protocol.js";
 import { runRpcMain } from "../rpc/main.js";
 import { formatEnvLocalSummary, loadEnvLocalFile } from "../shared/env-local.js";
 import {
@@ -64,6 +67,23 @@ import { renderReviewOutcome } from "./render.js";
 
 /** 执行一次 review 命令；返回进程退出码（完成 0——截断同为 0；错误经异常上抛 → 1） */
 async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
+  // 统一 ReviewRequest 单源校验（#27 AC1：三形态共享同一实现）：CLI 旗标在此
+  // 投影为统一模型再过 validateReviewRequest——caseId 路径安全字符集等协议
+  // 约束对 CLI 面同样生效（caseId 派生自 --mr 文件名，怪文件名在此挡下）。
+  // 纯 shape 校验零 I/O，先于凭据与文件系统触碰。执行仍直驱 runReview
+  // （ADR-0013 决策 3：CLI 不经 service，错误面是人话 stderr + exit 1）。
+  const validation = validateReviewRequest({
+    caseId: args.caseId,
+    repoPath: args.repo,
+    diff: { kind: "file", path: args.mr },
+    issueDescription: args.issue,
+    configId: args.config,
+    modelId: args.model,
+  });
+  if (!validation.ok) {
+    throw new Error(validation.error.message);
+  }
+
   // 凭据前置先检（fail fast 早于文件系统触碰；key 缺失抛人话错误）
   const endpoint = resolveReviewerEndpoint();
 

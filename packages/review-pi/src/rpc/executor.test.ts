@@ -18,6 +18,7 @@ import {
   ReviewExecutionError,
 } from "./executor.js";
 import { createReviewService } from "./service.js";
+import { localCallContext } from "./context.js";
 
 // S2 真适配器测试（#23）：KernelReviewRunExecutor——runReview 唯一 import 方。
 // 三面：
@@ -191,23 +192,26 @@ test("service running cancel 全链路：cancelling → executor abort → cance
   const events: { readonly seq: number; readonly job: { readonly status: string } }[] = [];
   service.subscribe((event) => {
     events.push(event as { seq: number; job: { status: string } });
-  });
+  }, localCallContext("req-executor-test"));
 
-  const submitted = await service.submit({
-    caseId: "VUL4J-1",
-    repoPath: repoFixturePath("sample"),
-    diff: SAMPLE_DIFF,
-    configId: "E",
-  });
+  const submitted = await service.submit(
+    {
+      caseId: "VUL4J-1",
+      repoPath: repoFixturePath("sample"),
+      diff: { kind: "inline", text: SAMPLE_DIFF },
+      configId: "E",
+    },
+    localCallContext("req-executor-test"),
+  );
   // 冲刷微任务链：worker 启动、内核跑到第 2 请求被门挡住（job 必已 running）
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  const cancelling = await service.cancel(submitted.jobId);
+  const cancelling = await service.cancel(submitted.jobId, localCallContext("req-cancel"));
   expect(cancelling.status).toBe("cancelling");
   releaseSecond();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  const final = service.get(submitted.jobId);
+  const final = await service.get(submitted.jobId, localCallContext("req-get"));
   expect(final?.status).toBe("cancelled");
   // 终态 view：无 result、无 error（取消不是失败）
   expect(final?.result).toBeUndefined();

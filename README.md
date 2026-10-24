@@ -52,7 +52,7 @@ reference_project/      外部参考项目（不入库，见下节）
 ```bash
 # 前置：Node >= 22，pnpm 10.30.3（corepack enable 即可）
 pnpm install
-pnpm test          # 全量回归（66 文件 / 888 项）
+pnpm test          # 全量回归（73 文件 / 963 项）
 pnpm typecheck     # 根包类型检查
 ```
 
@@ -83,12 +83,12 @@ npm install -g ./.artifacts/reviewagent/reviewagent-0.1.0.tgz
 # 用户可见命令统一为 reviewagent
 reviewagent --version
 
-# 在“当前打开文件夹”里直接检视（当前需显式 --repo；统一契约落地后可省，
-# 省略时默认 process.cwd()——ADR-0013，随 #27）
+# 在“当前打开文件夹”里直接检视（--repo 可省，省略时默认 process.cwd()，
+# ADR-0013，#27 已落地）
 cd /path/to/opened-repo
-reviewagent review --repo . --mr <diff-file> --config E
+reviewagent review --mr <diff-file> --config E
 
-reviewagent rpc --out reviewagent-output
+reviewagent rpc --out reviewagent-output [--cwd <dir>]
 ```
 
 `pnpm build:reviewagent` 会把 vendored pi 运行时内联进 bundle，用户侧 npm 不再解析
@@ -119,29 +119,31 @@ stdout 单 JSON 文档；退出码：完成（含诚实截断）0 / 中止 1；�
 前置：仓库根执行（凭据从 `.env.local` 自动装载，见下节）；源码改动后跑 `pnpm build:reviewagent` 重建自包含包。
 
 ```bash
-# 启动长驻会话（--out 可选，缺省 reviewagent-output）
+# 启动长驻会话（--out 可选，缺省 reviewagent-output；--cwd 可选，
+# 只覆盖 repoPath 省略时的缺省值，缺省 process.cwd()）
 node packages/reviewagent/bin/reviewagent.js rpc --out reviewagent-output
 ```
 
 进程停住等 stdin——每行一个 JSON-RPC 命令，回车即发，stdout 即时回响应：
 
 ```jsonc
-{"jsonrpc":"2.0","id":1,"method":"server.capabilities"}  // 握手：协议版本 / 方法表 / limits
-{"jsonrpc":"2.0","id":2,"method":"review.submit","params":{"caseId":"VUL4J-1","repoPath":"<绝对路径>","diff":"<diff 全文>","configId":"B"}}
+{"jsonrpc":"2.0","id":1,"method":"server.capabilities"}  // 握手：协议版本 / 方法表 / features / limits
+{"jsonrpc":"2.0","id":2,"method":"review.submit","params":{"caseId":"VUL4J-1","repoPath":"<绝对路径>","diff":{"kind":"inline","text":"<diff 全文>"},"configId":"B"}}
 {"jsonrpc":"2.0","id":3,"method":"review.get","params":{"jobId":"job-...-1"}}  // jobId 从 submit 响应或事件里抄
 {"jsonrpc":"2.0","id":4,"method":"review.list"}
 {"jsonrpc":"2.0","id":9,"method":"shutdown"}             // 响应先回，drain 等在跑 job 落定后自退
 ```
 
-当前 v1 参数面是 `repoPath` 必填 + `diff` 字符串。统一契约 v2（ADR-0013，随 #27
-落地）将切换为 `repoPath` 可省（省略时默认 `--cwd <dir>` / `process.cwd()`）+
-`diff` 判别联合 `{kind:"inline",text} | {kind:"file",path}`，`protocolVersion` 升 2
-即切换信号、不保留旧形 alias。
+当前 v2 参数面（ADR-0013，#27 已落地）：`repoPath` 可省（省略时默认 `--cwd <dir>`，
+`--cwd` 缺省 `process.cwd()`——omit to discover, provide to override）+ `diff` 判别联合
+`{kind:"inline",text} | {kind:"file",path}`；`protocolVersion` 升 2 即切换信号，不保留
+v1 旧扁平 `diff` 字符串形（旧形 → -32602）。路径解析只做 realpath + 目录/文件存在性
+校验，不可达 → `-32012 repo_not_found`。
 
-`review.event` 通知与响应同缝流出（job 状态转移 + 六相位进度，seq 单调）。submit 的 `diff` 参数是全文转义的 JSON 字符串，手敲不现实——从黄金夹具生成后粘贴：
+`review.event` 通知与响应同缝流出（job 状态转移 + 六相位进度，seq 单 job 内单调）。submit 的 inline `diff.text` 是全文转义的 JSON 字符串，手敲不现实——从黄金夹具生成后粘贴（也可用 `diff:{kind:"file",path:<diff 文件路径>}` 让服务端读文件）：
 
 ```bash
-node -e 'const fs=require("fs");const diff=fs.readFileSync("packages/review-pi/testdata/golden/vul4j-1.diff","utf8");console.log(JSON.stringify({jsonrpc:"2.0",id:2,method:"review.submit",params:{caseId:"VUL4J-1",repoPath:process.argv[1],diff,configId:"B"}}))' "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi\\packages\\review-pi\\testdata\\repos\\sample"
+node -e 'const fs=require("fs");const diff=fs.readFileSync("packages/review-pi/testdata/golden/vul4j-1.diff","utf8");console.log(JSON.stringify({jsonrpc:"2.0",id:2,method:"review.submit",params:{caseId:"VUL4J-1",repoPath:process.argv[1],diff:{kind:"inline",text:diff},configId:"B"}}))' "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi\\packages\\review-pi\\testdata\\repos\\sample"
 ```
 
 落盘与 review CLI 同根不同实验目录：`<out>/reviewagent-rpc/`（`audit/vul4j/<案>/<配置>/rep-1/audit/*.json` + `runs/vul4j/<案>/<配置>/rep-1.json`）。
@@ -153,17 +155,18 @@ node -e 'const fs=require("fs");const diff=fs.readFileSync("packages/review-pi/t
 | 帧 | LF-only 分行，每行恰好一个 JSON 文档；空行忽略；batch 拒绝 -32600 |
 | 方法 | `server.capabilities` / `review.submit` / `review.get` / `review.list` / `review.cancel` / `shutdown` |
 | 状态机 | `queued → running → succeeded / failed / cancelled`；cancel 对 running 走 `cancelling → cancelled`（abort 零落盘），对终态幂等 |
-| 错误码 | -32001 job_not_found / -32002 queue_full / -32003 repo_not_allowed / -32004 payload_too_large / -32010 server_draining（全表见 ADR-0012） |
+| 错误码 | -32001 job_not_found / -32002 queue_full / -32004 payload_too_large / -32010 server_draining / -32012 repo_not_found（-32003/-32005/-32011 保留不发射；全表见 ADR-0012 + ADR-0013 收口注） |
 | 退出码 | `shutdown` / stdin EOF → 0；SIGINT → 130、SIGTERM → 143、SIGHUP（POSIX）→ 129——信号路径跳过 stdout flush；启动失败 → 1 |
 
 ### 使用注意
 
 - **凭据**：启动期单次解析（`REVIEWER_*` > `DEEPSEEK_*` > `.env.local`，按 cwd 解析——与单次 CLI 同约定，从仓库根执行）；key 绝不回显。命令行前缀注入 key 有终端回显风险，走 `.env.local` 更稳。
 - **configId**：submit 必填；`B` 是最小成本形态（六相位单轮零工具），生产入口是 `E`（自主拉取 + Context Ledger，ADR-0011，消耗大得多）。
-- **仓库路径**：submit 直接传 `repoPath`（绝对/相对均可）；统一契约不引入
-  `repo-id` / `repo-registry` / `repo-root`（ADR-0013）。v1 的 `--repo-root` 是
-  stdio-only 内部 guard（allowlist 命中时才发射 -32003），v2（#27）移除，路径
-  默认由 `--cwd` 承担。
+- **仓库路径**：submit 的 `repoPath` 可省（绝对/相对均可），省略时走 `--cwd <dir>` →
+  `process.cwd()` 缺省链；相对 `repoPath` 的解析基准恒为子进程 `process.cwd()`。统一
+  契约不引入 `repo-id` / `repo-registry` / `repo-root`（ADR-0013）：v1 的 `--repo-root`
+  旗标与 allowlist guard（-32003）已随 v2（#27）移除，路径解析只做 realpath + 存在性
+  校验，失败 -32012。
 - **`--concurrency <n>`**：>1 为实验性（安全前提未验证）。
 - **Windows**：优雅退出走 stdin EOF（无信号语义，`Ctrl+Z` 回车；Git Bash `Ctrl+D`）；真 fetch 后的退出纪律是 exitCode + 事件循环自然排干（0xC0000409 竞态，有测试锚定）。
 - **宿主编程消费**：`packages/review-pi/src/rpc/client.ts` 的 `ReviewRpcClient`——spawn 真 bin + typed 六方法 + `review.event` 订阅 + stop() 三级升级链（stdin EOF → POSIX 组 SIGTERM → SIGKILL / Windows `taskkill /T /F`）；进程边界消费者，不进包导出面。
@@ -233,7 +236,7 @@ cd reference_project/pi  && git checkout 6671c604   # 其余同理
 | 文档 | 内容 |
 |---|---|
 | [`CONTEXT.md`](CONTEXT.md) | 领域词汇表（Minimal Sufficient Context / Zone A–C / Finding 等术语唯一权威） |
-| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0012（POC1 独立 harness / 模型钉扎 / 零构建静态代码情报 / S 级判据 / DSH 迁移姿态 / DSH 内核形态 / 对齐门协议 v2 / 被测模型可换 + 指标按 provider 能力分口径 / 从 0 基于 pi 内核重写 / CLI 中文呈现投影 / 生产入口切流 config E / stdio JSONL 长驻模式） |
+| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0013（POC1 独立 harness / 模型钉扎 / 零构建静态代码情报 / S 级判据 / DSH 迁移姿态 / DSH 内核形态 / 对齐门协议 v2 / 被测模型可换 + 指标按 provider 能力分口径 / 从 0 基于 pi 内核重写 / CLI 中文呈现投影 / 生产入口切流 config E / stdio JSONL 长驻模式 / HTTP server 线统一契约与拓扑 B） |
 | [`docs/design/`](docs/design/) | 总体架构设计方案 / Pi 内核从零实现方案 / Pi 内核定制基线方案 / VUL4J 评测方案与数据复制指南 / DSH 偏差清单 |
 | [`docs/report/`](docs/report/) | POC1 实现报告 / DSH 迁移实现报告 / DSH 指标对齐门报告（含噪声底）/ Phase 2 主数据分析报告 / Phase 2 pi-S1 五配置对照报告（advisory）/ 兄弟项目调查报告 |
 | [`docs/plan/`](docs/plan/) | 项目分阶段实现计划书 |

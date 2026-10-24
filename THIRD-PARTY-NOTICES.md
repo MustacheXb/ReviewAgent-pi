@@ -20,6 +20,11 @@ gitignore 不入库、由 `generate-models.ts` 网络生成）提取自 npm 发�
 tarball 的 `dist/providers/data`；与锚定源码的一致性由上游 `check:model-data` 脚本校验通过
 （v0.85.1..锚定 commit 之间无任何 `*.models.ts` 变更）。
 
+**另行移植（非 vendor）**：`packages/review-pi/src/shared/paths.ts` 自 pi
+`packages/coding-agent/src/utils/paths.ts` 移植 `normalizePath` / `resolvePath` /
+`getCwdRelativePath` 三个函数及其依赖（MIT；#27，stdio 方案拍板 27）——只移植
+本仓消费的部分，不 import / 不 vendor 整个 pi coding-agent；fork 适配见该文件头注。
+
 ### License
 
 ```

@@ -93,10 +93,20 @@ test("--model：缺省钉住的评审模型；自由 id 透传；空白 id 拒�
   });
 });
 
-test("缺必填旗标：--repo / --mr", () => {
-  expect(parseCliArgs(["review", "--mr", "m.diff"])).toEqual({
-    ok: false,
-    message: "missing required flag --repo",
+test("--repo 可省（缺省 process.cwd()，#27 统一 repoPath 缺省链）；--mr 必填", () => {
+  const omitted = parseCliArgs(["review", "--mr", "m.diff"]);
+  expect(omitted).toEqual({
+    ok: true,
+    command: "review",
+    args: {
+      repo: process.cwd(),
+      mr: "m.diff",
+      caseId: "m",
+      config: "E",
+      issue: "",
+      out: "reviewagent-output",
+      model: REVIEW_MODEL_ID,
+    },
   });
   expect(parseCliArgs(["review", "--repo", "r"])).toEqual({
     ok: false,
@@ -116,7 +126,7 @@ test("smoke：窄旗标面（仅 --model）；review 专属旗标对 smoke 是�
 });
 
 test("USAGE_TEXT：宣告两个子命令（stderr 错误路径同款文案，单一来源）", () => {
-  expect(USAGE_TEXT).toContain("reviewagent review --repo");
+  expect(USAGE_TEXT).toContain("reviewagent review [--repo <path>] --mr");
   expect(USAGE_TEXT).toContain("reviewagent smoke");
 });
 
@@ -336,10 +346,10 @@ describe("disposition 子命令（#15 处置落库 + KPI）", () => {
   });
 });
 
-// ---- rpc 子命令（#24 S3，ADR-0012：三旗标全可选） ----
+// ---- rpc 子命令（#24 S3，ADR-0012；#27 v2 起 ADR-0013：--cwd 换 --repo-root） ----
 
 describe("rpc 子命令", () => {
-  test("最小 argv：全旗标缺省（out=review-pi-output、concurrency=1、repoRoot 省键）", () => {
+  test("最小 argv：全旗标缺省（out=reviewagent-output、concurrency=1、cwd 省键）", () => {
     expect(parseCliArgs(["rpc"])).toEqual({
       ok: true,
       command: "rpc",
@@ -347,12 +357,12 @@ describe("rpc 子命令", () => {
     });
   });
 
-  test("全旗标显式：out / repoRoot / concurrency 透传", () => {
+  test("全旗标显式：out / cwd / concurrency 透传（cwd 缺席省键，omit to discover）", () => {
     const parsed = parseCliArgs([
       "rpc",
       "--out",
       "runs/rpc",
-      "--repo-root",
+      "--cwd",
       "repos",
       "--concurrency",
       "4",
@@ -360,7 +370,7 @@ describe("rpc 子命令", () => {
     expect(parsed).toEqual({
       ok: true,
       command: "rpc",
-      args: { out: "runs/rpc", repoRoot: "repos", concurrency: 4 },
+      args: { out: "runs/rpc", cwd: "repos", concurrency: 4 },
     });
   });
 
@@ -373,10 +383,15 @@ describe("rpc 子命令", () => {
     }
   });
 
-  test("未知旗标 / 重复旗标 / 值缺席 → 用法错误（旗标循环共用）", () => {
+  test("未知旗标（含 v1 已移除的 --repo-root）/ 重复旗标 / 值缺席 → 用法错误（旗标循环共用）", () => {
     expect(parseCliArgs(["rpc", "--repo", "r"])).toEqual({
       ok: false,
       message: 'unknown flag "--repo"',
+    });
+    // v1 --repo-root 已随 allowlist 一并移除（ADR-0013 决策 3）——不再是已知旗标
+    expect(parseCliArgs(["rpc", "--repo-root", "r"])).toEqual({
+      ok: false,
+      message: 'unknown flag "--repo-root"',
     });
     expect(parseCliArgs(["rpc", "--out", "a", "--out", "b"])).toEqual({
       ok: false,
@@ -389,7 +404,7 @@ describe("rpc 子命令", () => {
   });
 
   test("USAGE_TEXT 宣告 rpc 用法面（单一来源）", () => {
-    expect(USAGE_TEXT).toContain("reviewagent rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]");
+    expect(USAGE_TEXT).toContain("reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]");
     expect(USAGE_TEXT).toContain("stdio JSONL 长驻模式");
   });
 });

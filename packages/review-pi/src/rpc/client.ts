@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import type { RpcServerInfo } from "./main.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
-import { RPC_METHOD, type ReviewJobStatus, type SubmitReviewParams } from "./protocol.js";
+import { RPC_METHOD, type ReviewJobStatus, type ReviewRequest } from "./protocol.js";
 import type { ReviewJobEvent, ReviewJobView } from "./service.js";
 
 /** stderr 滚动缓冲上限（错误消息只引尾段；长跑服务端的 stderr 不无限累积） */
@@ -73,7 +73,7 @@ export interface ReviewRpcClientOptions {
   readonly cwd?: string;
   /** 附加环境变量（合并到 process.env 之上；哨兵 key 等注入面） */
   readonly env?: Record<string, string>;
-  /** rpc 子命令附加旗标（--out / --repo-root / --concurrency） */
+  /** rpc 子命令附加旗标（--out / --cwd / --concurrency） */
   readonly rpcArgs?: readonly string[];
   /** 单请求响应超时毫秒（缺省 30s；计时起点 = send() 调用——含写队列排队时间，大 diff 背压下后续请求可能一行未发即计时；超时只 reject 该请求） */
   readonly requestTimeoutMs?: number;
@@ -184,14 +184,14 @@ export class ReviewRpcClient {
     }
   }
 
-  /** server.capabilities → 协议版本 / serverId / 方法表 / limits */
+  /** server.capabilities → 协议版本 / serverId / 方法表 / features / limits */
   capabilities(): Promise<RpcServerInfo> {
     return this.send<RpcServerInfo>(RPC_METHOD.CAPABILITIES);
   }
 
-  /** review.submit → 排队后的 job 快照（status queued） */
-  submit(params: SubmitReviewParams): Promise<ReviewJobView> {
-    return this.send<ReviewJobView>(RPC_METHOD.SUBMIT, params);
+  /** review.submit（统一 ReviewRequest，#27 v2）→ 排队后的 job 快照（status queued） */
+  submit(request: ReviewRequest): Promise<ReviewJobView> {
+    return this.send<ReviewJobView>(RPC_METHOD.SUBMIT, request);
   }
 
   /** review.get → job 快照；不存在抛 RpcResponseError(-32001) */

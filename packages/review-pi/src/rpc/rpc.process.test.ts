@@ -25,7 +25,10 @@ import type { ReviewJobView } from "./service.js";
 //   真 fetch 过的进程只能 exitCode + 自然排干）；
 // - C 组（POSIX 门控）：SIGINT → 130 / SIGTERM → 143（bin 转发 + 内核 drain）；
 // - D 组：running cancel 进程级——stub 挂住 SSE 响应 → cancel → 内核 abort →
-//   cancelling → cancelled，--out 零落盘（无审计/RunRecord）。
+//   cancelling → cancelled，--out 零落盘（无审计/RunRecord）；
+// - E 组（#27 v2，ADR-0013）：统一形切换面——protocolVersion 2、v1 旧扁平
+//   diff 直接 -32602（无 legacy alias）、--cwd 缺省链（repoPath 省略）+
+//   diff {kind:"file"} 相对路径按子进程 process.cwd() 解析。
 //
 // 与 bin.process.test.ts 的关系：loopback stub 与 oneFindingCorpus 是按 rpc 面
 // 需要的窄化重写（rpc 长驻不发 smoke 探针——只有 POST SSE 路径），wire 渲染
@@ -263,12 +266,12 @@ function expectNoKeyLeak(haystacks: readonly { label: string; text: string }[]):
   }
 }
 
-/** 提交参数（A/B/D 组共用：config B 零工具，六回复脚本对应形态） */
+/** 提交参数（A/B/D 组共用：config B 零工具，六回复脚本对应形态；#27 v2 统一形——inline diff） */
 function submitParams() {
   return {
     caseId: "VUL4J-1",
     repoPath: repoFixturePath("sample"),
-    diff: goldenFixture("vul4j-1.diff"),
+    diff: { kind: "inline" as const, text: goldenFixture("vul4j-1.diff") },
     configId: "B" as const,
   };
 }
@@ -333,18 +336,26 @@ interface RawSpawnOptions {
   readonly rawEnv?: NodeJS.ProcessEnv;
   /** 预写进 cwd 的 .env.local（诱饵面） */
   readonly seedEnvLocal?: string;
+  /** 追加 rpc 旗标（E 组 --cwd 面；--out 已固定在前） */
+  readonly extraArgs?: readonly string[];
+  /** 子进程 cwd 覆盖（缺省新鲜 tmpdir；相对 diff.path 的解析基准） */
+  readonly cwd?: string;
 }
 
-/** spawn 真 bin 长驻（cwd = 干净 tmpdir）；stdout 走自家 LF-only reader */
+/** spawn 真 bin 长驻（cwd = 干净 tmpdir 或显式覆盖）；stdout 走自家 LF-only reader */
 function spawnRawRpc(options: RawSpawnOptions): RawRpcSession {
-  const cwd = makeTempDir("review-pi-rpc-cwd-");
+  const cwd = options.cwd ?? makeTempDir("review-pi-rpc-cwd-");
   if (options.seedEnvLocal !== undefined) {
     writeFileSync(path.join(cwd, ".env.local"), options.seedEnvLocal, "utf8");
   }
-  const child = spawn(process.execPath, [BIN_PATH, "rpc", "--out", options.outDir], {
-    cwd,
-    env: options.rawEnv ?? { ...process.env, ...options.env },
-  });
+  const child = spawn(
+    process.execPath,
+    [BIN_PATH, "rpc", "--out", options.outDir, ...(options.extraArgs ?? [])],
+    {
+      cwd,
+      env: options.rawEnv ?? { ...process.env, ...options.env },
+    },
+  );
   let stderr = "";
   let parseFailures = 0;
   const pendingLines: Record<string, unknown>[] = [];
@@ -464,9 +475,9 @@ test(
       });
       await client.start();
 
-      // capabilities：协议版本 / 六方法表 / limits 派生 / serverId
+      // capabilities：协议版本 / 六方法表 / features / limits 派生 / serverId
       const caps = await client.capabilities();
-      expect(caps.protocolVersion).toBe(1);
+      expect(caps.protocolVersion).toBe(2);
       expect(caps.serverId).toMatch(/^\d+-\d+$/);
       expect(caps.methods).toEqual([
         "server.capabilities",
@@ -476,11 +487,19 @@ test(
         "review.cancel",
         "shutdown",
       ]);
+      // stdio v2 能力声明（ADR-0013：按形态声明差异）
+      expect(caps.features).toEqual({
+        sse: false,
+        artifactDownload: false,
+        idempotency: false,
+        listFilters: ["status"],
+        defaultRepo: "cwd",
+        diffKinds: ["file", "inline"],
+      });
       expect(caps.limits).toEqual({
         maxDiffBytes: 8 * 1024 * 1024,
         maxQueueDepth: 100,
         concurrency: 1,
-        repoRootEnforced: false,
       });
 
       // submit → 恒 queued 快照（响应先于 worker 启动）
@@ -571,7 +590,7 @@ test(
       session.send({ jsonrpc: "2.0", id: "raw-1", method: "server.capabilities" });
       const caps = await session.nextLine();
       expect(caps.id).toBe("raw-1");
-      expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(1);
+      expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(2);
 
       // submit → 轮询读行直到 completed 事件（响应与事件混流，逐行过 JSON.parse）
       session.send({
@@ -629,7 +648,7 @@ describeIfPosix("信号退出码（POSIX）", () => {
     const session = spawnRawRpc({ outDir, env: stubEnv("http://127.0.0.1:9/v1") });
     session.send({ jsonrpc: "2.0", id: "sig-1", method: "server.capabilities" });
     const caps = await session.nextLine();
-    expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(1);
+    expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(2);
 
     session.kill("SIGINT");
     const exit = await session.waitForClose(30_000);
@@ -715,6 +734,100 @@ test(
     }
   },
   120_000,
+);
+
+// ---- E 组（#27 v2，ADR-0013）：统一形切换面 ----
+
+test(
+  "统一形 v2：v1 旧扁平 diff → -32602（无 legacy alias）+ --cwd 缺省链（repoPath 省略）+ diff file kind 相对路径解析",
+  async () => {
+    const stub = await startLoopbackStub(oneFindingCorpus());
+    try {
+      const outDir = makeTempDir("review-pi-rpc-out-");
+      // 子进程 cwd：diff file kind 的相对解析基准（拍板 25：--cwd 只覆盖
+      // repoPath 缺省值，不是相对路径基准）
+      const workDir = makeTempDir("review-pi-rpc-work-");
+      writeFileSync(path.join(workDir, "case.diff"), goldenFixture("vul4j-1.diff"), "utf8");
+      const session = spawnRawRpc({
+        outDir,
+        env: stubEnv(stub.baseUrl),
+        extraArgs: ["--cwd", repoFixturePath("sample")],
+        cwd: workDir,
+      });
+
+      // capabilities：protocolVersion 2 是统一契约代数的唯一切换信号
+      session.send({ jsonrpc: "2.0", id: "v2-caps", method: "server.capabilities" });
+      const caps = await session.nextLine();
+      expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(2);
+
+      // v1 旧扁平形（diff 纯字符串）→ invalid_params（ADR-0013 决策 3：
+      // stdio v1 零外部调用方，不保留 legacy alias）
+      session.send({
+        jsonrpc: "2.0",
+        id: "v2-legacy",
+        method: "review.submit",
+        params: {
+          caseId: "VUL4J-1",
+          repoPath: repoFixturePath("sample"),
+          diff: goldenFixture("vul4j-1.diff"),
+          configId: "B",
+        },
+      });
+      const legacy = await session.nextLine();
+      expect(legacy).toMatchObject({ id: "v2-legacy", error: { code: -32602 } });
+
+      // v2：repoPath 省略 → --cwd 承担缺省；diff {kind:"file"} 相对路径按
+      // 子进程 process.cwd()（workDir）解析 → 检视全链跑通
+      session.send({
+        jsonrpc: "2.0",
+        id: "v2-file",
+        method: "review.submit",
+        params: {
+          caseId: "VUL4J-1",
+          diff: { kind: "file", path: "case.diff" },
+          configId: "B",
+        },
+      });
+      let jobId = "";
+      let completedSeen = false;
+      const deadline = Date.now() + 120_000;
+      while (!completedSeen && Date.now() < deadline) {
+        const line = await session.nextLine(30_000);
+        if (line.id === "v2-file" && line.error === undefined) {
+          jobId = ((line.result as { jobId?: string }) ?? {}).jobId ?? "";
+        }
+        if (line.method === "review.event") {
+          const job = (line.params as { job?: { status?: string; jobId?: string } }).job;
+          if (job?.status === "succeeded") {
+            completedSeen = true;
+            expect(job.jobId).toBe(jobId);
+          }
+        }
+      }
+      expect(completedSeen).toBe(true);
+      expect(jobId).not.toBe("");
+
+      // 帧纪律 + EOF → 0（v2 参数形不改变进程面契约）
+      session.endStdin();
+      const exit = await session.waitForClose(30_000);
+      expect(exit.status).toBe(0);
+      expect(session.parseFailures).toBe(0);
+      // 传输层：六回合全带哨兵头；落盘照常（file kind 只是入参形态差异）
+      expect(stub.requests()).toHaveLength(6);
+      for (const request of stub.requests()) {
+        expect(request.authorization).toBe(`Bearer ${SENTINEL_KEY}`);
+      }
+      expect(collectFiles(outDir).length).toBeGreaterThanOrEqual(2);
+      const diskTexts = collectFiles(outDir).map((file) => ({
+        label: path.basename(file),
+        text: readFileSync(file, "utf8"),
+      }));
+      expectNoKeyLeak([{ label: "stderr", text: session.stderr }, ...diskTexts]);
+    } finally {
+      await stub.close();
+    }
+  },
+  180_000,
 );
 
 // ---- 启动失败面 ----
