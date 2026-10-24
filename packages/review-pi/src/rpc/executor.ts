@@ -4,7 +4,7 @@
  *
  * 端口纪律：executor 是唯一 import 内核执行入口（runReview）的模块。服务层
  * 拥有 job 状态，executor 只负责执行。真适配器职责（spec #21 §7.3）：
- * - 内核参数派生面收敛在此：experimentId 恒 "review-pi-rpc"、rep 恒 1、
+ * - 内核参数派生面收敛在此：experimentId 恒 "reviewagent-rpc"、rep 恒 1、
  *   启动期单次解析的 endpoint 凭据、--out resolve 产物 runsRoot；
  * - ReviewRunResult → ReviewRunSummary 本地投影（内核返回类型不改）；
  * - 内核异常合同化：publicMessage 固定 generic 进协议面，诊断细节走
@@ -127,13 +127,13 @@ export class FakeReviewRunExecutor implements ReviewRunExecutor {
 
 // ---- 真适配器（#23 S2）----
 
-/** rpc run 留痕的恒定实验标识（spec §1：审计/记录落 {out}/review-pi-rpc/...） */
-const RPC_EXPERIMENT_ID = "review-pi-rpc";
+/** rpc run 留痕的恒定实验标识（spec §1：审计/记录落 {out}/reviewagent-rpc/...） */
+const RPC_EXPERIMENT_ID = "reviewagent-rpc";
 
 export interface KernelReviewRunExecutorOptions {
   /** 启动期单次解析的网关凭据（rpc 进程装配时 fail fast；全程复用，不逐 job 重解析） */
   readonly endpoint: ReviewerEndpoint;
-  /** 运行留盘根目录（--out resolve 产物；experimentId 恒 review-pi-rpc、rep 恒 1） */
+  /** 运行留盘根目录（--out resolve 产物；experimentId 恒 reviewagent-rpc、rep 恒 1） */
   readonly runsRoot: string;
   /** 传输层注入；缺省 globalThis.fetch（离线测试注入 fake 适配器） */
   readonly fetch?: FetchFunction;

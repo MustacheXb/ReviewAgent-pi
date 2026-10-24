@@ -2,7 +2,7 @@
  * #24 S3 client：stdio JSONL 长驻模式（ADR-0012）的宿主侧客户端。
  *
  * 宿主（评测驱动器 / 未来的 IDE 扩展或 MCP 网关）持有一个 ReviewRpcClient：
- * start() spawn 真 bin（review-pi rpc）长驻，六方法 typed 请求 + review.event
+ * start() spawn 真 bin（reviewagent rpc）长驻，六方法 typed 请求 + review.event
  * 事件订阅，stop() 优雅收口。机制对齐 pi
  * `packages/coding-agent/src/modes/rpc/rpc-client.ts`，本仓差异：
  * - stdout 读侧用自家 jsonl reader（LF-only——通用行读取器会按 U+2028/
@@ -127,7 +127,7 @@ export class ReviewRpcClient {
    */
   async start(): Promise<void> {
     if (this.child !== undefined) {
-      throw new Error("review-pi rpc client: already started (client is single-use)");
+      throw new Error("reviewagent rpc client: already started (client is single-use)");
     }
     const binPath = this.options.binPath ?? fileURLToPath(new URL("../../bin/review-pi.js", import.meta.url));
     const command = this.options.command ?? process.execPath;
@@ -149,18 +149,18 @@ export class ReviewRpcClient {
       this.rejectAllPending(this.fatalProcessError());
     });
     child.once("error", (error) => {
-      this.exitError = new Error(`review-pi rpc process failed to start: ${error.message}`);
+      this.exitError = new Error(`reviewagent rpc process failed to start: ${error.message}`);
       this.rejectAllPending(this.exitError);
     });
     // stdin EPIPE（服务端已退后再写）等——不上抛成宿主 uncaught，落 pending 面
     child.stdin?.on("error", (error) => {
-      this.exitError ??= new Error(`review-pi rpc stdin error: ${error.message}`);
+      this.exitError ??= new Error(`reviewagent rpc stdin error: ${error.message}`);
       this.rejectAllPending(this.fatalProcessError());
     });
     // stdout 读面错误（Windows named pipe 对端异常终止可发 ECONNRESET）——
     // 流 error 无监听会同步上抛成宿主 uncaught；收进 pending 面
     child.stdout?.on("error", (error) => {
-      this.exitError ??= new Error(`review-pi rpc stdout error: ${error.message}`);
+      this.exitError ??= new Error(`reviewagent rpc stdout error: ${error.message}`);
       this.rejectAllPending(this.fatalProcessError());
     });
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -331,7 +331,7 @@ export class ReviewRpcClient {
   private send<T>(method: string, params?: unknown): Promise<T> {
     const stdin = this.child?.stdin;
     if (this.child === undefined || stdin == null) {
-      throw new Error("review-pi rpc client: not started (call start() first)");
+      throw new Error("reviewagent rpc client: not started (call start() first)");
     }
     if (this.exitInfo !== undefined || this.exitError !== undefined) {
       throw this.fatalProcessError();
@@ -350,7 +350,7 @@ export class ReviewRpcClient {
         this.pendingRequests.delete(id);
         reject(
           new Error(
-            `review-pi rpc: no response to ${method} (id ${id}) within ${this.requestTimeoutMs}ms. Stderr tail: ${this.stderrTail()}`,
+            `reviewagent rpc: no response to ${method} (id ${id}) within ${this.requestTimeoutMs}ms. Stderr tail: ${this.stderrTail()}`,
           ),
         );
       }, this.requestTimeoutMs);
@@ -408,13 +408,13 @@ export class ReviewRpcClient {
   /** 进程事故消息：退出态 + stderr 尾段（人话排障锚点） */
   private fatalProcessError(cause?: Error): Error {
     if (this.exitError !== undefined) {
-      return new Error(`review-pi rpc process error: ${this.exitError.message}. Stderr tail: ${this.stderrTail()}`, { cause });
+      return new Error(`reviewagent rpc process error: ${this.exitError.message}. Stderr tail: ${this.stderrTail()}`, { cause });
     }
     const state =
       this.exitInfo !== undefined
         ? `exited (code=${this.exitInfo.code} signal=${this.exitInfo.signal ?? "null"})`
         : "is no longer running";
-    return new Error(`review-pi rpc process ${state}. Stderr tail: ${this.stderrTail()}`, { cause });
+    return new Error(`reviewagent rpc process ${state}. Stderr tail: ${this.stderrTail()}`, { cause });
   }
 
   private stderrTail(): string {

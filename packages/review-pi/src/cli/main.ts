@@ -51,7 +51,14 @@ import { resolveReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runReview } from "../run/review-run.js";
 import { runRpcMain } from "../rpc/main.js";
 import { formatEnvLocalSummary, loadEnvLocalFile } from "../shared/env-local.js";
-import { CLI_EXPERIMENT_ID, parseCliArgs, USAGE_TEXT, type ReviewCliArgs, type SmokeCliArgs } from "./args.js";
+import {
+  CLI_EXPERIMENT_ID,
+  CLI_VERSION,
+  parseCliArgs,
+  USAGE_TEXT,
+  type ReviewCliArgs,
+  type SmokeCliArgs,
+} from "./args.js";
 import { applyPresentationProjection, isPresentationProjectionConfigured } from "./presentation-projection.js";
 import { renderReviewOutcome } from "./render.js";
 
@@ -93,7 +100,7 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
   // 为挂死。谓词单源 isPresentationProjectionConfigured——与投影缝读同一
   // 环境变量，未配置恒等直通时零输出（现状形态不动）。
   if (isPresentationProjectionConfigured()) {
-    process.stderr.write("review-pi: 呈现投影进行中（自然语言字段译中文）……\n");
+    process.stderr.write("reviewagent: 呈现投影进行中（自然语言字段译中文）……\n");
   }
   const projection = await applyPresentationProjection({
     findings: record.baseline.findings,
@@ -108,7 +115,7 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
         ? { language: "en" as const, degraded: true as const }
         : undefined;
   if (projection.kind === "degraded") {
-    process.stderr.write(`review-pi: 呈现投影降级为英文源文档（${projection.reason}）\n`);
+    process.stderr.write(`reviewagent: 呈现投影降级为英文源文档（${projection.reason}）\n`);
   }
 
   await writeStdout(
@@ -148,7 +155,7 @@ function writeStdout(text: string): Promise<void> {
 
 /** .env.local 装载摘要行（stderr；措辞单源 formatEnvLocalSummary——只报键名与行号，值绝不回显） */
 function envLocalSummaryLine(loadedKeysText: string): string {
-  return `review-pi: env: .env.local found — ${loadedKeysText}\n`;
+  return `reviewagent: env: .env.local found — ${loadedKeysText}\n`;
 }
 
 /** 兜底强退上界（毫秒）：自然排干的正常路径毫秒级完成，此定时器不点火 */
@@ -171,9 +178,14 @@ function exitGracefully(code: number): void {
 }
 
 function main(): void {
-  const parsed = parseCliArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.length === 1 && (argv[0] === "--version" || argv[0] === "-v")) {
+    process.stdout.write(`reviewagent ${CLI_VERSION}\n`, () => exitGracefully(0));
+    return;
+  }
+  const parsed = parseCliArgs(argv);
   if (!parsed.ok) {
-    process.stderr.write(`review-pi: ${parsed.message}\n${USAGE_TEXT}\n`, () => exitGracefully(1));
+    process.stderr.write(`reviewagent: ${parsed.message}\n${USAGE_TEXT}\n`, () => exitGracefully(1));
     return;
   }
 
@@ -195,7 +207,7 @@ function main(): void {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(
-      `review-pi: 无法读取 .env.local（${message}）——本机注入面中止\n`,
+      `reviewagent: 无法读取 .env.local（${message}）——本机注入面中止\n`,
       () => exitGracefully(1),
     );
     return;
@@ -216,7 +228,7 @@ function main(): void {
 /** 命令异常 → stderr 人话 + exit 1（不落堆栈：输入/环境错误是预期路径） */
 function reportErrorAndExit(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`review-pi: ${message}\n`, () => exitGracefully(1));
+  process.stderr.write(`reviewagent: ${message}\n`, () => exitGracefully(1));
 }
 
 main();

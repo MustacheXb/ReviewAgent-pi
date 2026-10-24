@@ -13,6 +13,7 @@ import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
 import { goldenFixture } from "../testing/golden.js";
 import { repoFixturePath } from "../testing/repos.js";
+import { CLI_VERSION } from "./args.js";
 
 // #7 P3b 进程级烟测：spawn 真 bin（bin/review-pi.js → spawn dist/cli/main.js），
 // loopback stub 服务器在真 HTTP 传输层上回放 fake 适配器同款 wire——SSE 渲染
@@ -570,8 +571,18 @@ test("用法错误：缺 --mr → exit 1 + 人话错误 + usage 文案 + stdout 
   });
   expect(run.status).toBe(1);
   expect(run.stdout).toBe("");
-  expect(run.stderr).toContain("review-pi:");
+  expect(run.stderr).toContain("reviewagent:");
   expect(run.stderr).toContain("usage:");
+});
+
+test("--version / -v：stdout 单行 reviewagent <CLI_VERSION> + exit 0（先于 argv 解析与凭据装载）", async () => {
+  const run = await runBin(["--version"], { timeoutMs: 30_000 });
+  expect(run.status).toBe(0);
+  expect(run.stdout).toBe(`reviewagent ${CLI_VERSION}\n`);
+  expect(run.stderr).toBe("");
+  const alias = await runBin(["-v"], { timeoutMs: 30_000 });
+  expect(alias.status).toBe(0);
+  expect(alias.stdout).toBe(`reviewagent ${CLI_VERSION}\n`);
 });
 
 test("运行失败：--repo 指向文件（非目录）→ exit 1 + 错误人话 + stdout 干净", async () => {

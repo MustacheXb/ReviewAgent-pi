@@ -32,10 +32,13 @@ import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
  */
 
 /** CLI 运行留痕的实验目录名（<out>/<experimentId>/runs|audit|dispositions.json——处置库与 runs/ 同层） */
-export const CLI_EXPERIMENT_ID = "review-pi-cli";
+export const CLI_EXPERIMENT_ID = "reviewagent-cli";
+
+/** 用户可见产品版本（与 packages/reviewagent/package.json 同步维护）。 */
+export const CLI_VERSION = "0.1.0";
 
 /** --out 缺省（review 落盘根与 disposition 处置库派生根共用同一约定） */
-const DEFAULT_OUT_DIR = "review-pi-output";
+const DEFAULT_OUT_DIR = "reviewagent-output";
 
 /** review 子命令的已知旗标（未知旗标 = 用法错误） */
 const KNOWN_REVIEW_FLAGS: readonly string[] = [
@@ -67,11 +70,11 @@ const KNOWN_DISPOSITION_STATS_FLAGS: readonly string[] = ["--store", "--out"];
 const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--repo-root", "--concurrency"];
 
 /** 用法文案（stderr 错误路径的同款文案，单一来源） */
-export const USAGE_TEXT = `usage: review-pi review --repo <path> --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
-       review-pi smoke [--model <id>]
-       review-pi rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]
-       review-pi disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
-       review-pi disposition --stats ([--store <file>] | [--out <dir>])
+export const USAGE_TEXT = `usage: reviewagent review --repo <path> --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
+       reviewagent smoke [--model <id>]
+       reviewagent rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]
+       reviewagent disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
+       reviewagent disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
   （rpc = stdio JSONL 长驻模式：stdin 收 JSON-RPC 命令、stdout 回 JSON 行、stderr 诊断——ADR-0012）
   （disposition = Finding 人工处置落库 + 接受率 KPI：本地数据面，无网络、不碰凭据与 .env.local）

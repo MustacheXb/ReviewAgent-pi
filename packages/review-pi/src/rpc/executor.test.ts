@@ -87,10 +87,10 @@ test("投影：summary 与磁盘真源一致（experimentId 恒 review-pi-rpc、
   const audit = JSON.parse(readFileSync(summary.auditPath, "utf8")) as { readonly runId: string };
   expect(audit.runId).toBe(summary.runId);
   expect(summary.recordPath).toBe(
-    path.join(runsRoot, "review-pi-rpc", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
+    path.join(runsRoot, "reviewagent-rpc", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
   );
   expect(summary.auditPath).toContain(
-    path.join(runsRoot, "review-pi-rpc", "audit", "vul4j", "VUL4J-1", "D", "rep-1", "audit"),
+    path.join(runsRoot, "reviewagent-rpc", "audit", "vul4j", "VUL4J-1", "D", "rep-1", "audit"),
   );
 }, 120_000);
 

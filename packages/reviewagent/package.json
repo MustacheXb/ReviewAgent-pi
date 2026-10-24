@@ -1,0 +1,32 @@
+{
+  "name": "reviewagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ReviewAgent 自包含 CLI 与 stdio 长驻包（vendored pi 运行时内联，不发布 @earendil-works/pi-* 依赖）",
+  "bin": {
+    "reviewagent": "./bin/reviewagent.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "@vscode/ripgrep": "1.18.0",
+    "openai": "6.40.0",
+    "tree-sitter-java": "0.23.5",
+    "web-tree-sitter": "0.27.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

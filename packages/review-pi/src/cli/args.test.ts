@@ -36,7 +36,7 @@ test("review 最小 argv：必填旗标 + 全缺省（config E = 生产入口切
       caseId: "case",
       config: "E",
       issue: "",
-      out: "review-pi-output",
+      out: "reviewagent-output",
       model: REVIEW_MODEL_ID,
     },
   });
@@ -116,12 +116,12 @@ test("smoke：窄旗标面（仅 --model）；review 专属旗标对 smoke 是�
 });
 
 test("USAGE_TEXT：宣告两个子命令（stderr 错误路径同款文案，单一来源）", () => {
-  expect(USAGE_TEXT).toContain("review-pi review --repo");
-  expect(USAGE_TEXT).toContain("review-pi smoke");
+  expect(USAGE_TEXT).toContain("reviewagent review --repo");
+  expect(USAGE_TEXT).toContain("reviewagent smoke");
 });
 
 describe("disposition 子命令（#15 处置落库 + KPI）", () => {
-  const DEFAULT_STORE = path.join("review-pi-output", "review-pi-cli", "dispositions.json");
+  const DEFAULT_STORE = path.join("reviewagent-output", "reviewagent-cli", "dispositions.json");
 
   test("记录面最小 argv：必填三旗标 + 库缺省派生（review-pi-output/review-pi-cli/dispositions.json）；note 缺席省键", () => {
     expect(
@@ -211,7 +211,7 @@ describe("disposition 子命令（#15 处置落库 + KPI）", () => {
         derived.command === "disposition" &&
         derived.args.mode === "record" &&
         derived.args.args.store,
-    ).toBe(path.join("custom-out", "review-pi-cli", "dispositions.json"));
+    ).toBe(path.join("custom-out", "reviewagent-cli", "dispositions.json"));
   });
 
   test("--store 与 --out 互斥（显式库文件 vs 派生根，二义性 fail fast）", () => {
@@ -315,7 +315,7 @@ describe("disposition 子命令（#15 处置落库 + KPI）", () => {
     expect(
       derived.ok && derived.command === "disposition" && derived.args.mode === "stats" &&
         derived.args.args.store,
-    ).toBe(path.join("o", "review-pi-cli", "dispositions.json"));
+    ).toBe(path.join("o", "reviewagent-cli", "dispositions.json"));
   });
 
   test("记录面旗标在 KPI 面是模式错误（错误点名可用集）；--stats 重复拒绝", () => {
@@ -330,8 +330,8 @@ describe("disposition 子命令（#15 处置落库 + KPI）", () => {
   });
 
   test("USAGE_TEXT 宣告 disposition 两用法面（单一来源）", () => {
-    expect(USAGE_TEXT).toContain("review-pi disposition --run");
-    expect(USAGE_TEXT).toContain("review-pi disposition --stats");
+    expect(USAGE_TEXT).toContain("reviewagent disposition --run");
+    expect(USAGE_TEXT).toContain("reviewagent disposition --stats");
     expect(USAGE_TEXT).toContain("accept|reject|false-positive");
   });
 });
@@ -343,7 +343,7 @@ describe("rpc 子命令", () => {
     expect(parseCliArgs(["rpc"])).toEqual({
       ok: true,
       command: "rpc",
-      args: { out: "review-pi-output", concurrency: 1 },
+      args: { out: "reviewagent-output", concurrency: 1 },
     });
   });
 
@@ -389,7 +389,7 @@ describe("rpc 子命令", () => {
   });
 
   test("USAGE_TEXT 宣告 rpc 用法面（单一来源）", () => {
-    expect(USAGE_TEXT).toContain("review-pi rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]");
+    expect(USAGE_TEXT).toContain("reviewagent rpc [--out <dir>] [--repo-root <dir>] [--concurrency <n>]");
     expect(USAGE_TEXT).toContain("stdio JSONL 长驻模式");
   });
 });

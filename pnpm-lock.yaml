@@ -187,13 +187,13 @@ importers:
         version: 22.20.1
       '@vitest/coverage-v8':
         specifier: 2.1.9
-        version: 2.1.9(vitest@2.1.9(@types/node@22.20.1)(lightningcss@1.33.0))
+        version: 2.1.9(supports-color@7.2.0)(vitest@2.1.9)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0)
 
   packages/agent:
     dependencies:
@@ -251,7 +251,7 @@ importers:
         version: link:../telemetry
       '@google/genai':
         specifier: 2.21.0
-        version: 2.21.0
+        version: 2.21.0(supports-color@7.2.0)
       '@smithy/node-http-handler':
         specifier: 4.12.1
         version: 4.12.1
@@ -260,10 +260,10 @@ importers:
         version: 4.18.0
       http-proxy-agent:
         specifier: 9.1.0
-        version: 9.1.0
+        version: 9.1.0(supports-color@7.2.0)
       https-proxy-agent:
         specifier: 9.1.0
-        version: 9.1.0
+        version: 9.1.0(supports-color@7.2.0)
       openai:
         specifier: 6.40.0
         version: 6.40.0(ws@8.21.3)(zod@4.5.4)
@@ -322,7 +322,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)
+        version: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0)
 
   packages/review-pi:
     dependencies:
@@ -353,7 +353,26 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(@types/node@22.19.19)(lightningcss@1.33.0)
+        version: 2.1.9(@types/node@22.19.19)(lightningcss@1.33.0)(supports-color@7.2.0)
+
+  packages/reviewagent:
+    dependencies:
+      '@vscode/ripgrep':
+        specifier: 1.18.0
+        version: 1.18.0
+      openai:
+        specifier: 6.40.0
+        version: 6.40.0(ws@8.21.3)(zod@4.5.4)
+      tree-sitter-java:
+        specifier: 0.23.5
+        version: 0.23.5
+      web-tree-sitter:
+        specifier: 0.27.0
+        version: 0.27.0
+    devDependencies:
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
 
   packages/telemetry:
     devDependencies:
@@ -2744,9 +2763,9 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@google/genai@2.21.0':
+  '@google/genai@2.21.0(supports-color@7.2.0)':
     dependencies:
-      google-auth-library: 10.9.1
+      google-auth-library: 10.9.1(supports-color@7.2.0)
       p-retry: 4.6.2
       protobufjs: 7.6.6
       ws: 8.21.3
@@ -3014,21 +3033,21 @@ snapshots:
 
   '@types/retry@0.12.0': {}
 
-  '@vitest/coverage-v8@2.1.9(vitest@2.1.9(@types/node@22.20.1)(lightningcss@1.33.0))':
+  '@vitest/coverage-v8@2.1.9(supports-color@7.2.0)(vitest@2.1.9)':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@bcoe/v8-coverage': 0.2.3
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       istanbul-lib-coverage: 3.2.2
       istanbul-lib-report: 3.0.1
-      istanbul-lib-source-maps: 5.0.6
+      istanbul-lib-source-maps: 5.0.6(supports-color@7.2.0)
       istanbul-reports: 3.2.0
       magic-string: 0.30.21
       magicast: 0.3.5
       std-env: 3.10.0
       test-exclude: 7.0.2
       tinyrainbow: 1.2.0
-      vitest: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)
+      vitest: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -3288,9 +3307,11 @@ snapshots:
 
   data-uri-to-buffer@4.0.1: {}
 
-  debug@4.4.3:
+  debug@4.4.3(supports-color@7.2.0):
     dependencies:
       ms: 2.1.3
+    optionalDependencies:
+      supports-color: 7.2.0
 
   decompress-response@6.0.0:
     dependencies:
@@ -3442,17 +3463,17 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  gaxios@7.3.1:
+  gaxios@7.3.1(supports-color@7.2.0):
     dependencies:
       extend: 3.0.2
-      https-proxy-agent: 7.0.6
+      https-proxy-agent: 7.0.6(supports-color@7.2.0)
       node-fetch: 3.3.2
     transitivePeerDependencies:
       - supports-color
 
-  gcp-metadata@8.1.2:
+  gcp-metadata@8.1.2(supports-color@7.2.0):
     dependencies:
-      gaxios: 7.3.1
+      gaxios: 7.3.1(supports-color@7.2.0)
       google-logging-utils: 1.1.3
       json-bigint: 1.0.0
     transitivePeerDependencies:
@@ -3477,12 +3498,12 @@ snapshots:
       package-json-from-dist: 1.0.1
       path-scurry: 1.11.1
 
-  google-auth-library@10.9.1:
+  google-auth-library@10.9.1(supports-color@7.2.0):
     dependencies:
       base64-js: 1.5.1
       ecdsa-sig-formatter: 1.0.11
-      gaxios: 7.3.1
-      gcp-metadata: 8.1.2
+      gaxios: 7.3.1(supports-color@7.2.0)
+      gcp-metadata: 8.1.2(supports-color@7.2.0)
       google-logging-utils: 1.1.3
       jws: 4.0.1
     transitivePeerDependencies:
@@ -3498,26 +3519,26 @@ snapshots:
 
   html-escaper@2.0.2: {}
 
-  http-proxy-agent@9.1.0:
+  http-proxy-agent@9.1.0(supports-color@7.2.0):
     dependencies:
       agent-base: 9.0.0
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       proxy-agent-negotiate: 1.1.0
     transitivePeerDependencies:
       - kerberos
       - supports-color
 
-  https-proxy-agent@7.0.6:
+  https-proxy-agent@7.0.6(supports-color@7.2.0):
     dependencies:
       agent-base: 7.1.4
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
     transitivePeerDependencies:
       - supports-color
 
-  https-proxy-agent@9.1.0:
+  https-proxy-agent@9.1.0(supports-color@7.2.0):
     dependencies:
       agent-base: 9.0.0
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       proxy-agent-negotiate: 1.1.0
     transitivePeerDependencies:
       - kerberos
@@ -3559,10 +3580,10 @@ snapshots:
       make-dir: 4.0.0
       supports-color: 7.2.0
 
-  istanbul-lib-source-maps@5.0.6:
+  istanbul-lib-source-maps@5.0.6(supports-color@7.2.0):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       istanbul-lib-coverage: 3.2.2
     transitivePeerDependencies:
       - supports-color
@@ -4058,10 +4079,10 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  vite-node@2.1.9(@types/node@22.19.19)(lightningcss@1.33.0):
+  vite-node@2.1.9(@types/node@22.19.19)(lightningcss@1.33.0)(supports-color@7.2.0):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       es-module-lexer: 1.7.0
       pathe: 1.1.2
       vite: 5.4.21(@types/node@22.19.19)(lightningcss@1.33.0)
@@ -4076,10 +4097,10 @@ snapshots:
       - supports-color
       - terser
 
-  vite-node@2.1.9(@types/node@22.20.1)(lightningcss@1.33.0):
+  vite-node@2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0):
     dependencies:
       cac: 6.7.14
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       es-module-lexer: 1.7.0
       pathe: 1.1.2
       vite: 5.4.21(@types/node@22.20.1)(lightningcss@1.33.0)
@@ -4140,7 +4161,7 @@ snapshots:
       fsevents: 2.3.3
       yaml: 2.9.0
 
-  vitest@2.1.9(@types/node@22.19.19)(lightningcss@1.33.0):
+  vitest@2.1.9(@types/node@22.19.19)(lightningcss@1.33.0)(supports-color@7.2.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.20.1)(lightningcss@1.33.0))
@@ -4150,7 +4171,7 @@ snapshots:
       '@vitest/spy': 2.1.9
       '@vitest/utils': 2.1.9
       chai: 5.3.3
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       expect-type: 1.4.0
       magic-string: 0.30.21
       pathe: 1.1.2
@@ -4160,7 +4181,7 @@ snapshots:
       tinypool: 1.1.1
       tinyrainbow: 1.2.0
       vite: 5.4.21(@types/node@22.19.19)(lightningcss@1.33.0)
-      vite-node: 2.1.9(@types/node@22.19.19)(lightningcss@1.33.0)
+      vite-node: 2.1.9(@types/node@22.19.19)(lightningcss@1.33.0)(supports-color@7.2.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.19
@@ -4175,7 +4196,7 @@ snapshots:
       - supports-color
       - terser
 
-  vitest@2.1.9(@types/node@22.20.1)(lightningcss@1.33.0):
+  vitest@2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.20.1)(lightningcss@1.33.0))
@@ -4185,7 +4206,7 @@ snapshots:
       '@vitest/spy': 2.1.9
       '@vitest/utils': 2.1.9
       chai: 5.3.3
-      debug: 4.4.3
+      debug: 4.4.3(supports-color@7.2.0)
       expect-type: 1.4.0
       magic-string: 0.30.21
       pathe: 1.1.2
@@ -4195,7 +4216,7 @@ snapshots:
       tinypool: 1.1.1
       tinyrainbow: 1.2.0
       vite: 5.4.21(@types/node@22.20.1)(lightningcss@1.33.0)
-      vite-node: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)
+      vite-node: 2.1.9(@types/node@22.20.1)(lightningcss@1.33.0)(supports-color@7.2.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.20.1

@@ -42,7 +42,7 @@ if (argv[0] === "rpc") {
     process.on("SIGHUP", () => child.kill("SIGHUP"));
   }
   child.on("error", (error) => {
-    process.stderr.write(`review-pi: failed to spawn the CLI runtime: ${error.message}\n`);
+    process.stderr.write(`reviewagent: failed to spawn the CLI runtime: ${error.message}\n`);
     process.exit(1);
   });
   child.on("close", (code, signal) => {
@@ -53,7 +53,7 @@ if (argv[0] === "rpc") {
     stdio: "inherit",
   });
   if (run.error !== undefined) {
-    process.stderr.write(`review-pi: failed to spawn the CLI runtime: ${run.error.message}\n`);
+    process.stderr.write(`reviewagent: failed to spawn the CLI runtime: ${run.error.message}\n`);
     process.exit(1);
   }
   process.exit(run.status ?? 1);
