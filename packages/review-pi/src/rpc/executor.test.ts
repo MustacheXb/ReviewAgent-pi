@@ -45,9 +45,9 @@ const BASE_REQUEST = {
 
 // ---- 投影：ReviewRunResult → ReviewRunSummary（#23）----
 
-test("投影：summary 与磁盘真源一致（experimentId 恒 review-pi-rpc、rep-1）", async () => {
+test("投影：summary 与磁盘真源一致（experimentId 恒 reviewagent-rpc、rep-1）", async () => {
   const script = fakeFetch(configDToolCorpus());
-  const runsRoot = tempRunsRoot("review-pi-rpc-executor-");
+  const runsRoot = tempRunsRoot("reviewagent-rpc-executor-");
   const executor = new KernelReviewRunExecutor({
     endpoint: OFFLINE_ENDPOINT,
     runsRoot,
@@ -83,7 +83,7 @@ test("投影：summary 与磁盘真源一致（experimentId 恒 review-pi-rpc、
   expect(record.baseline.toolCalls).toBe(summary.toolCalls);
   expect(record.baseline.audit.truncated).toBe(summary.truncated);
 
-  // runId 与审计文件同源；落盘位形：experimentId 恒 review-pi-rpc、rep-1
+  // runId 与审计文件同源；落盘位形：experimentId 恒 reviewagent-rpc、rep-1
   const audit = JSON.parse(readFileSync(summary.auditPath, "utf8")) as { readonly runId: string };
   expect(audit.runId).toBe(summary.runId);
   expect(summary.recordPath).toBe(

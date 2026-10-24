@@ -76,7 +76,7 @@ export function renderRefusals(refusals) {
       refusal.kind === "missing"
         ? `构建产物缺席: ${shown}`
         : `产物过期（源树新于产物）: ${shown}`;
-    lines.push(`review-pi: 拒跑——${cause}（腿: ${refusal.label}）`);
+    lines.push(`reviewagent: 拒跑——${cause}（腿: ${refusal.label}）`);
     lines.push(`  先${refusal.kind === "missing" ? "构建" : "重建"}: ${refusal.buildCommand}`);
   }
   return `${lines.join("\n")}\n`;
