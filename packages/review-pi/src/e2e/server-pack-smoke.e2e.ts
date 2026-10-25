@@ -120,7 +120,7 @@ testLocal("pack 冒烟：bundle 含 server 形态——spawn → healthz → cap
       error: { code: -32006, message: "missing or invalid bearer token" },
     });
 
-    // capabilities（Bearer）：HTTP 形态声明与 #28 AC 对齐
+    // capabilities（Bearer）：HTTP 形态声明与 #28/#29 AC 对齐
     const authed = await fetch(`${baseUrl}/v1/capabilities`, {
       headers: { Authorization: "Bearer pack-smoke-token" },
     });
@@ -128,8 +128,14 @@ testLocal("pack 冒烟：bundle 含 server 形态——spawn → healthz → cap
     const info = (await authed.json()) as {
       protocolVersion: number;
       methods: string[];
-      features: { submitHttpStatus?: number; idempotency: boolean; defaultRepo: "cwd" | null };
-      limits: { maxBodyBytes?: number };
+      features: {
+        submitHttpStatus?: number;
+        idempotency: boolean;
+        defaultRepo: "cwd" | null;
+        sse?: boolean;
+        artifactDownload?: boolean;
+      };
+      limits: { maxBodyBytes?: number; artifactRetentionDays?: number };
     };
     expect(info.protocolVersion).toBe(2);
     expect(info.methods).toContain("review.submit");
@@ -137,7 +143,11 @@ testLocal("pack 冒烟：bundle 含 server 形态——spawn → healthz → cap
     expect(info.features.submitHttpStatus).toBe(202);
     expect(info.features.idempotency).toBe(true);
     expect(info.features.defaultRepo).toBeNull();
+    // #29 P2b：SSE 事件流 + artifact 下载进形态声明；保留窗口缺省 30 天
+    expect(info.features.sse).toBe(true);
+    expect(info.features.artifactDownload).toBe(true);
     expect(info.limits.maxBodyBytes).toBe(32 * 1024 * 1024);
+    expect(info.limits.artifactRetentionDays).toBe(30);
 
     // JSON-RPC 方法面（POST /rpc + 信封纪律）
     const capabilities = await fetch(`${baseUrl}/rpc`, {

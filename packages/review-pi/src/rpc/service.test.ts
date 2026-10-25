@@ -756,3 +756,121 @@ test("subscribe：通知中注销不影响本轮快照遍历，注销后不再�
   expect(received).toEqual([1]); // 后续事件不再送达
   expect((await service.get(submitted.jobId, CTX))?.status).toBe("succeeded");
 });
+
+// ---- #29 P2b：per-job 事件日志（SSE Last-Event-ID 重放的单源）+ 产物定位 ----
+
+test("readEvents：afterSeq 之后事件重放（SSE Last-Event-ID 同口径）；未知 job / 异租户 → undefined", async () => {
+  const repo = await makeTmpDir();
+  const executor = new FakeReviewRunExecutor();
+  const service = createReviewService({ executor, now: fixedNow });
+
+  const submitted = await service.submit(reviewRequest({ repoPath: repo }), CTX);
+  await flushAsync(); // running（seq 1）已发
+  executor.executions[0]!.resolve(fakeReviewRunSummary({ runId: "run-1" }));
+  await flushAsync(); // succeeded（seq 2）已发
+
+  // 从头重放（fresh 连接 = afterSeq 0）
+  const fromStart = await service.readEvents(submitted.jobId, 0, CTX);
+  expect(fromStart?.kind).toBe("replay");
+  if (fromStart?.kind === "replay") {
+    expect(fromStart.events.map((event) => [event.seq, event.job.status])).toEqual([
+      [1, "running"],
+      [2, "succeeded"],
+    ]);
+  }
+  // 断线位 = 1：只补 seq 2
+  const afterOne = await service.readEvents(submitted.jobId, 1, CTX);
+  expect(afterOne?.kind).toBe("replay");
+  if (afterOne?.kind === "replay") {
+    expect(afterOne.events.map((event) => event.seq)).toEqual([2]);
+  }
+  // 已到最新：空重放——进入纯 live
+  const upToDate = await service.readEvents(submitted.jobId, 2, CTX);
+  expect(upToDate).toEqual({ kind: "replay", events: [] });
+  // 超前位（调用方持错位/旧实例 id）：判 gap → reset + 最新快照重建（按空重放
+  // 处理会叠加 SSE 投递护栏，静默饿死后续全部 live 事件）
+  const ahead = await service.readEvents(submitted.jobId, 99, CTX);
+  expect(ahead).toEqual({
+    kind: "gap",
+    snapshot: {
+      seq: 2,
+      job: expect.objectContaining({ jobId: submitted.jobId, status: "succeeded" }),
+    },
+  });
+
+  // 未知 job / 异租户 → undefined（越权统一 not found）
+  expect(await service.readEvents("job-does-not-exist", 0, CTX)).toBeUndefined();
+  expect(await service.readEvents(submitted.jobId, 0, tenantCtx("tenant-b"))).toBeUndefined();
+});
+
+test("readEvents：事件清理后无法连续重放 → gap + 最新快照（memory store 保留上限；#30 SQLite 保留窗口同语义）", async () => {
+  const repo = await makeTmpDir();
+  const executor = new FakeReviewRunExecutor();
+  // 上限 1：只留最新一条（seq 1 的 running 即被清理）
+  const service = createReviewService({ executor, now: fixedNow, maxJobEvents: 1 });
+
+  const submitted = await service.submit(reviewRequest({ repoPath: repo }), CTX);
+  await flushAsync();
+  const summary = fakeReviewRunSummary({ runId: "run-1" });
+  executor.executions[0]!.resolve(summary);
+  await flushAsync();
+
+  // afterSeq 0 需要 seq 1（已清理）→ gap，快照 = 当前 view 盖当前 seq 章
+  const gapped = await service.readEvents(submitted.jobId, 0, CTX);
+  expect(gapped?.kind).toBe("gap");
+  if (gapped?.kind === "gap") {
+    expect(gapped.snapshot.seq).toBe(2);
+    expect(gapped.snapshot.job.status).toBe("succeeded");
+    expect(gapped.snapshot.job.result).toEqual(summary);
+  }
+  // afterSeq 落在保留窗内（= 最新事件 seq）→ 正常重放
+  const covered = await service.readEvents(submitted.jobId, 1, CTX);
+  expect(covered?.kind).toBe("replay");
+  if (covered?.kind === "replay") {
+    expect(covered.events.map((event) => event.seq)).toEqual([2]);
+  }
+});
+
+test("artifacts：succeeded 带双路径 + finishedAtMs；running 缺席；queued→cancelled 终态也落 finishedAtMs", async () => {
+  const repo = await makeTmpDir();
+  const executor = new FakeReviewRunExecutor();
+  const service = createReviewService({ executor, now: fixedNow });
+
+  const submitted = await service.submit(reviewRequest({ repoPath: repo }), CTX);
+  await flushAsync(); // running
+
+  // 非终态：无路径、无落定时刻（保留窗口判定不适用）
+  expect(await service.artifacts(submitted.jobId, CTX)).toEqual({ status: "running" });
+
+  const summary = fakeReviewRunSummary({
+    runId: "run-1",
+    auditPath: "/srv/audit/run-1.json",
+    recordPath: "/srv/record/run-1.json",
+  });
+  executor.executions[0]!.resolve(summary);
+  await flushAsync();
+
+  expect(await service.artifacts(submitted.jobId, CTX)).toEqual({
+    status: "succeeded",
+    auditPath: "/srv/audit/run-1.json",
+    recordPath: "/srv/record/run-1.json",
+    finishedAtMs: FIXED_DATE.getTime(),
+  });
+
+  // 未知 job / 异租户 → undefined
+  expect(await service.artifacts("job-does-not-exist", CTX)).toBeUndefined();
+  expect(await service.artifacts(submitted.jobId, tenantCtx("tenant-b"))).toBeUndefined();
+
+  // queued → cancelled（drain / 显式取消）同样落 finishedAtMs：并发位被首个
+  // running job 占满，第二个 job 滞留 queued 后取消走直接出队分支
+  const blockingExecutor = new FakeReviewRunExecutor();
+  const blocking = createReviewService({ executor: blockingExecutor, now: fixedNow });
+  await blocking.submit(reviewRequest({ repoPath: repo }), CTX); // 占位 running（不 resolve）
+  await flushAsync();
+  const queued = await blocking.submit(reviewRequest({ caseId: "VUL4J-2", repoPath: repo }), CTX);
+  await blocking.cancel(queued.jobId, CTX);
+  expect(await blocking.artifacts(queued.jobId, CTX)).toEqual({
+    status: "cancelled",
+    finishedAtMs: FIXED_DATE.getTime(),
+  });
+});

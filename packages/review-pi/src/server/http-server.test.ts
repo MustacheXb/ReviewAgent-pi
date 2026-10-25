@@ -5,7 +5,8 @@ import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 
 import type { RpcServerInfo } from "../rpc/main.js";
-import { FakeReviewRunExecutor } from "../rpc/executor.js";
+import type { Finding } from "../contracts/finding.js";
+import { FakeReviewRunExecutor, fakeReviewRunSummary } from "../rpc/executor.js";
 import { createReviewService, type ReviewService } from "../rpc/service.js";
 import { createTokenFileAuthenticator } from "./auth.js";
 import {
@@ -15,11 +16,23 @@ import {
   type InternalErrorLogEvent,
 } from "./http-server.js";
 import { createIdempotencyKeeper } from "./idempotency.js";
+import {
+  createSseEndpoint,
+  DEFAULT_HEARTBEAT_MS,
+  DEFAULT_MAX_BACKLOG_BYTES,
+  DEFAULT_MAX_SUBSCRIPTIONS_PER_JOB,
+  DEFAULT_MAX_SUBSCRIPTIONS_PER_TENANT,
+  type SseEndpoint,
+  type SseLimits,
+} from "./sse.js";
+import { createArtifactEndpoint, type ArtifactEndpoint } from "./artifacts.js";
 
 // #28 HTTP wire 缝测试：真 node:http server（临时端口）+ 裸 fetch——断言
 // 信封 / 状态码 / 头的传输层契约；服务层以下（状态机 / 队列 / 租户过滤）
 // 不重复测业务（rpc/service.test.ts 已锁）。每用例独立实例：幂等表、队列、
 // access log 断言互不污染。
+// #29 P2b：SSE 面同款裸 fetch / 原生 ReadableStream 读取——帧序列化 /
+// Last-Event-ID 重放 / reset / 心跳 / 订阅上限 / 慢消费者 / closeAll 收口。
 
 const tempDirs: string[] = [];
 
@@ -39,6 +52,7 @@ interface TestServer {
   readonly baseUrl: string;
   readonly service: ReviewService;
   readonly executor: FakeReviewRunExecutor;
+  readonly sse: SseEndpoint;
   readonly logs: readonly AccessLogEvent[];
   readonly repoDir: string;
   close(): Promise<void>;
@@ -46,7 +60,16 @@ interface TestServer {
 
 /** 起一套独立 server（listen 0 临时端口）；token 集固定三枚覆盖鉴权矩阵 */
 async function startTestServer(
-  options: { readonly maxDiffBytes?: number; readonly maxQueueDepth?: number } = {},
+  options: {
+    readonly maxDiffBytes?: number;
+    readonly maxQueueDepth?: number;
+    /** service 内存事件日志上限（reset/gap 用例压窗用） */
+    readonly maxJobEvents?: number;
+    /** SSE 面上限（订阅数 / 心跳 / 慢消费者——按用例收窄） */
+    readonly sseLimits?: Partial<SseLimits>;
+    /** 产物保留窗口（天——过期用例收窄用） */
+    readonly artifactRetentionDays?: number;
+  } = {},
 ): Promise<TestServer> {
   const repoDir = makeTempDir("review-pi-http-repo-");
   const tokenFile = path.join(makeTempDir("review-pi-http-tokens-"), "tokens.json");
@@ -57,17 +80,22 @@ async function startTestServer(
         "tok-platform": {
           tenantId: "platform-x",
           subject: "svc-runner",
-          scopes: ["review:submit", "review:read", "review:cancel"],
+          scopes: ["review:submit", "review:read", "review:cancel", "artifact:read"],
         },
         "tok-tenant-b": {
           tenantId: "tenant-b",
           subject: "svc-b",
-          scopes: ["review:submit", "review:read", "review:cancel"],
+          scopes: ["review:submit", "review:read", "review:cancel", "artifact:read"],
         },
         "tok-submit-only": {
           tenantId: "platform-x",
           subject: "svc-limited",
           scopes: ["review:submit"],
+        },
+        "tok-no-artifact": {
+          tenantId: "platform-x",
+          subject: "svc-no-artifact",
+          scopes: ["review:submit", "review:read", "review:cancel"],
         },
       },
     }),
@@ -84,6 +112,17 @@ async function startTestServer(
             ...(options.maxQueueDepth !== undefined ? { maxQueueDepth: options.maxQueueDepth } : {}),
           },
         }
+      : {}),
+    ...(options.maxJobEvents !== undefined ? { maxJobEvents: options.maxJobEvents } : {}),
+  });
+  const sse = createSseEndpoint({
+    service,
+    ...(options.sseLimits !== undefined ? { limits: options.sseLimits } : {}),
+  });
+  const artifactEndpoint = createArtifactEndpoint({
+    service,
+    ...(options.artifactRetentionDays !== undefined
+      ? { retentionDays: options.artifactRetentionDays }
       : {}),
   });
   const serverInfo: RpcServerInfo = {
@@ -104,6 +143,8 @@ async function startTestServer(
     authenticator: createTokenFileAuthenticator({ tokenFile }),
     idempotency: createIdempotencyKeeper(),
     serverInfo,
+    sse,
+    artifacts: artifactEndpoint,
     onAccessLog: (event) => logs.push(event),
     limits: { maxBodyBytes: 1024 * 1024 },
   });
@@ -115,9 +156,12 @@ async function startTestServer(
     baseUrl: `http://127.0.0.1:${port}`,
     service,
     executor,
+    sse,
     logs,
     repoDir,
     close: async () => {
+      // SSE 长连接先断（open stream 会卡死 server.close——与 main.ts drain 同序）
+      sse.closeAll();
       server.closeIdleConnections();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error === undefined ? resolve() : reject(error)));
@@ -973,5 +1017,715 @@ test("内部异常（非 RpcError）→ 200 + 固定文案 Internal error + onIn
   } finally {
     server.closeIdleConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+// ---- SSE 事件流（#29 P2b：GET /v1/jobs/{jobId}/events）----
+
+/** SSE 帧解析：event/id/data 三行（retry/心跳注释帧无 data——undefined 省键） */
+function parseFrame(frame: string): {
+  readonly event?: string;
+  readonly id?: string;
+  readonly data?: unknown;
+} {
+  const lines = frame.split("\n");
+  const eventLine = lines.find((line) => line.startsWith("event: "));
+  const idLine = lines.find((line) => line.startsWith("id: "));
+  const dataLine = lines.find((line) => line.startsWith("data: "));
+  return {
+    ...(eventLine !== undefined ? { event: eventLine.slice("event: ".length) } : {}),
+    ...(idLine !== undefined ? { id: idLine.slice("id: ".length) } : {}),
+    ...(dataLine !== undefined ? { data: JSON.parse(dataLine.slice("data: ".length)) } : {}),
+  };
+}
+
+interface SseStream {
+  readonly res: Response;
+  /** 已收帧原始文本（含 retry / 心跳注释帧；后台 pump 持续追加） */
+  readonly frames: readonly string[];
+  /** 读到 count 帧（5s 截止返回现有集——由断言收口，不在此 fail） */
+  readFrames(count: number): Promise<string[]>;
+  /** 等流结束（closeAll / 慢消费者断开面）；5s 截止返回当前态 */
+  waitEnded(): Promise<boolean>;
+  abort(): void;
+}
+
+/** 打开 SSE 流（裸 fetch + 原生 ReadableStream——wire 契约断言面） */
+async function openEventStream(
+  baseUrl: string,
+  jobId: string,
+  options: { readonly token?: string; readonly lastEventId?: number } = {},
+): Promise<SseStream> {
+  const controller = new AbortController();
+  const res = await fetch(`${baseUrl}/v1/jobs/${jobId}/events`, {
+    headers: {
+      ...(options.token !== undefined ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(options.lastEventId !== undefined ? { "Last-Event-ID": String(options.lastEventId) } : {}),
+    },
+    signal: controller.signal,
+  });
+  const frames: string[] = [];
+  const state = { ended: false };
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  void (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          frames.push(buffer.slice(0, boundary));
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch {
+      // abort / 服务端 destroy：帧收集终止（断言面在 frames/ended，不掩盖业务失败）
+    } finally {
+      state.ended = true;
+    }
+  })();
+  const readFrames = async (count: number): Promise<string[]> => {
+    const deadline = Date.now() + 5000;
+    while (frames.length < count && !state.ended && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return [...frames];
+  };
+  return {
+    res,
+    frames,
+    readFrames,
+    waitEnded: async (): Promise<boolean> => {
+      const deadline = Date.now() + 5000;
+      while (!state.ended && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      return state.ended;
+    },
+    abort: () => controller.abort(),
+  };
+}
+
+/** 轮询等待条件成立（超时抛错——SSE/进程面的异步落定点） */
+async function pollUntil(predicate: () => boolean, what: string, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  if (!predicate()) {
+    throw new Error(`timed out waiting for: ${what}`);
+  }
+}
+
+/** 微任务排干（executor resolve → settleJob 链落定；service.test 同款） */
+function flushAsync(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** 提交一个 job（fake executor 持 running 直到 resolve/reject），返回 jobId */
+async function submitJob(server: TestServer, overrides: Record<string, unknown> = {}): Promise<string> {
+  const res = await rpcFetch(
+    server.baseUrl,
+    { jsonrpc: "2.0", id: "s", method: "review.submit", params: submitParams({ repoPath: server.repoDir, ...overrides }) },
+    { token: "tok-platform" },
+  );
+  return ((await res.json()) as { result: { jobId: string } }).result.jobId;
+}
+
+test("SSE 鉴权与 scope 面：无 token → 401；缺 review:read → 403；未知/异租户 job → 200 + -32001（JSON 信封，非流）", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+
+    const unauthed = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/events`);
+    expect(unauthed.status).toBe(401);
+    expect(((await unauthed.json()) as { error: { code: number } }).error.code).toBe(-32006);
+
+    const forbidden = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/events`, {
+      headers: { Authorization: "Bearer tok-submit-only" },
+    });
+    expect(forbidden.status).toBe(403);
+    const forbiddenBody = (await forbidden.json()) as { error: { code: number; message: string } };
+    expect(forbiddenBody.error.code).toBe(-32007);
+    expect(forbiddenBody.error.message).toContain("review:read");
+
+    // 未知 job 与异租户同面（越权统一 not found——不泄漏存在性）
+    const unknown = await fetch(`${server.baseUrl}/v1/jobs/job-none/events`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(unknown.status).toBe(200);
+    expect(unknown.headers.get("content-type")).toBe("application/json");
+    expect(await unknown.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32001, message: "Unknown job: job-none", data: { jobId: "job-none" } },
+    });
+
+    const foreign = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/events`, {
+      headers: { Authorization: "Bearer tok-tenant-b" },
+    });
+    expect(foreign.status).toBe(200);
+    expect(((await foreign.json()) as { error: { code: number } }).error.code).toBe(-32001);
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE 基线：fresh 连接 → retry 首帧 + seq1 running 重放；头三件套（event-stream/no-cache/no-buffering）", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    try {
+      expect(stream.res.status).toBe(200);
+      expect(stream.res.headers.get("content-type")).toBe("text/event-stream");
+      expect(stream.res.headers.get("cache-control")).toBe("no-cache");
+      expect(stream.res.headers.get("x-accel-buffering")).toBe("no");
+      const frames = await stream.readFrames(2);
+      expect(frames[0]).toBe("retry: 5000");
+      const parsed = parseFrame(frames[1]!);
+      expect(parsed.event).toBe("job");
+      expect(parsed.id).toBe("1");
+      expect(parsed.data).toMatchObject({ seq: 1, jobId, status: "running" });
+    } finally {
+      stream.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE live：连接后 executor 落定 → succeeded 帧 live 到达；result 为 HTTP 投影（auditRef/recordRef，无服务器路径）", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    try {
+      await stream.readFrames(2); // retry + seq1 running
+      server.executor.executions[0]!.resolve(
+        fakeReviewRunSummary({
+          runId: "run-sse-1",
+          auditPath: "C:\\secret\\audit.json",
+          recordPath: "C:\\secret\\record.json",
+        }),
+      );
+      const frames = await stream.readFrames(3);
+      const parsed = parseFrame(frames[2]!);
+      expect(parsed.event).toBe("job");
+      expect(parsed.id).toBe("2");
+      const data = parsed.data as { status: string; result: Record<string, unknown> };
+      expect(data.status).toBe("succeeded");
+      expect(data.result.auditRef).toBe("artifact:audit/run-sse-1");
+      expect(data.result.recordRef).toBe("artifact:record/run-sse-1");
+      expect("auditPath" in data.result).toBe(false);
+      expect("recordPath" in data.result).toBe(false);
+    } finally {
+      stream.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE cancel：running → cancelling（seq2）→ cancelled（seq3）；failed 转移走 error 帧", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    try {
+      await stream.readFrames(2);
+      const cancelled = await rpcFetch(
+        server.baseUrl,
+        { jsonrpc: "2.0", id: "c", method: "review.cancel", params: { jobId } },
+        { token: "tok-platform" },
+      );
+      expect(((await cancelled.json()) as { result: { status: string } }).result.status).toBe("cancelling");
+      // 执行侧以错误收场（abort 响应）→ cancelled
+      server.executor.executions[0]!.reject(new Error("aborted"));
+      const frames = await stream.readFrames(4);
+      expect(parseFrame(frames[2]!).data).toMatchObject({ seq: 2, status: "cancelling" });
+      expect(parseFrame(frames[3]!).data).toMatchObject({ seq: 3, status: "cancelled" });
+    } finally {
+      stream.abort();
+    }
+
+    // failed 转移：event 名换 error（data 仍携完整视图，含 error.message）
+    const failedJobId = await submitJob(server, { caseId: "MR-fail" });
+    const failedStream = await openEventStream(server.baseUrl, failedJobId, { token: "tok-platform" });
+    try {
+      await failedStream.readFrames(2);
+      server.executor.executions[1]!.reject(new Error("D:\\secret\\gateway is down"));
+      const frames = await failedStream.readFrames(3);
+      const parsed = parseFrame(frames[2]!);
+      expect(parsed.event).toBe("error");
+      expect(parsed.id).toBe("2");
+      // 非合同异常固定 generic 文案（spec §9——异常原文不进协议面）
+      expect(parsed.data).toMatchObject({ seq: 2, status: "failed", error: { message: "review execution failed" } });
+    } finally {
+      failedStream.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE 断线重连：Last-Event-ID 之后补发（id=1 → 只补 seq2）；已到最新 → 仅 retry 帧无 data 帧", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    server.executor.executions[0]!.resolve(fakeReviewRunSummary({ runId: "run-reconnect" }));
+    await flushAsync(); // seq1 running + seq2 succeeded 已落定并入库
+
+    const reconnected = await openEventStream(server.baseUrl, jobId, { token: "tok-platform", lastEventId: 1 });
+    try {
+      const frames = await reconnected.readFrames(2);
+      expect(frames[0]).toBe("retry: 5000");
+      const parsed = parseFrame(frames[1]!);
+      expect(parsed.event).toBe("job");
+      expect(parsed.id).toBe("2");
+      expect(parsed.data).toMatchObject({ seq: 2, status: "succeeded" });
+    } finally {
+      reconnected.abort();
+    }
+
+    // 已到最新（id=2）：空重放——纯 live 等 150ms（心跳 20s 不打扰）
+    const upToDate = await openEventStream(server.baseUrl, jobId, { token: "tok-platform", lastEventId: 2 });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(upToDate.frames).toEqual(["retry: 5000"]);
+    } finally {
+      upToDate.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE reset：保留窗覆盖不到 Last-Event-ID → reset 帧携最新快照（memory store 清理面；#30 保留窗口同语义）", async () => {
+  const server = await startTestServer({ maxJobEvents: 1 });
+  try {
+    const jobId = await submitJob(server);
+    server.executor.executions[0]!.resolve(fakeReviewRunSummary({ runId: "run-gap" }));
+    await flushAsync(); // seq1（running）被清理，只留 seq2
+
+    const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" }); // fresh = afterSeq 0 → gap
+    try {
+      const frames = await stream.readFrames(2);
+      expect(frames[0]).toBe("retry: 5000");
+      const parsed = parseFrame(frames[1]!);
+      expect(parsed.event).toBe("reset");
+      expect(parsed.id).toBe("2");
+      expect(parsed.data).toMatchObject({ seq: 2, status: "succeeded" });
+    } finally {
+      stream.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE 缺省上限钉住（spec §4.3 / ADR-0013 决策 7）：心跳 20s、8/job、32/租户、积压 1 MiB", () => {
+  // 契约数值防漂移：行为面测试注入小值全覆盖，缺省值在此单列钉住
+  expect(DEFAULT_HEARTBEAT_MS).toBe(20_000);
+  expect(DEFAULT_MAX_SUBSCRIPTIONS_PER_JOB).toBe(8);
+  expect(DEFAULT_MAX_SUBSCRIPTIONS_PER_TENANT).toBe(32);
+  expect(DEFAULT_MAX_BACKLOG_BYTES).toBe(1024 * 1024);
+});
+
+test("SSE 订阅上限（job 维）：第三连接 429 + Retry-After + -32013；断开即恢复配额", async () => {
+  const server = await startTestServer({ sseLimits: { maxSubscriptionsPerJob: 2 } });
+  try {
+    const jobId = await submitJob(server);
+    const first = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    const second = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    try {
+      expect(server.sse.activeSubscriptions).toBe(2);
+
+      const third = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/events`, {
+        headers: { Authorization: "Bearer tok-platform" },
+      });
+      expect(third.status).toBe(429);
+      expect(third.headers.get("retry-after")).toBe("5");
+      expect(await third.json()).toEqual({
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: -32013,
+          message: "subscription limit reached for job",
+          data: { limit: 2 },
+        },
+      });
+
+      // 断开一个 → 配额恢复（计数随连接 close 递减）
+      first.abort();
+      await pollUntil(() => server.sse.activeSubscriptions === 1, "subscription count after abort");
+      const recovered = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/events`, {
+        headers: { Authorization: "Bearer tok-platform" },
+      });
+      expect(recovered.status).toBe(200);
+      expect(recovered.headers.get("content-type")).toBe("text/event-stream");
+      await recovered.body?.cancel();
+    } finally {
+      second.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE 订阅上限（租户维）：同租户跨 job 第二连接 429（message 报因；data.limit 报上限值）", async () => {
+  const server = await startTestServer({ sseLimits: { maxSubscriptionsPerTenant: 1 } });
+  try {
+    const jobIdA = await submitJob(server);
+    const jobIdB = await submitJob(server, { caseId: "MR-102" }); // queued（并发位被 A 占）
+    const first = await openEventStream(server.baseUrl, jobIdA, { token: "tok-platform" });
+    try {
+      const second = await fetch(`${server.baseUrl}/v1/jobs/${jobIdB}/events`, {
+        headers: { Authorization: "Bearer tok-platform" },
+      });
+      expect(second.status).toBe(429);
+      const body = (await second.json()) as { error: { code: number; data: { limit: number } } };
+      expect(body.error.code).toBe(-32013);
+      expect(body.error.data.limit).toBe(1);
+    } finally {
+      first.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE 慢消费者：写队列积压超上限即断开（客户端凭 Last-Event-ID 重连或转 get 轮询——决策 7）", async () => {
+  const server = await startTestServer({ sseLimits: { maxBacklogBytes: 1 } });
+  try {
+    const jobId = await submitJob(server);
+    // 首个 data 帧写出即超 1B 积压上限 → terminate（destroy）。destroy 可能抢在
+    // 响应头送达前（flush 异步）——fetch 直接抛错或流终止，均为断连证据
+    let disconnected = false;
+    try {
+      const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+      disconnected = await stream.waitEnded();
+    } catch {
+      disconnected = true; // 握手期即被 destroy（同步断开面）
+    }
+    expect(disconnected).toBe(true);
+    await pollUntil(() => server.sse.activeSubscriptions === 0, "subscription teardown after backlog disconnect");
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE 心跳：静默期注释帧保活（: heartbeat——不进客户端事件面）", async () => {
+  const server = await startTestServer({ sseLimits: { heartbeatMs: 25 } });
+  try {
+    const jobId = await submitJob(server);
+    const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    try {
+      await pollUntil(
+        () => stream.frames.filter((frame) => frame === ": heartbeat").length >= 3,
+        "heartbeat frames",
+      );
+      expect(stream.frames.filter((frame) => frame === ": heartbeat").length).toBeGreaterThanOrEqual(3);
+    } finally {
+      stream.abort();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE closeAll：drain 收口断开全部订阅（main.ts 在 server.close 前调——open stream 会卡死 close）", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    await stream.readFrames(2);
+    expect(server.sse.activeSubscriptions).toBe(1);
+
+    server.sse.closeAll();
+    expect(await stream.waitEnded()).toBe(true);
+    await pollUntil(() => server.sse.activeSubscriptions === 0, "subscription teardown after closeAll");
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE drain 面：draining 期新订阅 → 503 + -32010 + Retry-After", async () => {
+  const server = await startTestServer();
+  try {
+    await server.service.close(); // 无 job：立即落定，draining = true
+    const res = await fetch(`${server.baseUrl}/v1/jobs/job-any/events`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("5");
+    expect(await res.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32010, message: "server is draining" },
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("SSE access log：长连接断开（close 面）也留痕且不重复（SSE 无 finish 事件）", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    const stream = await openEventStream(server.baseUrl, jobId, { token: "tok-platform" });
+    await stream.readFrames(2);
+    stream.abort();
+    await pollUntil(
+      () => server.logs.some((log) => log.path === `/v1/jobs/${jobId}/events`),
+      "SSE access log entry",
+    );
+    const logged = server.logs.filter((log) => log.path === `/v1/jobs/${jobId}/events`);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ method: "GET", status: 200, tenantId: "platform-x" });
+  } finally {
+    await server.close();
+  }
+});
+
+// ---- artifact 下载（#29 P2b：GET /v1/jobs/{jobId}/artifacts/{audit|record}）----
+
+test("artifact 鉴权面：无 token → 401；缺 artifact:read → 403（audit/record 各自独立执法）", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    const unauthed = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/audit`);
+    expect(unauthed.status).toBe(401);
+
+    for (const kind of ["audit", "record"] as const) {
+      const forbidden = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/${kind}`, {
+        headers: { Authorization: "Bearer tok-no-artifact" },
+      });
+      expect(forbidden.status).toBe(403);
+      const body = (await forbidden.json()) as { error: { code: number; message: string } };
+      expect(body.error.code).toBe(-32007);
+      expect(body.error.message).toContain("artifact:read");
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test("artifact 错误面：未知/异租户/非终态 job → 200 + -32001（越权统一 not found；无产物不另造码）", async () => {
+  const server = await startTestServer();
+  try {
+    const unknown = await fetch(`${server.baseUrl}/v1/jobs/job-none/artifacts/audit`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(unknown.status).toBe(200);
+    expect(await unknown.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32001, message: "Unknown job: job-none", data: { jobId: "job-none" } },
+    });
+
+    const jobId = await submitJob(server); // running（未落定）
+    const running = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/audit`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(running.status).toBe(200);
+    expect(await running.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32001, message: "job has no artifacts (status: running)", data: { jobId } },
+    });
+
+    const foreign = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/audit`, {
+      headers: { Authorization: "Bearer tok-tenant-b" },
+    });
+    expect(foreign.status).toBe(200);
+    expect(((await foreign.json()) as { error: { code: number } }).error.code).toBe(-32001);
+  } finally {
+    await server.close();
+  }
+});
+
+test("artifact 下载：audit / record 独立可取——application/json 流 + attachment 文件名", async () => {
+  const server = await startTestServer();
+  try {
+    const artifactDir = makeTempDir("review-pi-http-artifacts-");
+    const auditContent = JSON.stringify({ wireBody: "replayable-request-bytes" });
+    const recordContent = JSON.stringify({ findings: [], verdicts: [] });
+    const auditPath = path.join(artifactDir, "audit-run-art-1.json");
+    const recordPath = path.join(artifactDir, "record-run-art-1.json");
+    writeFileSync(auditPath, auditContent, "utf8");
+    writeFileSync(recordPath, recordContent, "utf8");
+
+    const jobId = await submitJob(server);
+    server.executor.executions[0]!.resolve(
+      fakeReviewRunSummary({ runId: "run-art-1", auditPath, recordPath }),
+    );
+    await flushAsync();
+
+    const audit = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/audit`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(audit.status).toBe(200);
+    expect(audit.headers.get("content-type")).toBe("application/json");
+    expect(audit.headers.get("content-disposition")).toBe('attachment; filename="audit-run-art-1.json"');
+    expect(await audit.text()).toBe(auditContent);
+
+    const record = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/record`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(record.status).toBe(200);
+    expect(record.headers.get("content-disposition")).toBe('attachment; filename="record-run-art-1.json"');
+    expect(await record.text()).toBe(recordContent);
+  } finally {
+    await server.close();
+  }
+});
+
+test("artifact 过期：超出保留窗口 → 404 + -32017（retentionDays=0 即刻过期；#30 清理任务同码）", async () => {
+  const server = await startTestServer({ artifactRetentionDays: 0 });
+  try {
+    const artifactDir = makeTempDir("review-pi-http-artifacts-");
+    const auditPath = path.join(artifactDir, "audit-run-exp.json");
+    writeFileSync(auditPath, "{}", "utf8");
+    const jobId = await submitJob(server);
+    server.executor.executions[0]!.resolve(
+      fakeReviewRunSummary({ runId: "run-exp", auditPath, recordPath: path.join(artifactDir, "record-run-exp.json") }),
+    );
+    await flushAsync();
+    await new Promise((resolve) => setTimeout(resolve, 10)); // elapsed > 0 天
+
+    const res = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/audit`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32017, message: "artifact expired", data: { jobId } },
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("artifact 缺失：窗口内但文件不在（清理先行/落盘失败遗留）→ 404 + -32017 同面（不泄漏 fs 细节）", async () => {
+  const server = await startTestServer();
+  try {
+    const goneDir = path.join(makeTempDir("review-pi-http-gone-"), "never-written");
+    const jobId = await submitJob(server);
+    server.executor.executions[0]!.resolve(
+      fakeReviewRunSummary({
+        runId: "run-gone",
+        auditPath: path.join(goneDir, "audit.json"),
+        recordPath: path.join(goneDir, "record.json"),
+      }),
+    );
+    await flushAsync();
+
+    const res = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/record`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32017, message: "artifact expired or missing", data: { jobId } },
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test("artifact drain 面：draining 期下载不受阻（读面——与 SSE 新订阅不同，不持长连接）", async () => {
+  const server = await startTestServer();
+  try {
+    const artifactDir = makeTempDir("review-pi-http-artifacts-");
+    const auditPath = path.join(artifactDir, "audit-run-drain.json");
+    writeFileSync(auditPath, '{"drain":true}', "utf8");
+    const jobId = await submitJob(server);
+    server.executor.executions[0]!.resolve(
+      fakeReviewRunSummary({
+        runId: "run-drain",
+        auditPath,
+        recordPath: path.join(artifactDir, "record-run-drain.json"),
+      }),
+    );
+    await flushAsync();
+
+    await server.service.close(); // 无 running job：立即落定，draining = true
+    const res = await fetch(`${server.baseUrl}/v1/jobs/${jobId}/artifacts/audit`, {
+      headers: { Authorization: "Bearer tok-platform" },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('{"drain":true}');
+  } finally {
+    await server.close();
+  }
+});
+
+test("/rpc 面视图投影：succeeded job 的 get/list 响应携带 auditRef/recordRef，不泄漏服务器路径（ADR-0013 决策 8）", async () => {
+  const server = await startTestServer();
+  try {
+    const jobId = await submitJob(server);
+    // 五字段携区分值过 wire（AC5：findings/usage/rounds/toolCalls/truncated）
+    const finding: Finding = {
+      id: "F-wire-1",
+      severity: "P2",
+      category: "correctness",
+      file: "a.ts",
+      line: 3,
+      title: "wire test finding: english source passthrough",
+      description: "original english finding body (ADR-0010: presentation projection stays out of machine protocol)",
+      evidence: ["a.ts:3"],
+      rule: "wire-test-rule",
+      confidence: 0.9,
+    };
+    server.executor.executions[0]!.resolve(
+      fakeReviewRunSummary({
+        runId: "run-rpc-view",
+        auditPath: "C:\\secret\\srv\\audit.json",
+        recordPath: "C:\\secret\\srv\\record.json",
+        findings: [finding],
+        usage: { inputTokens: 111, outputTokens: 22 },
+        rounds: 7,
+        toolCalls: 5,
+        truncated: true,
+      }),
+    );
+    await flushAsync();
+
+    const got = await rpcFetch(
+      server.baseUrl,
+      { jsonrpc: "2.0", id: "g", method: "review.get", params: { jobId } },
+      { token: "tok-platform" },
+    );
+    const getResult = ((await got.json()) as { result: { result?: Record<string, unknown> } }).result;
+    expect(getResult?.result?.auditRef).toBe("artifact:audit/run-rpc-view");
+    expect(getResult?.result?.recordRef).toBe("artifact:record/run-rpc-view");
+    expect("auditPath" in (getResult?.result ?? {})).toBe(false);
+    expect("recordPath" in (getResult?.result ?? {})).toBe(false);
+    // AC5：终态结果五字段显式 wire 断言（findings 英文原始源直通，投影不裁剪）
+    expect(getResult?.result?.findings).toEqual([finding]);
+    expect(getResult?.result?.usage).toEqual({ inputTokens: 111, outputTokens: 22 });
+    expect(getResult?.result?.rounds).toBe(7);
+    expect(getResult?.result?.toolCalls).toBe(5);
+    expect(getResult?.result?.truncated).toBe(true);
+
+    const listed = await rpcFetch(
+      server.baseUrl,
+      { jsonrpc: "2.0", id: "l", method: "review.list", params: { status: "succeeded" } },
+      { token: "tok-platform" },
+    );
+    const listBody = (await listed.json()) as { result: { jobs: { result?: Record<string, unknown> }[] } };
+    expect(listBody.result.jobs[0]!.result?.auditRef).toBe("artifact:audit/run-rpc-view");
+    expect("recordPath" in (listBody.result.jobs[0]!.result ?? {})).toBe(false);
+  } finally {
+    await server.close();
   }
 });

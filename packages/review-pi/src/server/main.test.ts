@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 
-import { FakeReviewRunExecutor } from "../rpc/executor.js";
+import { FakeReviewRunExecutor, fakeReviewRunSummary } from "../rpc/executor.js";
 import type { ReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runServerMain } from "./main.js";
+import { ReviewHttpClient } from "./http-client.js";
 
 // #28 server 进程面测试（#24 rpc/main.test 同构模式）：token 文件 fail fast、
 // 注入装配（fake executor + 受控信号面）、onListening 缝、信号 drain 的退出码
@@ -191,4 +192,99 @@ test("端口占用：bind 失败异常上抛（cli reportErrorAndExit → 1 面�
   } finally {
     await blocker.close();
   }
+});
+
+// ---- #29 P2b：SSE / artifact 装配面 ----
+
+test("artifactRetentionDays 装配：旗标透传 capabilities limits（缺省 30）", async () => {
+  // capabilities REST 面要 Bearer（与 /rpc 同鉴权口径）；匿名 401
+  const capabilitiesOf = async (port: number): Promise<{ limits: { artifactRetentionDays?: number } }> => {
+    const res = await fetch(`http://127.0.0.1:${port}/v1/capabilities`, {
+      headers: { Authorization: "Bearer tok-demo" },
+    });
+    expect(res.status).toBe(200);
+    return (await res.json()) as { limits: { artifactRetentionDays?: number } };
+  };
+
+  // 显式旗标 7：limits 暴露 7
+  const explicitArgs = serverArgs({ artifactRetentionDays: 7 });
+  writeTokens(explicitArgs.authTokenFile);
+  const signals = fakeSignalTarget();
+  const listened: { host: string; port: number }[] = [];
+  let exited = runServerMain(explicitArgs, {
+    executor: new FakeReviewRunExecutor(),
+    endpoint: FAKE_ENDPOINT,
+    signals,
+    onListening: (address) => listened.push(address),
+  });
+  await waitFor(() => listened.length > 0);
+  expect((await capabilitiesOf(listened[0]!.port)).limits.artifactRetentionDays).toBe(7);
+  signals.emit("SIGTERM");
+  expect(await exited).toBe(143);
+
+  // 无旗标：缺省 30（DEFAULT_ARTIFACT_RETENTION_DAYS）
+  const defaultArgs = serverArgs();
+  writeTokens(defaultArgs.authTokenFile);
+  listened.length = 0;
+  exited = runServerMain(defaultArgs, {
+    executor: new FakeReviewRunExecutor(),
+    endpoint: FAKE_ENDPOINT,
+    signals,
+    onListening: (address) => listened.push(address),
+  });
+  await waitFor(() => listened.length > 0);
+  expect((await capabilitiesOf(listened[0]!.port)).limits.artifactRetentionDays).toBe(30);
+  signals.emit("SIGTERM");
+  expect(await exited).toBe(143);
+});
+
+/** 轮询等待（毫秒级异步落定；上限 5s 防挂） */
+async function waitFor(predicate: () => boolean, what = "condition"): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  if (!predicate()) {
+    throw new Error(`timeout waiting for ${what}`);
+  }
+}
+
+test("drain 序：open SSE 流先 closeAll 再 server.close——退出不悬挂、流收 done", async () => {
+  const args = serverArgs();
+  writeTokens(args.authTokenFile);
+  const signals = fakeSignalTarget();
+  const listened: { host: string; port: number }[] = [];
+  const executor = new FakeReviewRunExecutor();
+  const exited = runServerMain(args, {
+    executor,
+    endpoint: FAKE_ENDPOINT,
+    signals,
+    onListening: (address) => listened.push(address),
+  });
+  await waitFor(() => listened.length > 0);
+  const port = listened[0]!.port;
+
+  // 提交 job + 订阅事件流（连接保持打开——SSE 长连接）
+  const client = new ReviewHttpClient({ baseUrl: `http://127.0.0.1:${port}`, token: "tok-demo" });
+  const submitted = await client.submit({
+    caseId: "MR-drain-sse",
+    repoPath: args.out, // 任意存在目录（fake executor 不触盘）
+    diff: { kind: "inline", text: "+x\n" },
+    configId: "E",
+  });
+  const iterator = client.events(submitted.jobId)[Symbol.asyncIterator]();
+  await waitFor(() => executor.executions.length > 0, "execution start");
+  // 首事件（running 重放）——拉起 fetch 才算真正建立 SSE 连接
+  const first = await iterator.next();
+  expect(first.done).toBe(false);
+  // 裁决成功让 job 落定（service.close 不等 running），但事件流连接保持打开
+  executor.executions[0]!.resolve(fakeReviewRunSummary());
+
+  // drain：open stream 场景下 server.close 会悬挂——closeAll 先行收口
+  signals.emit("SIGTERM");
+  expect(await exited).toBe(143);
+
+  // 流被 closeAll 断开：生成器收 done（而非悬挂在 reader.read）
+  const after = await iterator.next();
+  expect(after.done).toBe(true);
 });

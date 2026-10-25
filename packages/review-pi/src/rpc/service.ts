@@ -6,6 +6,9 @@
  * principal）；repoRoot/allowlist 移除——路径解析只做 realpath + 目录/文件
  * 存在性校验（失败 -32012）；diff 判别联合（file kind 在此读内容，executor
  * 端口恒收 diff 文本）；事件 per-job seq（SSE `Last-Event-ID` 重放同口径）。
+ * #29 P2b：per-job 事件日志（readEvents 重放 / gap+快照兜底）与产物定位
+ * （artifacts：audit/record 服务器路径 + 终态时刻）——SSE 端点与 artifact
+ * 下载端点的 service 单源。
  *
  * 不变量（spec §7.2）：
  * - submit 只受理并入队，不等待执行完成（worker 启动排微任务，响应恒为 queued 快照）；
@@ -65,6 +68,13 @@ export interface ReviewServiceOptions {
   readonly defaultRepoPath?: string;
   /** 时钟注入（jobId 启动毫秒与 submittedAt 单源）；缺省真实时间 */
   readonly now?: () => Date;
+  /**
+   * per-job 内存事件日志保留上限（#29 SSE `Last-Event-ID` 重放单源）：超出
+   * 丢最旧。缺省不设限（进程生命周期内全量保留）——内存 store 的保护闸；
+   * #30 SQLite store 落地后由持久保留窗口接管同语义。调用方 afterSeq 落在
+   * 保留窗外 → readEvents 判 gap（reset + 最新快照兜底）。
+   */
+  readonly maxJobEvents?: number;
 }
 
 /** job 对外快照：progress/result/error 缺席省键（与内核审计同款纪律） */
@@ -85,6 +95,28 @@ export interface ReviewJobEvent {
   readonly job: ReviewJobView;
 }
 
+/**
+ * 事件重放结果（#29 P2b，SSE `Last-Event-ID` 语义单源）：
+ * - `replay`：afterSeq 之后的事件可连续补发（含空集 = 已到最新/超前位）；
+ * - `gap`：保留窗覆盖不到 afterSeq（事件已被清理或跨重启丢失）——重放不可能，
+ *   客户端以 snapshot（当前 view 盖当前 seq 章）作 reset 重建状态。
+ */
+export type ReviewJobEventReplay =
+  | { readonly kind: "replay"; readonly events: readonly ReviewJobEvent[] }
+  | { readonly kind: "gap"; readonly snapshot: ReviewJobEvent };
+
+/**
+ * 产物定位（#29 P2b，artifact 下载端点的 service 单源）：audit/record 服务器
+ * 路径只在 succeeded（executor 摘要携带）出现；finishedAtMs 是任何终态的落定
+ * 时刻（保留窗口判定的基准）。传输层负责存在性/保留窗检查——service 只给位置。
+ */
+export interface ReviewJobArtifacts {
+  readonly status: ReviewJobStatus;
+  readonly auditPath?: string;
+  readonly recordPath?: string;
+  readonly finishedAtMs?: number;
+}
+
 export type ReviewJobListener = (event: ReviewJobEvent) => void;
 
 /** list 结果页（P1 内存态：仅 jobs；#28 store 落地后按需扩分页游标） */
@@ -103,6 +135,14 @@ export interface ReviewService {
    * （与 get/list/cancel 同口径，事件面不越租户）。
    */
   subscribe(listener: ReviewJobListener, ctx: CallContext): () => void;
+  /**
+   * `Last-Event-ID` 重放读取（#29 P2b）：afterSeq 之后的事件连续补发；保留窗
+   * 覆盖不到 → gap + 最新快照。undefined = 未知/异租户 job（越权统一 not
+   * found）。#30 store 落地后同签名切持久源。
+   */
+  readEvents(jobId: string, afterSeq: number, ctx: CallContext): Promise<ReviewJobEventReplay | undefined>;
+  /** 产物定位（#29 P2b）；undefined = 未知/异租户 job */
+  artifacts(jobId: string, ctx: CallContext): Promise<ReviewJobArtifacts | undefined>;
   close(): Promise<void>;
   isDraining(): boolean;
   readonly limits: ReviewServiceLimits;
@@ -118,6 +158,10 @@ interface InternalJob {
   readonly submittedAt: string;
   /** per-job 事件序（首事件 = 1；SSE Last-Event-ID 重放同口径） */
   eventSeq: number;
+  /** 事件日志（emitEvent 追加；超出 maxJobEvents 丢最旧——readEvents 重放源） */
+  events: ReviewJobEvent[];
+  /** 终态落定时刻（保留窗口判定基准；queued → cancelled 也算落定） */
+  finishedAtMs?: number;
   progress?: ReviewRunProgress;
   result?: ReviewRunSummary;
   error?: { readonly message: string };
@@ -135,6 +179,7 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const now = options.now ?? (() => new Date());
   const defaultRepoPath = options.defaultRepoPath;
+  const maxJobEvents = options.maxJobEvents;
   // jobId 的启动毫秒单源（spec §6.2：job-<进程启动毫秒>-<进程内单调序号>）
   const startMs = now().getTime();
 
@@ -166,11 +211,20 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
   const emitEvent = (job: InternalJob): void => {
     job.eventSeq += 1;
     const event: ReviewJobEvent = { seq: job.eventSeq, job: viewOf(job) };
+    job.events.push(event);
+    if (maxJobEvents !== undefined && job.events.length > maxJobEvents) {
+      job.events.splice(0, job.events.length - maxJobEvents);
+    }
     for (const { listener, tenantId } of [...listeners]) {
       if (tenantId === job.tenantId) {
         listener(event);
       }
     }
+  };
+
+  /** 终态落定时刻（保留窗口判定基准）；幂等护栏由调用点状态机保证只写一次 */
+  const markFinished = (job: InternalJob): void => {
+    job.finishedAtMs = now().getTime();
   };
 
   const schedulePump = (): void => {
@@ -244,6 +298,7 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
       job.status = "failed";
       job.error = { message: failureMessage(outcome.error) };
     }
+    markFinished(job);
     runningCount -= 1;
     emitEvent(job);
     job.settle();
@@ -349,6 +404,7 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
       submittedSeq: jobCounter,
       submittedAt: now().toISOString(),
       eventSeq: 0,
+      events: [],
       controller: new AbortController(),
       settled,
       settle: settleJobPromise,
@@ -397,6 +453,7 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
       if (queueIndex !== -1) {
         queue.splice(queueIndex, 1);
       }
+      markFinished(job);
       emitEvent(job);
       job.settle();
     } else if (job.status === "running") {
@@ -414,6 +471,58 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     }
     cancelJob(job);
     return viewOf(job);
+  };
+
+  /**
+   * `Last-Event-ID` 重放读取（#29 P2b）。方法体零 await：SSE 层「先 subscribe
+   * 再 readEvents」的序里不存在发射窗口交错（重放集与 live 投递不重不漏，
+   * 迟到事件只走 live 面）。
+   */
+  const readEvents = (
+    jobId: string,
+    afterSeq: number,
+    ctx: CallContext,
+  ): Promise<ReviewJobEventReplay | undefined> => {
+    const job = findJob(jobId, ctx);
+    if (job === undefined) {
+      return Promise.resolve(undefined);
+    }
+    // 保留窗起点：无保留事件（从未发射或已全清理）时 = 下一事件位（eventSeq+1）
+    const firstRetainedSeq = job.events.length > 0 ? job.events[0]!.seq : job.eventSeq + 1;
+    // afterSeq+1 之后有被清理的事件 → 无法连续重放（gap）；afterSeq 超前于当前
+    // 位（> eventSeq——调用方持错位/旧实例 id）同样判 gap：若按空重放处理，SSE
+    // 层投递护栏（seq ≤ 已投递位即丢弃）会静默饿死后续全部 live 事件
+    const dropped = Math.max(0, firstRetainedSeq - 1 - afterSeq);
+    if (dropped > 0 || afterSeq > job.eventSeq) {
+      // reset + 最新快照：seq 盖当前位（客户端续用该 id 重连，不再向前要求）
+      return Promise.resolve({
+        kind: "gap",
+        snapshot: { seq: job.eventSeq, job: viewOf(job) },
+      });
+    }
+    return Promise.resolve({
+      kind: "replay",
+      events: job.events.filter((event) => event.seq > afterSeq),
+    });
+  };
+
+  /** 产物定位（#29 P2b）：路径取自 succeeded 摘要；finishedAtMs 终态落定时刻 */
+  const artifacts = (
+    jobId: string,
+    ctx: CallContext,
+  ): Promise<ReviewJobArtifacts | undefined> => {
+    const job = findJob(jobId, ctx);
+    return Promise.resolve(
+      job === undefined
+        ? undefined
+        : {
+            status: job.status,
+            ...(job.result !== undefined
+              ? { auditPath: job.result.auditPath, recordPath: job.result.recordPath }
+              : {}),
+            ...(job.finishedAtMs !== undefined ? { finishedAtMs: job.finishedAtMs } : {}),
+          },
+    );
   };
 
   let closePromise: Promise<void> | undefined;
@@ -442,6 +551,8 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     get,
     list,
     cancel,
+    readEvents,
+    artifacts,
     subscribe: (listener: ReviewJobListener, ctx: CallContext): (() => void) => {
       const registration = { listener, tenantId: ctx.principal.tenantId };
       listeners.add(registration);

@@ -52,24 +52,26 @@ import {
   type RpcFeatures,
 } from "../rpc/protocol.js";
 import type { Authenticator } from "./auth.js";
+import type { ArtifactEndpoint } from "./artifacts.js";
+import { toHttpJobView } from "./http-view.js";
 import { fingerprintReviewRequest, idempotencyKey, type IdempotencyKeeper } from "./idempotency.js";
+import { parseJobsPath, writeEnvelopeError, writeJson, RETRY_AFTER_SECONDS } from "./http-wire.js";
+import type { SseEndpoint } from "./sse.js";
 
 /** spec §4.1：请求 body 上限缺省 32 MiB（与 capabilities limits 同源配置） */
 export const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024;
 
-/** 429 / 503 的 Retry-After（秒；方案 §4.4 未定值，取保守短窗） */
-export const RETRY_AFTER_SECONDS = 5;
-
 /**
  * HTTP 形态的 features 诚实声明（与 STDIO_RPC_FEATURES 对偶，装配层单源）：
- * - `sse:false` / `artifactDownload:false`：P2a（#28）不交付事件流与产物下载
- *   端点，声明 true 会诱导客户端连不存在的路由——#29 落地后翻 true；
- * - `idempotency:true`：幂等面本票交付；
+ * - `sse:true` / `artifactDownload:true`：#29 P2b 交付事件流与产物下载端点
+ *   （端点经 options.sse / options.artifacts 注入——缺省路由 404，真实装配面
+ *   main.ts 恒注入）；
+ * - `idempotency:true`：幂等面 #28 交付；
  * - `defaultRepo:null`：HTTP 必填显式 repoPath（ADR-0013 决策 3）。
  */
 export const HTTP_RPC_FEATURES: RpcFeatures = {
-  sse: false,
-  artifactDownload: false,
+  sse: true,
+  artifactDownload: true,
   idempotency: true,
   listFilters: ["status"],
   defaultRepo: null,
@@ -88,6 +90,10 @@ export interface HttpReviewServerOptions {
   /** capabilities 单源（HTTP features / limits 由装配层构造——main.ts） */
   readonly serverInfo: RpcServerInfo;
   readonly limits?: Partial<HttpReviewServerLimits>;
+  /** SSE 事件流端点（#29 P2b；缺省 /v1/jobs/{id}/events 路由 404——单测窄装配面） */
+  readonly sse?: SseEndpoint;
+  /** 产物下载端点（#29 P2b；缺省 /v1/jobs/{id}/artifacts/{kind} 路由 404——单测窄装配面） */
+  readonly artifacts?: ArtifactEndpoint;
   /** access log 缝（缺省 no-op；装配层接 stderr——白名单字段，见 AccessLogEvent） */
   readonly onAccessLog?: (event: AccessLogEvent) => void;
   /** 内部异常（非 RpcError）日志缝（缺省 no-op；装配层接 stderr——500 面对运维可见） */
@@ -149,7 +155,7 @@ function rpcErrorStatus(code: number): { readonly status: number; readonly retry
 
 /** 创建未 listen 的 node:http Server（listen/close 生命周期归装配层） */
 export function createReviewHttpServer(options: HttpReviewServerOptions): Server {
-  const { service, authenticator, idempotency, serverInfo } = options;
+  const { service, authenticator, idempotency, serverInfo, sse, artifacts: artifactEndpoint } = options;
   const maxBodyBytes = options.limits?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const onAccessLog = options.onAccessLog ?? (() => undefined);
   const onInternalError = options.onInternalError ?? (() => undefined);
@@ -161,7 +167,15 @@ export function createReviewHttpServer(options: HttpReviewServerOptions): Server
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     let tenantId: string | undefined;
 
+    res.setHeader("X-Request-Id", requestId);
+    // SSE 长连接只 close 不 finish（客户端断开/destroy 无 end()）：close 面补记
+    // 一次（finish 先到则 close 不重记——`finish` 后必有 `close`，双向幂等）
+    let accessLogged = false;
     const finishLog = (status: number): void => {
+      if (accessLogged) {
+        return;
+      }
+      accessLogged = true;
       onAccessLog({
         requestId,
         method: req.method ?? "",
@@ -172,9 +186,8 @@ export function createReviewHttpServer(options: HttpReviewServerOptions): Server
         durationMs: Date.now() - startedAt,
       });
     };
-
-    res.setHeader("X-Request-Id", requestId);
     res.on("finish", () => finishLog(res.statusCode));
+    res.on("close", () => finishLog(res.statusCode));
 
     if (req.method === "GET" && req.url === "/healthz") {
       // 匿名 liveness：只证明进程在（draining 期间也活着——readyz 才反映 drain）
@@ -204,6 +217,47 @@ export function createReviewHttpServer(options: HttpReviewServerOptions): Server
         }),
       );
       return;
+    }
+    // GET /v1/jobs/{jobId}/events（+ #29 artifact 子路由）：SSE 事件流 / 产物
+    // 下载面。鉴权与 scope 执法在此（传输面单点，与 METHOD_SCOPES 同纪律）；
+    // 未知子路径不经 parseJobsPath → 下方裸 404。
+    if (req.method === "GET") {
+      const jobsPath = parseJobsPath(req.url ?? "");
+      if (jobsPath !== undefined) {
+        runGuarded(requestId, req, res, () =>
+          handleAuthedEndpoint(req, res, requestId, async (principal) => {
+            tenantId = principal.tenantId;
+            const requiredScope: ReviewScope =
+              jobsPath.kind === "events" ? "review:read" : "artifact:read";
+            if (!principal.scopes.includes(requiredScope)) {
+              writeEnvelopeError(
+                res,
+                403,
+                JSON_RPC_ERROR.FORBIDDEN,
+                `token lacks required scope: ${requiredScope}`,
+              );
+              return;
+            }
+            if (jobsPath.kind === "events" && sse !== undefined) {
+              sse.handleEvents(req, res, principal, requestId, jobsPath.jobId);
+              return;
+            }
+            if (jobsPath.kind === "artifact" && artifactEndpoint !== undefined) {
+              await artifactEndpoint.handleDownload(
+                req,
+                res,
+                principal,
+                requestId,
+                jobsPath.jobId,
+                jobsPath.artifact,
+              );
+              return;
+            }
+            writeJson(res, 404, { error: "not found" }); // 端点未注入（窄装配面）
+          }),
+        );
+        return;
+      }
     }
     if (req.method === "POST" && req.url === "/rpc") {
       runGuarded(requestId, req, res, () =>
@@ -373,9 +427,10 @@ export function createReviewHttpServer(options: HttpReviewServerOptions): Server
           return;
         }
         const view = await submitWithIdempotency(validation.value, ctx);
-        // submit 成功语义统一 202 + Location（幂等命中返回既有 job，同构）
+        // submit 成功语义统一 202 + Location（幂等命中返回既有 job，同构）；
+        // result 走 HTTP 投影（路径双键换 artifact 逻辑引用——ADR-0013 决策 8）
         res.setHeader("Location", `/v1/jobs/${encodeURIComponent(view.jobId)}`);
-        writeJson(res, 202, successResponse(id, view));
+        writeJson(res, 202, successResponse(id, toHttpJobView(view)));
         return;
       }
       case RPC_METHOD.GET: {
@@ -395,7 +450,7 @@ export function createReviewHttpServer(options: HttpReviewServerOptions): Server
           );
           return;
         }
-        writeJson(res, 200, successResponse(id, view));
+        writeJson(res, 200, successResponse(id, toHttpJobView(view)));
         return;
       }
       case RPC_METHOD.LIST: {
@@ -404,7 +459,8 @@ export function createReviewHttpServer(options: HttpReviewServerOptions): Server
           writeJson(res, 200, errorResponse(id, validation.error.code, validation.error.message, validation.error.data));
           return;
         }
-        writeJson(res, 200, successResponse(id, await service.list(validation.value, ctx)));
+        const page = await service.list(validation.value, ctx);
+        writeJson(res, 200, successResponse(id, { jobs: page.jobs.map(toHttpJobView) }));
         return;
       }
       case RPC_METHOD.CANCEL: {
@@ -413,7 +469,7 @@ export function createReviewHttpServer(options: HttpReviewServerOptions): Server
           writeJson(res, 200, errorResponse(id, validation.error.code, validation.error.message, validation.error.data));
           return;
         }
-        writeJson(res, 200, successResponse(id, await service.cancel(validation.value.jobId, ctx)));
+        writeJson(res, 200, successResponse(id, toHttpJobView(await service.cancel(validation.value.jobId, ctx))));
         return;
       }
       default: {
@@ -519,36 +575,4 @@ function resolveRequestId(header: unknown): string {
     return header;
   }
   return `req-${randomUUID()}`;
-}
-
-function writeJson(
-  res: ServerResponse,
-  status: number,
-  body: unknown,
-  extraHeaders?: Record<string, string>,
-): void {
-  if (extraHeaders !== undefined) {
-    for (const [name, value] of Object.entries(extraHeaders)) {
-      res.setHeader(name, value);
-    }
-  }
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-}
-
-/** HTTP 层错误信封（id:null——错误发生在 id 可提取之前；429/503 附 Retry-After） */
-function writeEnvelopeError(
-  res: ServerResponse,
-  status: number,
-  code: number,
-  message: string,
-  data?: unknown,
-  extras?: { readonly retryAfter?: number },
-): void {
-  writeJson(
-    res,
-    status,
-    errorResponse(null, code, message, data),
-    ...(extras?.retryAfter !== undefined ? [{ "Retry-After": String(extras.retryAfter) }] : []),
-  );
 }

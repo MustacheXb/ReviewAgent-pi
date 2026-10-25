@@ -84,6 +84,8 @@ export interface RpcServerInfo {
     readonly concurrency: number;
     /** HTTP 面专属（#28）：请求 body 上限；stdio 无传输上限概念——缺席省键 */
     readonly maxBodyBytes?: number;
+    /** HTTP 面专属（#29）：产物保留窗口天数（succeeded 落定起算；stdio 无下载面） */
+    readonly artifactRetentionDays?: number;
   };
 }
 

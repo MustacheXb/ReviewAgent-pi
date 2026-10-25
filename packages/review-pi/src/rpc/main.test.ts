@@ -200,6 +200,8 @@ test("session：内部异常 → -32603 固定文案（异常 message 不进协�
     cancel: async () => {
       throw new Error("unreachable");
     },
+    readEvents: async () => undefined,
+    artifacts: async () => undefined,
     subscribe: () => () => {},
     close: async () => {},
     isDraining: () => false,

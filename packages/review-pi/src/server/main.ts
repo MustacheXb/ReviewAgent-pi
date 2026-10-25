@@ -5,15 +5,19 @@
  * 退出码，exitCode 置码 + 自然排干 + 8s unref 兜底由 cli/main.ts
  * exitGracefully 统一施加（Windows 0xC0000409 竞态实证）。
  *
+ * #29 P2b：装配增 SSE / artifact 端点（service 单源；--artifact-retention-days
+ * 透传保留窗口，capabilities limits 暴露）。
+ *
  * 启动顺序（spec）：token 文件校验 → .env.local（cli/main.ts 已装载）→
  * endpoint 解析（REVIEWER_URL / REVIEWER_API_KEY 仅启动期从环境注入一次——
  * 客户端不可传 apiKey / 任意 baseUrl，防 SSRF）→ listen（HOST / PORT 环境
  * 变量可覆盖缺省；显式旗标优先）。
  *
  * 退出码：SIGINT 130 / SIGTERM 143 / 启动失败（token 文件、endpoint、端口
- * 占用等）异常上抛 → cli reportErrorAndExit → 1。drain 序：停收新连接
- * （server.close + closeIdleConnections）→ service.close（取消 queued、等
- * running 落定）→ settle；drain 开闸即注销信号处理器，重复信号走默认处置。
+ * 占用等）异常上抛 → cli reportErrorAndExit → 1。drain 序：SSE closeAll
+ * （open stream 会卡死 close——#29）→ 停收新连接（server.close +
+ * closeIdleConnections）→ service.close（取消 queued、等 running 落定）→
+ * settle；drain 开闸即注销信号处理器，重复信号走默认处置。
  *
  * HOST / PORT 优先级：显式旗标 > HOST / PORT 环境变量 > 127.0.0.1:8787。
  * 环境变量坏值（PORT 非端口数）fail fast 在 parse 层（cli/args.ts）。
@@ -30,6 +34,11 @@ import type { RpcServerInfo, RpcSignalTarget } from "../rpc/main.js";
 import { createReviewService } from "../rpc/service.js";
 import { createTokenFileAuthenticator, type Authenticator } from "./auth.js";
 import {
+  DEFAULT_ARTIFACT_RETENTION_DAYS,
+  createArtifactEndpoint,
+  type ArtifactEndpoint,
+} from "./artifacts.js";
+import {
   DEFAULT_MAX_BODY_BYTES,
   HTTP_RPC_FEATURES,
   createReviewHttpServer,
@@ -37,6 +46,7 @@ import {
   type InternalErrorLogEvent,
 } from "./http-server.js";
 import { createIdempotencyKeeper } from "./idempotency.js";
+import { createSseEndpoint, type SseEndpoint } from "./sse.js";
 
 /** 信号 → 退出码（128+信号号惯例；与 rpc/main.ts 同表） */
 const SIGNAL_EXIT_CODES = {
@@ -90,6 +100,15 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
       runsRoot: resolve(args.out),
     });
   const service = createReviewService({ executor, concurrency: args.concurrency });
+  // SSE / artifact 端点（#29 P2b）：service 单源装配，server 路由层只做接线
+  const sse: SseEndpoint = createSseEndpoint({ service });
+  const artifactEndpoint: ArtifactEndpoint = createArtifactEndpoint({
+    service,
+    ...(args.artifactRetentionDays !== undefined
+      ? { retentionDays: args.artifactRetentionDays }
+      : {}),
+  });
+  const artifactRetentionDays = args.artifactRetentionDays ?? DEFAULT_ARTIFACT_RETENTION_DAYS;
   const serverInfo: RpcServerInfo = {
     protocolVersion: 2,
     serverId: `${process.pid}-${(io.nowMs ?? Date.now)()}`,
@@ -107,6 +126,7 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
       maxQueueDepth: service.limits.maxQueueDepth,
       concurrency: args.concurrency,
       maxBodyBytes: DEFAULT_MAX_BODY_BYTES,
+      artifactRetentionDays,
     },
   };
 
@@ -115,6 +135,8 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
     authenticator,
     idempotency: createIdempotencyKeeper(),
     serverInfo,
+    sse,
+    artifacts: artifactEndpoint,
     limits: { maxBodyBytes: DEFAULT_MAX_BODY_BYTES },
     onAccessLog: io.onAccessLog ?? defaultAccessLogSink,
     onInternalError: io.onInternalError ?? defaultInternalErrorSink,
@@ -151,8 +173,12 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
       server.unref();
       settleListen();
     } else {
+      // SSE 长连接先断（#29）：open stream 会卡死 server.close——closeAll
+      // 先于停收新连接执行，订阅方凭 Last-Event-ID 重连（收 503 + Retry-After）
+      sse.closeAll();
       // 停收新连接（keep-alive idle 连接一并断）；in-flight 请求毫秒级落定
-      // （submit 202 即返、get/list/cancel 即时查询——无等 job 的长请求面）
+      // （submit 202 即返、get/list/cancel 即时查询——无等 job 的长请求面；
+      // artifact 下载读面不持有长连接，drain 期仍可服务）
       server.closeIdleConnections();
       await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     }

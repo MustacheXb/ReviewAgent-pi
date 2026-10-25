@@ -29,14 +29,25 @@ export {
   type SmokeProbeInput,
   type SmokeProbesResult,
 } from "./provider/gateway-probe.js";
+// #29：钉住的评审模型 id 升公开面（demo/e2e 的回环 stub 网关以此应答
+// /v1/models——与真网关口径同源）。
+export { REVIEW_MODEL_ID } from "./provider/pi-client.js";
+// #29：SSE stub 渲染器升公开面（demo 的进程内回环网关与包内 fake 适配器
+// 共用同一 wire 格式单源——格式漂移即单点同步）。
+export { sseBody, type FakeReply, type FakeToolCall, type FakeUsage } from "./provider/fake-fetch.js";
 // #27 v2（ADR-0013 中性后果项）：ReviewRunSummary 升公开面——stdio/HTTP 宿主
 // 与评测驱动只消费该 DTO，不触内核 RunRecord 内部字段（P0 半成品补完）。
 export type { ReviewRunSummary } from "./rpc/executor.js";
 // #28（ADR-0013 决策 1）：typed HTTP client 升公开面——宿主/评测驱动以编程
 // 方式消费 HTTP 形态（demo 与 P2b 集成同款入口）；异常基类 RpcResponseError
 // 一并导出（stdio / HTTP 两面共享的 error 契约）。
+// #29 P2b：SSE 订阅（ReviewHttpClientEvent）与 artifact 下载面的客户端类型
+// （HTTP 投影视图——result 携 auditRef/recordRef 逻辑引用）一并公开。
 export {
   HttpRpcResponseError,
   ReviewHttpClient,
   type ReviewHttpClientOptions,
+  type ReviewHttpClientEvent,
+  type HttpReviewJobPage,
 } from "./server/http-client.js";
+export type { HttpReviewJobView } from "./server/http-view.js";

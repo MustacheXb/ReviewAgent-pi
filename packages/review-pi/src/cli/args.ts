@@ -28,6 +28,8 @@ import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
  *   ——v1 --repo-root/allowlist 已移除；
  * - review --repo 可省（#27：缺省 process.cwd()，与统一 ReviewRequest 的
  *   repoPath 缺省链同语义；stdout 单文档契约不变）。
+ * - server（#29 增补）--artifact-retention-days：产物保留窗口（缺省 30 天，
+ *   ADR-0013 决策 8）——正整数 parse 层校验，缺席省键走装配层缺省。
  *
  * model 是实验数据（#45 语义）：自由 id 透传，缺省单源 = 钉住的评审模型
  * （REVIEW_MODEL_ID），无 model 环境变量。与 DSH 线 review bin 的
@@ -74,7 +76,14 @@ const KNOWN_DISPOSITION_STATS_FLAGS: readonly string[] = ["--store", "--out"];
 const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--cwd", "--concurrency"];
 
 /** server 子命令（#28）的已知旗标（--auth-token-file 必填，其余可选） */
-const KNOWN_SERVER_FLAGS: readonly string[] = ["--host", "--port", "--out", "--auth-token-file", "--concurrency"];
+const KNOWN_SERVER_FLAGS: readonly string[] = [
+  "--host",
+  "--port",
+  "--out",
+  "--auth-token-file",
+  "--concurrency",
+  "--artifact-retention-days",
+];
 
 /** server 缺省绑定面（HOST / PORT 环境变量可覆盖；显式旗标再优先——#28） */
 const DEFAULT_SERVER_HOST = "127.0.0.1";
@@ -89,7 +98,7 @@ function isValidPort(value: number): boolean {
 export const USAGE_TEXT = `usage: reviewagent review [--repo <path>] --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
        reviewagent smoke [--model <id>]
        reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
-       reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>]
+       reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]
        reviewagent disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
        reviewagent disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
@@ -121,6 +130,8 @@ server 旗标（HTTP JSON-RPC 长驻；退出码 SIGINT 130、SIGTERM 143、启�
   --port      <n>          绑定端口（缺省 PORT 环境变量，再缺省 ${DEFAULT_SERVER_PORT}）
   --out       <dir>        审计与运行记录落盘根（缺省 ${DEFAULT_OUT_DIR}）
   --concurrency <n>        并发执行 job 数（缺省 1；>1 实验性——安全前提未验证）
+  --artifact-retention-days <n>  产物保留窗口天数（缺省 30；succeeded 落定起算，窗外下载
+                            → 404 + -32017——ADR-0013 决策 8）
 
 disposition 旗标（记录处置）：
   --run      <file>      产生该 finding 的 run record JSON 文件（必需；回溯锚与 finding 校验都以它为准）
@@ -181,6 +192,11 @@ export interface ServerCliArgs {
   /** Bearer token→principal 映射文件（必填——缺它鉴权器无从构造） */
   readonly authTokenFile: string;
   readonly concurrency: number;
+  /**
+   * 产物保留窗口天数（#29，可选——缺席省键 = 装配层 30 天缺省）。
+   * succeeded 落定时刻起算；窗外下载 → 404 + -32017（ADR-0013 决策 8）。
+   */
+  readonly artifactRetentionDays?: number;
 }
 
 /** 解析后的 disposition 记录面参数（store 已解析：--store 显式或 --out 派生） */
@@ -429,7 +445,8 @@ function parseRpcArgs(
  * server 子命令解析（#28）：--auth-token-file 必填（缺它鉴权器无从构造）；
  * host/port 三级优先（显式旗标 > HOST / PORT 环境变量 > 缺省），环境变量
  * 坏值 fail fast（PORT 非端口数 / HOST 空白——bind 期的 EADDRNOTAVAIL 不如
- * parse 层人话）；concurrency 口径同 rpc。
+ * parse 层人话）；concurrency 口径同 rpc；--artifact-retention-days 正整数
+ * 校验（#29，缺席省键 = 装配层 30 天缺省）。
  */
 function parseServerArgs(
   rest: readonly string[],
@@ -482,6 +499,14 @@ function parseServerArgs(
     };
   }
 
+  const retentionRaw = flags.values.get("--artifact-retention-days");
+  if (retentionRaw !== undefined && !/^[1-9]\d*$/.test(retentionRaw)) {
+    return {
+      ok: false,
+      message: `invalid --artifact-retention-days ${JSON.stringify(retentionRaw)}: must be a positive integer`,
+    };
+  }
+
   return {
     ok: true,
     command: "server",
@@ -491,6 +516,7 @@ function parseServerArgs(
       out: flags.values.get("--out") ?? DEFAULT_OUT_DIR,
       authTokenFile,
       concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : 1,
+      ...(retentionRaw !== undefined ? { artifactRetentionDays: Number(retentionRaw) } : {}),
     },
   };
 }

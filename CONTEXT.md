@@ -121,8 +121,16 @@ _Avoid_: repo 判别联合含 `kind:"id"`（2026-10-23 旧形，已废）、repo
 server 面鉴权身份：`tenantId` / `subject` / `scopes`（`review:submit` / `review:read` / `review:cancel` / `artifact:read` / `admin`），由 HTTP `Authorization` 头经 `Authenticator` 解析派生（token→principal JSON 映射文件 + 每请求 mtime 热轮换，缺 token 文件 fail fast 拒启动），客户端不得在 params 自报 tenant；越权访问统一按 not found 处理（不泄漏资源存在性）。
 _Avoid_: 用户（server 面无自然人语义）、自报 tenant
 
+**SSE 事件流**:
+`GET /v1/jobs/{jobId}/events` 长连接推送面（#29，ADR-0013 决策 7）：per-job 单调 seq（首事件 = 1，submit 入队不发事件）、帧 = `event: job|error|reset` + `id: <seq>` + 扁平 data、`Last-Event-ID` 断线续传（保留窗覆盖不到 → `reset` 帧携最新快照重建）、20s 静默心跳、订阅上限 8/job + 32/租户（429）、慢消费者 1 MiB 写积压即断开（凭 seq 重连或转 get 轮询恢复）；drain 收口 closeAll 先于 server.close（open stream 会卡死 close）。
+_Avoid_: WebSocket（单向推送用不上双工）、逐 toolCall 发射（事件粒度 = 状态转移 / 相位·轮次边界）
+
+**Artifact 逻辑引用**:
+succeeded result 的 `auditRef` / `recordRef`（`artifact:audit|record/<runId>`，#29，ADR-0013 决策 8）：API 面不泄漏服务器路径；下载端点 `GET /v1/jobs/{jobId}/artifacts/{audit|record}` 把引用解析回落盘内容，audit/record 两端点各自独立过 `artifact:read` 执法（分开授权），保留窗口 succeeded 落定起算缺省 30 天（`--artifact-retention-days` 可配，capabilities limits 暴露），窗外/文件缺失 → 404 + -32017。
+_Avoid_: 直接回传文件系统路径（投影纪律）、下载面复用 review:read（授权面分开）
+
 **reviewagent**:
-用户可见产品包：自包含 npm 包（bin `reviewagent`，bundle 内联 vendored pi 运行时），唯一发布/安装面，运行时依赖不含 `@earendil-works/pi-*`；子命令 review / rpc / server / disposition / smoke（server = HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等，#28 落地，ADR-0013 拓扑 B——`review-pi` 的 `src/server/` 子树，边界测试把口）。仓内实现包 `review-pi`（内核 + CLI + 传输）不对外发布。
+用户可见产品包：自包含 npm 包（bin `reviewagent`，bundle 内联 vendored pi 运行时），唯一发布/安装面，运行时依赖不含 `@earendil-works/pi-*`；子命令 review / rpc / server / disposition / smoke（server = HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等 + SSE 事件流 + artifact 下载，#28/#29 落地，ADR-0013 拓扑 B——`review-pi` 的 `src/server/` 子树，边界测试把口）。仓内实现包 `review-pi`（内核 + CLI + 传输）不对外发布。
 _Avoid_: 用 review-pi 指产品（对外名恒 reviewagent）
 
 ### 知识

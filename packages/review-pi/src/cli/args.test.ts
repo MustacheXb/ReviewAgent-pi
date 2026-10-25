@@ -494,9 +494,34 @@ describe("server 子命令", () => {
     });
   });
 
+  // ---- #29：产物保留窗口旗标 ----
+
+  test("--artifact-retention-days 正整数解析；缺席 = 缺席省键（30 缺省在装配层）", () => {
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--artifact-retention-days", "7"]),
+    ).toEqual({
+      ok: true,
+      command: "server",
+      args: expect.objectContaining({ artifactRetentionDays: 7 }),
+    });
+    const absent = parseCliArgs(["server", "--auth-token-file", "t.json"]);
+    expect(absent.ok && "artifactRetentionDays" in absent.args).toBe(false);
+  });
+
+  test("--artifact-retention-days 坏值 → parse 层人话（0 / 小数 / 非数字）", () => {
+    for (const bad of ["0", "-1", "1.5", "week"]) {
+      expect(
+        parseCliArgs(["server", "--auth-token-file", "t.json", "--artifact-retention-days", bad]),
+      ).toEqual({
+        ok: false,
+        message: `invalid --artifact-retention-days ${JSON.stringify(bad)}: must be a positive integer`,
+      });
+    }
+  });
+
   test("USAGE_TEXT 宣告 server 用法面（单一来源）", () => {
     expect(USAGE_TEXT).toContain(
-      "reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>]",
+      "reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]",
     );
     expect(USAGE_TEXT).toContain("HTTP JSON-RPC 长驻服务");
   });
