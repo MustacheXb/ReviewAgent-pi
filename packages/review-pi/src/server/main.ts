@@ -11,6 +11,12 @@
  * 检测 fail fast、--store memory 逃生口；重启恢复与跨重启 SSE 重放随 store
  * 成立）；sqlite 面产物目录按 job 隔离（experimentId = jobId）；drain 尾
  * store.close 落盘收口。
+ * #31 P3b：检视执行默认切 worker 池（--executor worker 缺省；inprocess 逃生
+ * 口）——池生命周期归本装配层（drain 尾 close：service 落定后 terminate 全体
+ * worker）；drain 序对齐方案 §8.5/§8.6——service.close 先 kick（draining 同
+ * 步置位，监听保持绑定：drain 窗口内 503 + -32010 + Retry-After 对滚动发布
+ * 门可观察），排空 running 后再断 SSE / 停收新连接，最后 store / 幂等表 /
+ * worker 池收口。
  *
  * 启动顺序（spec）：token 文件校验 → .env.local（cli/main.ts 已装载）→
  * endpoint 解析（REVIEWER_URL / REVIEWER_API_KEY 仅启动期从环境注入一次——
@@ -18,10 +24,13 @@
  * 变量可覆盖缺省；显式旗标优先）。
  *
  * 退出码：SIGINT 130 / SIGTERM 143 / 启动失败（token 文件、endpoint、端口
- * 占用等）异常上抛 → cli reportErrorAndExit → 1。drain 序：SSE closeAll
- * （open stream 会卡死 close——#29）→ 停收新连接（server.close +
- * closeIdleConnections）→ service.close（取消 queued、等 running 落定）→
- * settle；drain 开闸即注销信号处理器，重复信号走默认处置。
+ * 占用等）异常上抛 → cli reportErrorAndExit → 1。drain 序（#31 对齐方案
+ * §8.5/§8.6「先失败 readiness，再 drain」）：service.close 先 kick（draining
+ * 同步置位——submit 503 + -32010 + Retry-After、readyz 503；监听保持绑定，
+ * 读 / 取消面照常应答）→ 排空 running（drain 超时 60s force cancelled）→
+ * SSE closeAll（open stream 会卡死 close——#29）→ 停收新连接（server.close +
+ * closeIdleConnections）→ store / 幂等表 / worker 池收口 → settle；drain 开闸
+ * 即注销信号处理器，重复信号走默认处置。
  *
  * HOST / PORT 优先级：显式旗标 > HOST / PORT 环境变量 > 127.0.0.1:8787。
  * 环境变量坏值（PORT 非端口数）fail fast 在 parse 层（cli/args.ts）。
@@ -38,6 +47,7 @@ import type { RpcServerInfo, RpcSignalTarget } from "../rpc/main.js";
 import { createReviewService } from "../rpc/service.js";
 import { createSqliteReviewJobStore } from "../rpc/sqlite-store.js";
 import { createMemoryJobStore, type ReviewJobStore } from "../rpc/store.js";
+import { WorkerPoolReviewExecutor } from "../rpc/worker-pool.js";
 import { createTokenFileAuthenticator, type Authenticator } from "./auth.js";
 import {
   DEFAULT_ARTIFACT_RETENTION_DAYS,
@@ -126,17 +136,37 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
       : undefined;
   const idempotency: IdempotencyKeeper = sqliteIdempotency ?? createIdempotencyKeeper();
 
-  // 4. service 装配（executor 经端口注入内核——server 子树不 import run/ 内件）
-  const executor =
-    io.executor ??
-    new KernelReviewRunExecutor({
-      endpoint,
+  // 4. service 装配（executor 经端口注入内核——server 子树不 import run/ 内件）。
+  //    #31 P3b 起默认 = worker 池（检视执行与 HTTP 面解耦——同步 tree-sitter
+  //    解析不占主线程 event loop；线程内自行 resolveReviewerEndpoint，凭据经
+  //    env 注入线程——上方 endpoint 启动期解析仍是 fail-fast 面）；池生命周期
+  //    归本装配层（drain 尾 close）。io.executor 注入面（测试 fake）优先。
+  let workerPool: WorkerPoolReviewExecutor | undefined;
+  let executor: ReviewRunExecutor;
+  if (io.executor !== undefined) {
+    executor = io.executor;
+    // 注入面若本身就是池（soak / 生产同构装配）：drain 尾收口同 lane——
+    // io.executor 不豁免池生命周期
+    if (io.executor instanceof WorkerPoolReviewExecutor) {
+      workerPool = io.executor;
+    }
+  } else if (args.executor === "worker") {
+    workerPool = new WorkerPoolReviewExecutor({
+      size: args.concurrency,
       runsRoot: resolve(args.out),
       // 产物目录按 job 隔离（experimentId = jobId）：跨 job 互不覆盖，重启
       // 重入队重跑覆盖自身（rep 恒 1 语义不变）；memory 逃生口维持恒
       // reviewagent-rpc 现状
       ...(args.store === "sqlite" ? { experimentIdOf: (jobId: string) => jobId } : {}),
     });
+    executor = workerPool;
+  } else {
+    executor = new KernelReviewRunExecutor({
+      endpoint,
+      runsRoot: resolve(args.out),
+      ...(args.store === "sqlite" ? { experimentIdOf: (jobId: string) => jobId } : {}),
+    });
+  }
   const service = createReviewService({ executor, concurrency: args.concurrency, store });
   // SSE / artifact 端点（#29 P2b）：service 单源装配，server 路由层只做接线
   const sse: SseEndpoint = createSseEndpoint({ service });
@@ -162,6 +192,8 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
     limits: {
       maxDiffBytes: service.limits.maxDiffBytes,
       maxQueueDepth: service.limits.maxQueueDepth,
+      maxRepoFiles: service.limits.maxRepoFiles,
+      maxRepoBytes: service.limits.maxRepoBytes,
       concurrency: args.concurrency,
       maxBodyBytes: DEFAULT_MAX_BODY_BYTES,
       artifactRetentionDays,
@@ -204,32 +236,39 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
     for (const cleanup of signalCleanup.splice(0)) {
       cleanup();
     }
-    if (listenState.outcome === "pending") {
-      // drain 抢在 listening 前：bind 结果无意义，收口 listen 等待并解除
-      // 事件循环保活（进程退出交由 cli/main.ts exitGracefully 的兜底强退）
-      listenState.outcome = "drained";
-      server.unref();
-      settleListen();
-    } else {
-      // SSE 长连接先断（#29）：open stream 会卡死 server.close——closeAll
-      // 先于停收新连接执行，订阅方凭 Last-Event-ID 重连（收 503 + Retry-After）
-      sse.closeAll();
-      // 停收新连接（keep-alive idle 连接一并断）；in-flight 请求毫秒级落定
-      // （submit 202 即返、get/list/cancel 即时查询——无等 job 的长请求面；
-      // artifact 下载读面不持有长连接，drain 期仍可服务）
-      server.closeIdleConnections();
-      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-    }
+    // #31 drain 序（方案 §8.5/§8.6「SIGTERM 后先失败 readiness，再 drain」）：
+    // service.close 先 kick——doClose 首语句同步置 draining，此即「先失败
+    // readiness」；监听保持绑定直到 running 排空完成，drain 窗口内新提交 /
+    // readyz 观察到的是 503 + -32010 + Retry-After（滚动发布门可观察，非
+    // 连接拒绝），读 / 取消面照常应答（客户端可 cancel 加速 drain）。
+    const serviceClosed = service.close();
     let exitCode = code;
     try {
-      await service.close(); // 取消 queued、等 running 落定
+      await serviceClosed; // 排空 running（drain 超时由 service 内部收口——不无限悬挂）
     } catch {
       exitCode = 1;
     } finally {
-      store.close(); // #30：store 落盘收口（幂等；service.close 后无新查询面）
+      if (listenState.outcome === "pending") {
+        // drain 抢在 listening 前：bind 结果无意义，收口 listen 等待并解除
+        // 事件循环保活（进程退出交由 cli/main.ts exitGracefully 的兜底强退）
+        listenState.outcome = "drained";
+        server.unref();
+        settleListen();
+      } else {
+        // drain 落定后收连接面（§8.5 序：排空 → 关闭 → 退出）：SSE 长连接先
+        // 断（#29：open stream 会卡死 server.close——订阅方凭 Last-Event-ID
+        // 重连）；keep-alive idle 一并断；最后停收新连接，in-flight 请求毫秒
+        // 级落定（submit 202 即返、get/list/cancel 即时查询——无等 job 的长
+        // 请求面；artifact 下载读面不持有长连接）
+        sse.closeAll();
+        server.closeIdleConnections();
+        await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+      }
+      store.close(); // #30：store 落盘收口（幂等；连接面收口后无新查询面）
       sqliteIdempotency?.close(); // 幂等表连接同收（memory 面无 close）
+      await workerPool?.close(); // #31：池收口（service 落定后 terminate 全体 worker）
+      settleExit(exitCode);
     }
-    settleExit(exitCode);
   };
 
   const signalCleanup: Array<() => void> = [];

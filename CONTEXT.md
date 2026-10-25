@@ -129,8 +129,24 @@ _Avoid_: WebSocket（单向推送用不上双工）、逐 toolCall 发射（事�
 succeeded result 的 `auditRef` / `recordRef`（`artifact:audit|record/<runId>`，#29，ADR-0013 决策 8）：API 面不泄漏服务器路径；下载端点 `GET /v1/jobs/{jobId}/artifacts/{audit|record}` 把引用解析回落盘内容，audit/record 两端点各自独立过 `artifact:read` 执法（分开授权），保留窗口 succeeded 落定起算缺省 30 天（`--artifact-retention-days` 可配，capabilities limits 暴露），窗外/文件缺失 → 404 + -32017。
 _Avoid_: 直接回传文件系统路径（投影纪律）、下载面复用 review:read（授权面分开）
 
+**Worker 执行器（worker 池）**:
+server 形态的检视执行面（#31，ADR-0013 P3b）：`--executor` 二选一——`worker` 缺省生产档（`--concurrency` 缺省 2）经 worker_threads 池执行，每 job 分派独立 worker 线程（lazy spawn、池满排队、取消走 abort 协作 → ~10s 宽限 → terminate 硬杀、完结归还池），per-worker 独立解析器状态互不串台；`inprocess` 逃生口保留（主线程执行、并发恒 1，池面缺陷的降级路径）。CLI / stdio 恒进程内单发执行。
+_Avoid_: 每 job 一进程（进程池）、跨 job 共享解析器状态、取消直 terminate（不经协作宽限）
+
+**Drain 窗口**:
+服务收口的可观察中间态（#31，方案 §8.5/§8.6）：SIGTERM → 同步进入 draining、监听保持绑定直到排空完成——submit 面 503 + `-32010 server_draining` + `Retry-After: 5`、readyz 503、healthz 200、读面（get / SSE / artifact）照常；running job 排空（drain 超时 60s → abort 剩余 → `cancelled(SERVER_DRAIN)`）后才拆 SSE 连接与监听、关 store / 幂等表 / worker 池，进程 exitCode = 128+信号号（SIGTERM = 143，exitCode 落定而非信号死）。
+_Avoid_: 收到信号即断读面（窗口内不可查）、排空无超时闸、进程死于信号默认处置（非优雅退出）
+
+**超时终态化**:
+死单自动收口闸（#31）：排队超时 `queueTimeout`（缺省 30min）——queued 滞留超时落 `failed(-32018)` 不再起跑；执行超时 `jobTimeout`（缺省 60min）——running 超时经 abort 协作链落 `failed(-32014)`。终态单调性由终态护栏兜底（迟到结算吞掉）。
+_Avoid_: 无限排队 / 无限执行等调用方 cancel 兜底、超时后状态悬挂
+
+**仓库准入**:
+submit 期的仓库规模闸（#31，方案 §7.3 标定）：`maxRepoFiles`（缺省 20_000）/ `maxRepoBytes`（缺省 512 MiB）递归清点，超限即拒（`-32004`，死大仓不进队列不进 worker 内存）；口径与内核 rg 清单同源——点开头目录（`.git` 等）不计、symlink 不计不递归（环防御），capabilities limits 面暴露。
+_Avoid_: 事后 OOM 才发现（病理仓爆在 worker 内存）、准入口径与 rg 读取面不一致（错杀 / 漏放）
+
 **reviewagent**:
-用户可见产品包：自包含 npm 包（bin `reviewagent`，bundle 内联 vendored pi 运行时），唯一发布/安装面，运行时依赖不含 `@earendil-works/pi-*`；子命令 review / rpc / server / disposition / smoke（server = HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等 + SSE 事件流 + artifact 下载，#28/#29 落地，ADR-0013 拓扑 B——`review-pi` 的 `src/server/` 子树，边界测试把口）。仓内实现包 `review-pi`（内核 + CLI + 传输）不对外发布。
+用户可见产品包：自包含 npm 包（bin `reviewagent`，bundle 双入口内联 vendored pi 运行时——`dist/cli.mjs` 主入口 + `dist/review-worker.mjs` worker 线程体，#31），唯一发布/安装面，运行时依赖不含 `@earendil-works/pi-*`；子命令 review / rpc / server / disposition / smoke（server = HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等 + SSE 事件流 + artifact 下载 + 缺省 worker 池执行，#28/#29/#31 落地，ADR-0013 拓扑 B——`review-pi` 的 `src/server/` 子树，边界测试把口）。仓内实现包 `review-pi`（内核 + CLI + 传输）不对外发布。
 _Avoid_: 用 review-pi 指产品（对外名恒 reviewagent）
 
 ### 知识

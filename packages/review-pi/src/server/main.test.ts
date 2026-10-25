@@ -58,6 +58,7 @@ function serverArgs(overrides: Record<string, unknown> = {}): {
   port: number;
   out: string;
   authTokenFile: string;
+  executor: "worker" | "inprocess";
   concurrency: number;
   store: "memory" | "sqlite";
   dataDir?: string;
@@ -67,6 +68,9 @@ function serverArgs(overrides: Record<string, unknown> = {}): {
     port: 0,
     out: makeTempDir("review-pi-server-out-"),
     authTokenFile: path.join(makeTempDir("review-pi-server-tokens-"), "tokens.json"),
+    // #31：存量面统一 inprocess（fake executor 注入绕过装配分支——不触
+    // worker 池；worker 装配面由 soak/进程级用例覆盖）
+    executor: "inprocess",
     concurrency: 1,
     // #30 存量面统一 memory（进程内 fake executor——零持久化需求）；
     // sqlite 装配面由专属用例覆盖（dataDir + jobs.sqlite + 重启恢复）
@@ -292,6 +296,127 @@ test("drain 序：open SSE 流先 closeAll 再 server.close——退出不悬挂
   // 流被 closeAll 断开：生成器收 done（而非悬挂在 reader.read）
   const after = await iterator.next();
   expect(after.done).toBe(true);
+});
+
+// ---- #31 P3b：drain 全链路（方案 §8.5/§8.6「SIGTERM 后先失败 readiness，再 drain」）----
+
+test("drain 全链路：先失败 readiness 再排空——窗口内 submit 503+Retry-After(-32010) / readyz 503 / healthz 200 / 读面照常；running 排空 succeeded（重启可证）、queued → cancelled(SERVER_DRAIN)", async () => {
+  const dataDir = makeTempDir("review-pi-server-drain-data-");
+  const args = serverArgs({ store: "sqlite", dataDir });
+  writeTokens(args.authTokenFile);
+  const signals = fakeSignalTarget();
+  const listened: { host: string; port: number }[] = [];
+  const executor = new FakeReviewRunExecutor();
+  const exited = runServerMain(args, {
+    executor,
+    endpoint: FAKE_ENDPOINT,
+    signals,
+    onListening: (address) => listened.push(address),
+  });
+  await waitFor(() => listened.length > 0);
+  const baseUrl = `http://127.0.0.1:${listened[0]!.port}`;
+  const client = new ReviewHttpClient({ baseUrl, token: "tok-demo" });
+
+  // job1：running（fake executor 挂住——drain 的排空面）；job2：queued（并发 1
+  // 单槽被占——drain kick 的同步取消面）。sqlite 落盘使排空终态可跨实例验证。
+  const job1 = await client.submit({
+    caseId: "MR-drain-running",
+    repoPath: args.out, // 任意存在目录（fake executor 不触盘）
+    diff: { kind: "inline", text: "+x\n" },
+    configId: "E",
+  });
+  await waitFor(() => executor.executions.length > 0, "execution start");
+  const job2 = await client.submit({
+    caseId: "MR-drain-queued",
+    repoPath: args.out,
+    diff: { kind: "inline", text: "+x\n" },
+    configId: "E",
+  });
+  expect(job2.status).toBe("queued");
+
+  // drain 开闸（fake 信号面——Windows / POSIX 同径；真信号进程面在 POSIX 门控
+  // 的 restart/soak 用例）。kick 同步置 draining + 取消 queued。
+  signals.emit("SIGTERM");
+
+  try {
+    // 窗口断言 1——新提交被拒：503 + Retry-After(5s) + -32010 信封（id:null）
+    const rejected = await fetch(`${baseUrl}/rpc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-demo" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "drain-submit",
+        method: "review.submit",
+        params: {
+          caseId: "MR-drain-rejected",
+          repoPath: args.out,
+          diff: { kind: "inline", text: "+x\n" },
+          configId: "E",
+        },
+      }),
+    });
+    expect(rejected.status).toBe(503);
+    expect(rejected.headers.get("retry-after")).toBe("5");
+    expect(await rejected.json()).toMatchObject({
+      id: null,
+      error: { code: -32010, message: "server is draining" },
+    });
+
+    // 窗口断言 2——readiness 先失败（滚动发布门）、liveness 仍活（drain≠死亡）
+    const ready = await fetch(`${baseUrl}/readyz`, { headers: { Authorization: "Bearer tok-demo" } });
+    expect(ready.status).toBe(503);
+    expect(ready.headers.get("retry-after")).toBe("5");
+    const live = await fetch(`${baseUrl}/healthz`);
+    expect(live.status).toBe(200);
+
+    // 窗口断言 3——读面照常（客户端可查询/取消——cancel 可加速 drain）：
+    // job1 仍 running；job2 已被 kick 同步取消（queued 取消与用户主动 cancel
+    // 同路径——无 error，Task #1 拍板「主动取消不是失败」）
+    const runningView = await client.reviewGet(job1.jobId);
+    expect(runningView.status).toBe("running");
+    const queuedView = await client.reviewGet(job2.jobId);
+    expect(queuedView.status).toBe("cancelled");
+    expect(queuedView.error).toBeUndefined();
+
+    // 排空等待：running 未落定则进程不退（150ms 后 exited 仍 pending——drain 是
+    // 等待不是立刻退）
+    const drained = await Promise.race([
+      exited.then(() => "exited" as const),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 150)),
+    ]);
+    expect(drained).toBe("pending");
+
+    // 排空落定：running job 成功收场
+    executor.executions[0]!.resolve(fakeReviewRunSummary());
+  } finally {
+    // 失败路径兜底收口（resolve / emit 均幂等——drain 已开闸则 no-op）
+    executor.executions[0]?.resolve(fakeReviewRunSummary());
+    signals.emit("SIGTERM");
+  }
+  // drain 尾收连接面后退出码 143
+  expect(await exited).toBe(143);
+
+  // 排空终态跨实例验证（sqlite 持久——drain 窗口内 job1 真落 succeeded 而非
+  // 被杀/取消）：实例 B 读历史
+  const argsB = serverArgs({ store: "sqlite", dataDir });
+  writeTokens(argsB.authTokenFile);
+  const signalsB = fakeSignalTarget();
+  const listenedB: { host: string; port: number }[] = [];
+  const exitedB = runServerMain(argsB, {
+    executor: new FakeReviewRunExecutor(),
+    endpoint: FAKE_ENDPOINT,
+    signals: signalsB,
+    onListening: (address) => listenedB.push(address),
+  });
+  await waitFor(() => listenedB.length > 0);
+  const clientB = new ReviewHttpClient({ baseUrl: `http://127.0.0.1:${listenedB[0]!.port}`, token: "tok-demo" });
+  try {
+    expect((await clientB.reviewGet(job1.jobId)).status).toBe("succeeded");
+    expect((await clientB.reviewGet(job2.jobId)).status).toBe("cancelled");
+  } finally {
+    signalsB.emit("SIGTERM"); // 失败路径兜底（已开闸则 no-op）
+  }
+  expect(await exitedB).toBe(143);
 });
 
 // ---- #30 P3a：sqlite 默认装配接线（dataDir + 跨实例历史可见 + drain store.close）----

@@ -128,8 +128,12 @@ export class FakeReviewRunExecutor implements ReviewRunExecutor {
 
 // ---- 真适配器（#23 S2）----
 
-/** rpc run 留痕的恒定实验标识（spec §1：审计/记录落 {out}/reviewagent-rpc/...） */
-const RPC_EXPERIMENT_ID = "reviewagent-rpc";
+/**
+ * rpc run 留痕的恒定实验标识（spec §1：审计/记录落 {out}/reviewagent-rpc/...）。
+ * #31 起导出：worker 池的 experimentIdOf 缺省同源（in-process / worker 池
+ * 两适配器对同一 job 派生同一目录）。
+ */
+export const RPC_EXPERIMENT_ID = "reviewagent-rpc";
 
 export interface KernelReviewRunExecutorOptions {
   /** 启动期单次解析的网关凭据（rpc 进程装配时 fail fast；全程复用，不逐 job 重解析） */

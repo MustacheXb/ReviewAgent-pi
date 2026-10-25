@@ -7,14 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { checkRuntimeArtifacts } from "../../bin/lib/cli-runtime.js";
 import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { goldenFixture } from "../testing/golden.js";
 import { repoFixturePath } from "../testing/repos.js";
-import {
-  acquireDistArtifactLock,
-  type DistArtifactLockRelease,
-} from "../testing/dist-artifact-lock.js";
+import { ensureFreshDistArtifacts } from "../testing/dist-self-heal.js";
+import type { DistArtifactLockRelease } from "../testing/dist-artifact-lock.js";
 import { ReviewRpcClient, RpcResponseError } from "./client.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import type { ReviewJobStatus } from "./protocol.js";
@@ -41,7 +38,6 @@ import type { ReviewJobView } from "./service.js";
 // 哨兵纪律同 #7：key 只允许出现在 Authorization 头；stderr/落盘面全量扫描。
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const repoRoot = path.resolve(packageDir, "..", "..");
 const BIN_PATH = path.join(packageDir, "bin", "review-pi.js");
 
 /** 哨兵 key：只该进 Authorization 头；出现在任何输出/落盘面即失败 */
@@ -73,49 +69,10 @@ afterAll(() => {
   }
 });
 
-// ---- 自愈构建：与 bin 同一真源判鲜（cli-runtime 腿表），陈旧即按腿重建 ----
+// ---- 自愈构建：收拢至 testing/dist-self-heal.ts（判鲜 + 陈旧按腿重建 + 锁） ----
 // CI 有显式 dist 前置构建，本钩子通常 no-op；本地源码新于产物时自愈。
-// 先取 dist 产物锁再判鲜/重建：真 bin spawn 与并行 fork 的回拨/重建互斥。
 beforeAll(async () => {
-  releaseDistLock = await acquireDistArtifactLock();
-  const check = checkRuntimeArtifacts();
-  if (check.ok) {
-    return;
-  }
-  const staleCommands = new Set(check.refusals.map((refusal) => refusal.buildCommand));
-  // 腿间有依赖序：vendored pi 四包（root 脚本按依赖序）→ review-llm → 本包
-  const buildOrder = [
-    "pnpm build:pi",
-    "pnpm --filter review-llm build",
-    "pnpm --filter review-pi build",
-  ];
-  for (const command of buildOrder) {
-    if (!staleCommands.has(command)) {
-      continue;
-    }
-    const run = spawn(command, {
-      cwd: repoRoot,
-      shell: true,
-      timeout: 480_000,
-    });
-    // spawn（非 spawnSync）：shell 命令的输出在 close 时落定
-    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
-      (resolve) => {
-        let stdout = "";
-        let stderr = "";
-        run.stdout?.on("data", (chunk: Buffer) => {
-          stdout += chunk.toString("utf8");
-        });
-        run.stderr?.on("data", (chunk: Buffer) => {
-          stderr += chunk.toString("utf8");
-        });
-        run.on("close", (status) => resolve({ status, stdout, stderr }));
-      },
-    );
-    if (result.status !== 0) {
-      throw new Error(`self-heal build failed (${command}, exit ${result.status}):\n${result.stdout}${result.stderr}`);
-    }
-  }
+  releaseDistLock = await ensureFreshDistArtifacts();
 }, 600_000);
 
 // ---- loopback stub：真 HTTP 传输层上的 canned 网关（rpc 面：只有 SSE 路径）----
@@ -510,6 +467,9 @@ test(
       expect(caps.limits).toEqual({
         maxDiffBytes: 8 * 1024 * 1024,
         maxQueueDepth: 100,
+        // #31：仓库规模准入随 service.limits 派生（stdio / HTTP 两面同源）
+        maxRepoFiles: 20_000,
+        maxRepoBytes: 512 * 1024 * 1024,
         concurrency: 1,
       });
 

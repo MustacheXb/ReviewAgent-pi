@@ -412,7 +412,7 @@ describe("rpc 子命令", () => {
 // ---- server 子命令（#28，ADR-0013：HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等） ----
 
 describe("server 子命令", () => {
-  test("最小 argv（缺省 sqlite）：--data-dir 必填落位、out 缺省即 dataDir、host/port/concurrency 缺省", () => {
+  test("最小 argv（缺省 sqlite）：--data-dir 必填落位、out 缺省即 dataDir、host/port/executor/concurrency 缺省", () => {
     expect(parseCliArgs(["server", "--auth-token-file", "tokens.json", "--data-dir", "data"])).toEqual({
       ok: true,
       command: "server",
@@ -421,7 +421,9 @@ describe("server 子命令", () => {
         port: 8787,
         out: "data",
         authTokenFile: "tokens.json",
-        concurrency: 1,
+        // #31：executor 缺省 worker；concurrency 缺省随 executor（worker 2）
+        executor: "worker",
+        concurrency: 2,
         store: "sqlite",
         dataDir: "data",
       },
@@ -615,10 +617,38 @@ describe("server 子命令", () => {
 
   test("USAGE_TEXT 宣告 server 用法面（单一来源）", () => {
     expect(USAGE_TEXT).toContain(
-      "reviewagent server --auth-token-file <file> [--data-dir <dir>] [--store sqlite|memory] [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]",
+      "reviewagent server --auth-token-file <file> [--data-dir <dir>] [--store sqlite|memory] [--executor worker|inprocess] [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]",
     );
     expect(USAGE_TEXT).toContain("HTTP JSON-RPC 长驻服务");
     expect(USAGE_TEXT).toContain("--data-dir");
     expect(USAGE_TEXT).toContain("--store    <backend>");
+    expect(USAGE_TEXT).toContain("--executor  <mode>");
+  });
+
+  test("--executor 值校验：非 worker/inprocess → 人话错误（--store 同款口径）", () => {
+    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--data-dir", "d", "--executor", "thread"])).toEqual({
+      ok: false,
+      message: 'invalid --executor "thread": expected "worker" or "inprocess"',
+    });
+  });
+
+  test("--executor inprocess 逃生口：concurrency 缺省回落 1（不随 worker 池抬升）", () => {
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--data-dir", "d", "--executor", "inprocess"]),
+    ).toEqual({
+      ok: true,
+      command: "server",
+      args: expect.objectContaining({ executor: "inprocess", concurrency: 1 }),
+    });
+  });
+
+  test("--executor worker + 显式 --concurrency 恒优先（缺省抬升不覆盖显式值）", () => {
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--data-dir", "d", "--executor", "worker", "--concurrency", "1"]),
+    ).toEqual({
+      ok: true,
+      command: "server",
+      args: expect.objectContaining({ executor: "worker", concurrency: 1 }),
+    });
   });
 });

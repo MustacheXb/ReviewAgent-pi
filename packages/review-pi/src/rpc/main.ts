@@ -81,6 +81,9 @@ export interface RpcServerInfo {
   readonly limits: {
     readonly maxDiffBytes: number;
     readonly maxQueueDepth: number;
+    /** 仓库规模准入（#31，方案 §7.3）：submit 期普通文件数 / 累计字节上限 */
+    readonly maxRepoFiles?: number;
+    readonly maxRepoBytes?: number;
     readonly concurrency: number;
     /** HTTP 面专属（#28）：请求 body 上限；stdio 无传输上限概念——缺席省键 */
     readonly maxBodyBytes?: number;
@@ -288,6 +291,8 @@ export async function runRpcMain(args: RpcCliArgs, io: RpcMainIo = {}): Promise<
     limits: {
       maxDiffBytes: service.limits.maxDiffBytes,
       maxQueueDepth: service.limits.maxQueueDepth,
+      maxRepoFiles: service.limits.maxRepoFiles,
+      maxRepoBytes: service.limits.maxRepoBytes,
       concurrency: args.concurrency,
     },
   };

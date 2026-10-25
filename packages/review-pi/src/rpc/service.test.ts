@@ -7,7 +7,7 @@
  * realpath/存在性校验（-32012）；diff 判别联合（file 读内容）；事件 per-job seq。
  */
 
-import { mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative as relativePath } from "node:path";
 
@@ -873,4 +873,132 @@ test("artifacts：succeeded 带双路径 + finishedAtMs；running 缺席；queue
     status: "cancelled",
     finishedAtMs: FIXED_DATE.getTime(),
   });
+});
+
+// ---- #31 P3b：排队/执行超时自动终态化 + drain 超时硬收口 + 仓库规模准入 ----
+
+test("queueTimeout：queued 超时 → failed(-32018) 出队不再开工；running 位不受影响", async () => {
+  const repo = await makeTmpDir();
+  const executor = new FakeReviewRunExecutor();
+  const service = createReviewService({ executor, now: fixedNow, queueTimeoutMs: 60 });
+  const running = await service.submit(reviewRequest({ repoPath: repo }), CTX);
+  await flushAsync(); // job1 占住并发位（fake 挂起）
+  const queued = await service.submit(
+    reviewRequest({ caseId: "VUL4J-2", repoPath: repo }),
+    CTX,
+  );
+  expect(queued.status).toBe("queued");
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  // 排队超时自动终态化：死单不无限占用队列位
+  const timedOut = await service.get(queued.jobId, CTX);
+  expect(timedOut?.status).toBe("failed");
+  expect(timedOut?.error?.message).toBe("job exceeded queueTimeout (-32018 QUEUE_TIMEOUT)");
+  // running 位不受波及
+  expect((await service.get(running.jobId, CTX))?.status).toBe("running");
+
+  // running 落定后不补跑已终态的 queued（出队即出局）
+  executor.executions[0]!.resolve(fakeReviewRunSummary());
+  await flushAsync();
+  expect(executor.executions).toHaveLength(1);
+});
+
+test("jobTimeout：running 超时 → abort + failed(-32014)；迟到 resolve 不翻案（终态不可逆）", async () => {
+  const repo = await makeTmpDir();
+  const executor = new FakeReviewRunExecutor();
+  const service = createReviewService({ executor, now: fixedNow, jobTimeoutMs: 60 });
+  const submitted = await service.submit(reviewRequest({ repoPath: repo }), CTX);
+  await flushAsync();
+  const execution = executor.executions[0]!;
+  expect(execution.ctx.signal.aborted).toBe(false);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+
+  const timedOut = await service.get(submitted.jobId, CTX);
+  expect(timedOut?.status).toBe("failed");
+  expect(timedOut?.error?.message).toBe("job exceeded jobTimeout (-32014 JOB_TIMEOUT)");
+  // 超时即打 abort（协作取消缝——worker 池面据此走宽限→terminate 硬边界）
+  expect(execution.ctx.signal.aborted).toBe(true);
+
+  // 迟到成功不翻案：终态护栏吞掉晚到的 executor 结算
+  execution.resolve(fakeReviewRunSummary());
+  await flushAsync();
+  const late = await service.get(submitted.jobId, CTX);
+  expect(late?.status).toBe("failed");
+  expect(late?.result).toBeUndefined();
+});
+
+test("drain 超时：close 等 running 超drainTimeoutMs 未落定 → force cancelled(SERVER_DRAIN)，close 落定不悬挂", async () => {
+  const repo = await makeTmpDir();
+  const executor = new FakeReviewRunExecutor();
+  const service = createReviewService({ executor, now: fixedNow, drainTimeoutMs: 60 });
+  const submitted = await service.submit(reviewRequest({ repoPath: repo }), CTX);
+  await flushAsync();
+
+  await service.close(); // 不等 fake 落定——超时路径必须让 close 自己收口
+
+  const drained = await service.get(submitted.jobId, CTX);
+  expect(drained?.status).toBe("cancelled");
+  // SERVER_DRAIN 理由进 error.message（机读码嵌文案，SERVER_RESTART 同款纪律）
+  expect(drained?.error?.message).toBe("job cancelled by server drain (-32010 SERVER_DRAIN)");
+  expect(executor.executions[0]!.ctx.signal.aborted).toBe(true);
+
+  // 迟到错误不翻案
+  executor.executions[0]!.reject(new Error("late failure"));
+  await flushAsync();
+  expect((await service.get(submitted.jobId, CTX))?.status).toBe("cancelled");
+});
+
+test("repo 准入：超 maxRepoFiles → -32004（data 带 maxRepoFiles）；点开头目录（.git 等）不计入", async () => {
+  const repo = await makeTmpDir();
+  for (let i = 0; i < 3; i += 1) {
+    await writeFile(join(repo, `f${i}.txt`), "x", "utf8");
+  }
+  await mkdir(join(repo, ".git"), { recursive: true });
+  for (let i = 0; i < 10; i += 1) {
+    await writeFile(join(repo, ".git", `object-${i}`), "x", "utf8");
+  }
+
+  const executor = new FakeReviewRunExecutor();
+  const service = createReviewService({
+    executor,
+    now: fixedNow,
+    limits: { maxRepoFiles: 2 },
+  });
+  await expect(service.submit(reviewRequest({ repoPath: repo }), CTX)).rejects.toMatchObject({
+    code: -32004,
+    data: { maxRepoFiles: 2 },
+  });
+  expect(executor.executions).toHaveLength(0);
+
+  // 门槛内（.git 10 文件不计）→ 正常受理
+  const serviceWithin = createReviewService({
+    executor,
+    now: fixedNow,
+    limits: { maxRepoFiles: 5 },
+  });
+  const view = await serviceWithin.submit(reviewRequest({ repoPath: repo }), CTX);
+  expect(view.status).toBe("queued");
+});
+
+test("repo 准入：超 maxRepoBytes → -32004（data 带 maxRepoBytes）", async () => {
+  const repo = await makeTmpDir();
+  await writeFile(join(repo, "big.txt"), "x".repeat(2000), "utf8");
+
+  const service = createReviewService({
+    executor: new FakeReviewRunExecutor(),
+    now: fixedNow,
+    limits: { maxRepoBytes: 1024 },
+  });
+  await expect(service.submit(reviewRequest({ repoPath: repo }), CTX)).rejects.toMatchObject({
+    code: -32004,
+    data: { maxRepoBytes: 1024 },
+  });
+});
+
+test("超时/准入缺省值锁定（soak 标定落档——调整须有意识决策）：queue 30min / job 60min / drain 60s / repo 20k 文件 512MiB", () => {
+  const service = createReviewService({ executor: new FakeReviewRunExecutor() });
+  expect(service.limits.maxRepoFiles).toBe(20_000);
+  expect(service.limits.maxRepoBytes).toBe(512 * 1024 * 1024);
 });

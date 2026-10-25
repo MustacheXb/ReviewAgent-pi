@@ -1,22 +1,19 @@
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import type { ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-import { checkRuntimeArtifacts, CLI_COMPILED_ENTRY } from "../../bin/lib/cli-runtime.js";
 import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { goldenFixture } from "../testing/golden.js";
 import { reserveFreePort } from "../testing/free-port.js";
 import { createTempDirRegistry } from "../testing/temp-dir.js";
 import { repoFixturePath } from "../testing/repos.js";
-import {
-  acquireDistArtifactLock,
-  type DistArtifactLockRelease,
-} from "../testing/dist-artifact-lock.js";
+import { ensureFreshDistArtifacts } from "../testing/dist-self-heal.js";
+import type { DistArtifactLockRelease } from "../testing/dist-artifact-lock.js";
+import { collectFiles } from "../testing/scan-files.js";
+import { spawnReviewServer, waitForHealthz } from "../testing/server-process.js";
 import type { HttpReviewJobView } from "./http-view.js";
 import { ReviewHttpClient, type ReviewHttpClientEvent } from "./http-client.js";
 
@@ -61,41 +58,9 @@ afterAll(() => {
   tempDirs.removeAll();
 });
 
-// ---- 自愈构建：与 bin 同一真源判鲜（cli-runtime 腿表），陈旧即按腿重建 ----
+// ---- 自愈构建：收拢至 testing/dist-self-heal.ts（判鲜 + 陈旧按腿重建 + 锁） ----
 beforeAll(async () => {
-  releaseDistLock = await acquireDistArtifactLock();
-  const check = checkRuntimeArtifacts();
-  if (check.ok) {
-    return;
-  }
-  const staleCommands = new Set(check.refusals.map((refusal) => refusal.buildCommand));
-  const buildOrder = [
-    "pnpm build:pi",
-    "pnpm --filter review-llm build",
-    "pnpm --filter review-pi build",
-  ];
-  for (const command of buildOrder) {
-    if (!staleCommands.has(command)) {
-      continue;
-    }
-    const run = spawn(command, { cwd: repoRoot, shell: true, timeout: 480_000 });
-    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
-      (resolve) => {
-        let stdout = "";
-        let stderr = "";
-        run.stdout?.on("data", (chunk: Buffer) => {
-          stdout += chunk.toString("utf8");
-        });
-        run.stderr?.on("data", (chunk: Buffer) => {
-          stderr += chunk.toString("utf8");
-        });
-        run.on("close", (status) => resolve({ status, stdout, stderr }));
-      },
-    );
-    if (result.status !== 0) {
-      throw new Error(`self-heal build failed (${command}, exit ${result.status}):\n${result.stdout}${result.stderr}`);
-    }
-  }
+  releaseDistLock = await ensureFreshDistArtifacts();
 }, 600_000);
 
 // ---- 二相位 stub：第 1 请求挂住（制造 running 崩溃面），后续回放脚本 ----
@@ -196,16 +161,10 @@ function startTwoPhaseStub(replies: readonly FakeReply[]): Promise<TwoPhaseStub>
   });
 }
 
-// ---- server 进程面助手 ----
+// ---- server 进程面助手（spawn / 就绪轮询收拢单源：testing/server-process.ts） ----
 
-interface ServerHandle {
-  readonly baseUrl: string;
-  readonly stderr: () => string;
-  readonly kill: () => void;
-  readonly waitForClose: (timeoutMs: number) => Promise<{ status: number | null; signal: NodeJS.Signals | null }>;
-}
-
-interface SpawnServerOptions {
+/** server spawn 夹具参数（崩溃恢复面固定并发 1——job1 占住单槽保 job2 queued） */
+interface ServerFixture {
   readonly dataDir: string;
   readonly tokenFile: string;
   readonly port: number;
@@ -215,93 +174,23 @@ interface SpawnServerOptions {
   readonly extraNodeArgs?: readonly string[];
 }
 
-/** spawn 真 server（dist 编译入口直杀真身，不经 bin 壳）并收 stderr */
-function spawnServer(options: SpawnServerOptions): ServerHandle {
-  const child: ChildProcess = spawn(
-    process.execPath,
-    [
-      ...(options.extraNodeArgs ?? []),
-      CLI_COMPILED_ENTRY,
-      "server",
-      "--auth-token-file",
-      options.tokenFile,
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(options.port),
-      "--data-dir",
-      options.dataDir,
-    ],
-    {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        REVIEWER_URL: options.stubBaseUrl,
-        REVIEWER_API_KEY: SENTINEL_KEY,
-      },
-      stdio: ["ignore", "ignore", "pipe"],
-    },
-  );
-  let stderr = "";
-  child.stderr?.setEncoding("utf8");
-  child.stderr?.on("data", (chunk: string) => {
-    stderr += chunk;
+/**
+ * spawn 真 server（dist 编译入口直杀真身，不经 bin 壳）。#31 起 --concurrency
+ * 缺省随 executor 抬到 2（worker 池）——本夹具的崩溃恢复面依赖「job2 恒
+ * queued」（单槽被 job1 占住），恒传 --concurrency 1；并发 2 生产档由 #31
+ * soak 用例覆盖。
+ */
+function spawnServer(fixture: ServerFixture) {
+  return spawnReviewServer({
+    repoRoot,
+    dataDir: fixture.dataDir,
+    tokenFile: fixture.tokenFile,
+    port: fixture.port,
+    stubBaseUrl: fixture.stubBaseUrl,
+    ...(fixture.extraNodeArgs !== undefined ? { extraNodeArgs: fixture.extraNodeArgs } : {}),
+    env: { REVIEWER_URL: fixture.stubBaseUrl, REVIEWER_API_KEY: SENTINEL_KEY },
+    extraServerArgs: ["--concurrency", "1"],
   });
-  let closeInfo: { status: number | null; signal: NodeJS.Signals | null } | undefined;
-  const closeWaiters: Array<(info: { status: number | null; signal: NodeJS.Signals | null }) => void> = [];
-  child.on("close", (status, signal) => {
-    closeInfo = { status, signal };
-    for (const waiter of closeWaiters.splice(0)) {
-      waiter(closeInfo);
-    }
-  });
-  return {
-    baseUrl: `http://127.0.0.1:${options.port}`,
-    stderr: () => stderr,
-    kill: () => {
-      child.kill("SIGKILL"); // 崩溃语义：不给 drain 机会（Windows = TerminateProcess 硬杀）
-    },
-    waitForClose(timeoutMs: number) {
-      if (closeInfo !== undefined) {
-        return Promise.resolve(closeInfo);
-      }
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          const index = closeWaiters.indexOf(settled);
-          if (index !== -1) {
-            closeWaiters.splice(index, 1);
-          }
-          reject(new Error(`server did not exit within ${timeoutMs}ms; stderr tail: ${stderr.slice(-500)}`));
-        }, timeoutMs);
-        const settled = (info: { status: number | null; signal: NodeJS.Signals | null }): void => {
-          clearTimeout(timer);
-          resolve(info);
-        };
-        closeWaiters.push(settled);
-      });
-    },
-  };
-}
-
-/** 轮询 healthz 就绪（匿名 liveness；上限防挂） */
-async function waitForHealthz(baseUrl: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      const res = await fetch(`${baseUrl}/healthz`);
-      // body 必须消费：未读 body 的 keep-alive 连接在 server 视角非 idle
-      await res.body?.cancel().catch(() => undefined);
-      if (res.status === 200) {
-        return;
-      }
-    } catch {
-      // 未就绪（ECONNREFUSED）——继续轮询
-    }
-    if (Date.now() > deadline) {
-      throw new Error(`server ${baseUrl} not healthy within ${timeoutMs}ms`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
 }
 
 /** 轮询 get 直到目标状态；到达别的终态 = 提前失败（人话带 error 摘要） */
@@ -355,23 +244,6 @@ async function collectEvents(
       collected.map((event) => [event.seq, event.status]),
     )}`,
   );
-}
-
-/** 递归收集目录下全部文件路径（落盘面哨兵扫描用） */
-function collectFiles(root: string): readonly string[] {
-  const files: string[] = [];
-  const visit = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        visit(full);
-      } else {
-        files.push(full);
-      }
-    }
-  };
-  visit(root);
-  return files;
 }
 
 /** token 文件（单租户：崩溃恢复链 + artifact 下载全量 scope） */
@@ -436,8 +308,8 @@ test(
       });
       expect(job2.status).toBe("queued");
     } finally {
-      // 崩溃：SIGKILL 不 drain（无论上文成败，server 都要收口）
-      serverA.kill();
+      // 崩溃：SIGKILL 不 drain（无论上文成败，server 都要收口；Windows = 硬杀同义）
+      serverA.kill("SIGKILL");
       await serverA.waitForClose(30_000);
     }
     expect(job1).toBeDefined();
@@ -540,7 +412,7 @@ test(
         expect(text.includes(SENTINEL_KEY), `${label} must not contain the API key`).toBe(false);
       }
     } finally {
-      serverB.kill();
+      serverB.kill("SIGKILL");
       await serverB.waitForClose(30_000);
       await stub.close();
     }

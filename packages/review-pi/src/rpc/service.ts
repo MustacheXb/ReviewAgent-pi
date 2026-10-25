@@ -16,6 +16,11 @@
  * / `artifacts` 双读（内存 miss → store——跨重启历史 job 可查，SSE
  * `Last-Event-ID` 跨重启重放成立）。缺省 memory store（#29 行为原样——
  * 存量调用方零改动）；生产装配注入 sqlite（server/main.ts）。
+ * #31 P3b：超时自动终态化（死单不无限占用——方案 §7.2）：queueTimeout
+ * 30min → failed(-32018)、jobTimeout 60min → abort + failed(-32014)；close
+ * drain 超时 60s → force cancelled(SERVER_DRAIN)（方案 §8.5：drain 是等待，
+ * 超时才杀）；submit 期仓库规模准入（maxRepoFiles / maxRepoBytes——方案
+ * §7.3：RepoContext 每 job 缓存源码与 symbol index，并发 × 大仓放大内存）。
  *
  * 不变量（spec §7.2）：
  * - submit 只受理并入队，不等待执行完成（worker 启动排微任务，响应恒为 queued 快照）；
@@ -29,7 +34,8 @@
  * per-job 单调（首事件 = 1）——多 job 事件在同一连接交错时各自计数。
  */
 
-import { readFile, realpath, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { join } from "node:path";
 
 import type { ConfigId } from "../contracts/config.js";
 import { resolvePath } from "../shared/paths.js";
@@ -60,10 +66,28 @@ const DEFAULT_MAX_DIFF_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_QUEUE_DEPTH = 100;
 /** spec §6.2：默认并发 1（>1 的安全前提见方案 §6.2，v1 未验证放开） */
 const DEFAULT_CONCURRENCY = 1;
+/** spec §7.2：排队超时 30 min（-32018 自动终态化） */
+const DEFAULT_QUEUE_TIMEOUT_MS = 30 * 60_000;
+/** spec §7.2：执行超时 60 min（-32014 abort + 自动终态化） */
+const DEFAULT_JOB_TIMEOUT_MS = 60 * 60_000;
+/** spec §8.5：drain 超时 60 s（超时 abort 剩余 → cancelled(SERVER_DRAIN)） */
+const DEFAULT_DRAIN_TIMEOUT_MS = 60_000;
+/**
+ * 仓库规模准入缺省（#31 soak 标定落档，方案 §7.3）：RepoContext 每 job 缓存
+ * Java 源码 + symbol index（≈3–5× 源码字节的内存形态）× 并发 worker 数。
+ * 企业服务仓 base 快照典型 <5k 文件 / <100 MiB；20k 文件 / 512 MiB 是只拦
+ * 病理输入（monorepo 整检出仓——应传子目录）的宽松天花板，正常服务仓零误伤。
+ */
+const DEFAULT_MAX_REPO_FILES = 20_000;
+const DEFAULT_MAX_REPO_BYTES = 512 * 1024 * 1024;
 
 export interface ReviewServiceLimits {
   readonly maxDiffBytes: number;
   readonly maxQueueDepth: number;
+  /** 仓库规模准入（#31）：普通文件数上限（点开头目录不计——rg 缺省跳隐藏面同口径） */
+  readonly maxRepoFiles: number;
+  /** 仓库规模准入（#31）：普通文件累计字节上限 */
+  readonly maxRepoBytes: number;
 }
 
 export interface ReviewServiceOptions {
@@ -95,6 +119,21 @@ export interface ReviewServiceOptions {
    * 重放随 store 持久性成立。store 生命周期归装配层（service.close 不关它）。
    */
   readonly store?: ReviewJobStore;
+  /**
+   * 排队超时毫秒（#31，方案 §7.2；缺省 30 min）：queued 超时 → failed
+   * （-32018 QUEUE_TIMEOUT）自动终态化——死单不无限占用队列位。测试注入小值。
+   */
+  readonly queueTimeoutMs?: number;
+  /**
+   * 执行超时毫秒（#31，方案 §7.2；缺省 60 min）：running 超时 → abort +
+   * failed（-32014 JOB_TIMEOUT）；迟到结算由终态护栏吞掉。测试注入小值。
+   */
+  readonly jobTimeoutMs?: number;
+  /**
+   * close drain 超时毫秒（#31，方案 §8.5；缺省 60 s）：超时 abort 剩余
+   * running / cancelling → cancelled（SERVER_DRAIN）。测试注入小值。
+   */
+  readonly drainTimeoutMs?: number;
 }
 
 /** job 对外快照：progress/result/error 缺席省键（与内核审计同款纪律） */
@@ -184,6 +223,10 @@ interface InternalJob {
   result?: ReviewRunSummary;
   error?: { readonly message: string };
   readonly controller: AbortController;
+  /** queued 超时定时器（-32018；入队 / 恢复时武装，出队或终态时撤防） */
+  queueTimer?: NodeJS.Timeout;
+  /** running 超时定时器（-32014；开工时武装，任何结算时撤防） */
+  jobTimer?: NodeJS.Timeout;
   /** running 结算后 resolve（close drain 等待用） */
   readonly settled: Promise<void>;
   settle: () => void;
@@ -212,12 +255,25 @@ interface JobViewSource {
  */
 export const SERVER_RESTART_MESSAGE = "job interrupted by server restart (-32015 SERVER_RESTART)";
 
+/**
+ * 超时 / drain 终态化文案（#31，机读码嵌 message——SERVER_RESTART 同款纪律）。
+ * 导出面同理：测试与文档单源引用。
+ */
+export const QUEUE_TIMEOUT_MESSAGE = "job exceeded queueTimeout (-32018 QUEUE_TIMEOUT)";
+export const JOB_TIMEOUT_MESSAGE = "job exceeded jobTimeout (-32014 JOB_TIMEOUT)";
+export const SERVER_DRAIN_MESSAGE = "job cancelled by server drain (-32010 SERVER_DRAIN)";
+
 export function createReviewService(options: ReviewServiceOptions): ReviewService {
   const limits: ReviewServiceLimits = {
     maxDiffBytes: options.limits?.maxDiffBytes ?? DEFAULT_MAX_DIFF_BYTES,
     maxQueueDepth: options.limits?.maxQueueDepth ?? DEFAULT_MAX_QUEUE_DEPTH,
+    maxRepoFiles: options.limits?.maxRepoFiles ?? DEFAULT_MAX_REPO_FILES,
+    maxRepoBytes: options.limits?.maxRepoBytes ?? DEFAULT_MAX_REPO_BYTES,
   };
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
+  const queueTimeoutMs = options.queueTimeoutMs ?? DEFAULT_QUEUE_TIMEOUT_MS;
+  const jobTimeoutMs = options.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
+  const drainTimeoutMs = options.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
   const now = options.now ?? (() => new Date());
   const defaultRepoPath = options.defaultRepoPath;
   // store 缝（#30）：显式注入优先；缺省 memory（maxJobEvents 窗只在缺省内态生效）
@@ -292,7 +348,11 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
 
   const startJob = (job: InternalJob): void => {
     job.status = "running";
+    clearTimeout(job.queueTimer); // 出队即撤排队超时
     runningCount += 1;
+    // 执行超时武装（#31）：超时 → abort + failed(-32014)——协作取消缝打通
+    // worker 池面的宽限→terminate 硬边界；迟到结算由终态护栏吞掉
+    job.jobTimer = setTimeout(() => forceTerminal(job, "failed", JOB_TIMEOUT_MESSAGE), jobTimeoutMs);
     emitEvent(job);
     const ctx: ReviewRunContext = {
       jobId: job.jobId,
@@ -332,6 +392,7 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     if (job.status === "succeeded" || job.status === "failed" || job.status === "cancelled") {
       return; // 终态不可逆（同 job 至多一个执行实例，防御性护栏）
     }
+    clearTimeout(job.jobTimer); // 结算即撤执行超时（forceTerminal 已终态化则在此前撤过）
     if (outcome.kind === "succeeded") {
       job.status = "succeeded";
       job.result = outcome.summary;
@@ -344,6 +405,44 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     }
     markFinished(job);
     runningCount -= 1;
+    emitEvent(job);
+    job.settle();
+    pump();
+  };
+
+  const isTerminal = (status: ReviewJobStatus): boolean =>
+    status === "succeeded" || status === "failed" || status === "cancelled";
+
+  /**
+   * 服务端强制终态化单源（#31）：queueTimeout / jobTimeout / drain 超时共用。
+   * 与 settleJob 的分工：settleJob 收 executor 结算（口径按 cancel 竞态映射），
+   * forceTerminal 收服务端自身裁决（超时/drain——事实即终态，无需竞态映射）。
+   * 全簿记一次成型：出队/撤定时器/abort/并发位/事件/settle；终态护栏保证与
+   * 迟到的 executor 结算互不双记。
+   */
+  const forceTerminal = (job: InternalJob, status: "failed" | "cancelled", errorMessage?: string): void => {
+    if (isTerminal(job.status)) {
+      return;
+    }
+    if (job.status === "queued") {
+      const queueIndex = queue.indexOf(job);
+      if (queueIndex !== -1) {
+        queue.splice(queueIndex, 1);
+      }
+      clearTimeout(job.queueTimer);
+    } else {
+      // running / cancelling：打协作取消缝（worker 池面据此走宽限→terminate）
+      job.controller.abort();
+      clearTimeout(job.jobTimer);
+      runningCount -= 1;
+    }
+    job.status = status;
+    // SERVER_DRAIN 理由经 error.message 进 view（机读码嵌文案——SERVER_RESTART
+    // 同款；用户主动 cancel 不带 error，服务端强制取消是唯一例外，测试锁语义）
+    if (errorMessage !== undefined) {
+      job.error = { message: errorMessage };
+    }
+    markFinished(job);
     emitEvent(job);
     job.settle();
     pump();
@@ -398,6 +497,57 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     }
   };
 
+  /**
+   * 仓库规模准入（#31，方案 §7.3）：submit 期递归清点普通文件数与累计字节，
+   * 超限 → -32004（死大仓不进队列、不进 worker 内存）。口径：点开头目录
+   * （.git 等）不计——内核 RepoContext 的 rg 清单缺省跳隐藏面，准入与内核
+   * 实际读取面同口径；symlink 不计不递归（环防御）。超限即早抛，不把整个
+   * 病理仓走完。清点中的 IO 失败（删除/权限竞态）按 -32012 收口。
+   */
+  const assertRepoWithinLimits = async (repoPath: string): Promise<void> => {
+    let files = 0;
+    let bytes = 0;
+    const walk = async (dir: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        throw repoNotFound("repoPath", "directory");
+      }
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) {
+          continue;
+        }
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(full);
+        } else if (entry.isFile()) {
+          files += 1;
+          if (files > limits.maxRepoFiles) {
+            throw new RpcError(
+              JSON_RPC_ERROR.PAYLOAD_TOO_LARGE,
+              "repository exceeds maxRepoFiles",
+              { maxRepoFiles: limits.maxRepoFiles },
+            );
+          }
+          try {
+            bytes += (await stat(full)).size;
+          } catch {
+            throw repoNotFound("repoPath", "directory");
+          }
+          if (bytes > limits.maxRepoBytes) {
+            throw new RpcError(
+              JSON_RPC_ERROR.PAYLOAD_TOO_LARGE,
+              "repository exceeds maxRepoBytes",
+              { maxRepoBytes: limits.maxRepoBytes },
+            );
+          }
+        }
+      }
+    };
+    await walk(repoPath);
+  };
+
   const submit = async (
     request: ReviewRequest,
     ctx: CallContext,
@@ -406,6 +556,7 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
       throw new RpcError(JSON_RPC_ERROR.SERVER_DRAINING, "server is draining");
     }
     const repoPath = await resolveRepoPath(request.repoPath);
+    await assertRepoWithinLimits(repoPath);
     const diffText = await resolveDiffText(request.diff);
     // 空 diff 无检视意义（inline 空串协议层已拒，此处兜底直调与 file 空文件同口径）
     if (diffText.length === 0) {
@@ -456,6 +607,9 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     jobs.set(jobId, job);
     store.saveJob(job); // queued 快照持久（重启恢复面：input 已随快照落盘）
     queue.push(job);
+    // 排队超时武装（#31）：queued 滞留超 queueTimeout → failed(-32018) 自动
+    // 终态化——死单不无限占用队列位
+    job.queueTimer = setTimeout(() => forceTerminal(job, "failed", QUEUE_TIMEOUT_MESSAGE), queueTimeoutMs);
     schedulePump();
     return viewOf(job);
   };
@@ -501,15 +655,8 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
   /** 状态转移单源（public cancel 与 close drain 共用；drain 是服务端自身行为，不走租户门） */
   const cancelJob = (job: InternalJob): void => {
     if (job.status === "queued") {
-      // 直接出队终态：cancelled（drain 取消同路径）
-      job.status = "cancelled";
-      const queueIndex = queue.indexOf(job);
-      if (queueIndex !== -1) {
-        queue.splice(queueIndex, 1);
-      }
-      markFinished(job);
-      emitEvent(job);
-      job.settle();
+      // 直接出队终态：cancelled（drain 取消同路径；无 error——用户/drain 主动取消不是失败）
+      forceTerminal(job, "cancelled");
     } else if (job.status === "running") {
       job.status = "cancelling";
       job.controller.abort(); // 内核信号缝（S2 实装真实取消）
@@ -594,11 +741,24 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     for (const job of [...queue]) {
       cancelJob(job);
     }
-    // 等待 running/cancelling 全部落定
+    // 等待 running/cancelling 全部落定；drain 超时（方案 §8.5 缺省 60s）后
+    // abort 剩余并标 cancelled（SERVER_DRAIN）——close 不无限悬挂
     const unsettled = [...jobs.values()].filter(
       (job) => job.status === "running" || job.status === "cancelling",
     );
-    await Promise.all(unsettled.map((job) => job.settled));
+    if (unsettled.length === 0) {
+      return;
+    }
+    const drainTimer = setTimeout(() => {
+      for (const job of unsettled) {
+        forceTerminal(job, "cancelled", SERVER_DRAIN_MESSAGE);
+      }
+    }, drainTimeoutMs);
+    try {
+      await Promise.all(unsettled.map((job) => job.settled));
+    } finally {
+      clearTimeout(drainTimer);
+    }
   };
 
   /** 幂等且并发安全：重复/并发调用共享同一 drain promise（第二个不提前返回） */
@@ -636,6 +796,12 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
         };
         jobs.set(job.jobId, job);
         queue.push(job);
+        // 重入队即重新武装排队超时（#31）：停机时长不累计（从恢复时刻起算——
+        // 原提交时刻的 30min 窗在崩溃时已失效，重算语义最简）
+        job.queueTimer = setTimeout(
+          () => forceTerminal(job, "failed", QUEUE_TIMEOUT_MESSAGE),
+          queueTimeoutMs,
+        );
       } else {
         // 终态快照纪律：执行中间态（progress）不落终态；error 携带机读码
         const failed: StoredReviewJob = {

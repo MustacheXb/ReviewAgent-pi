@@ -47,6 +47,8 @@ const SERVER_INFO: RpcServerInfo = {
   limits: {
     maxDiffBytes: 8 * 1024 * 1024,
     maxQueueDepth: 100,
+    maxRepoFiles: 20_000,
+    maxRepoBytes: 512 * 1024 * 1024,
     concurrency: 1,
   },
 };
@@ -205,7 +207,7 @@ test("session：内部异常 → -32603 固定文案（异常 message 不进协�
     subscribe: () => () => {},
     close: async () => {},
     isDraining: () => false,
-    limits: { maxDiffBytes: 1, maxQueueDepth: 1 },
+    limits: { maxDiffBytes: 1, maxQueueDepth: 1, maxRepoFiles: 1, maxRepoBytes: 1 },
   };
   const session = createRpcSession({
     service: stubService,

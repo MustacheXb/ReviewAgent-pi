@@ -1055,20 +1055,28 @@ server 不应直接依赖 `RunRecord` 的内部形状。该投影已在 #23 随 
 - HTTP server 要与 job 执行解耦：健康检查、提交、查询、SSE 不能被解析阻塞。
 - 取消的硬边界：worker 可 `terminate()`；进程内只能协作式 abort。
 
-推荐：
+推荐（#31 P3b 已落地）：
 
-- P1：`InProcessExecutor`，`concurrency = 1`，只用于本地开发与测试。
-- P3：`WorkerPoolExecutor`，worker 数 = CPU/内存预算（默认 2），每个 worker 内独立
-  parser 与模块状态；取消 = post abort + 超时 `terminate()`。
+- `--executor inprocess`（进程内执行器，`concurrency = 1`）：逃生口——与 stdio
+  面同款执行器，本地开发与测试用。
+- `--executor worker`（**#31 起 server 缺省**，`concurrency = 2`）：worker_threads
+  池——每 worker 独立 V8 isolate（parser 与模块状态天然隔离），懒启动常驻复用；
+  取消 = abort 命令 + ~10s 协作宽限后 `terminate()`（被终止 worker 由池补齐，
+  池大小恒定）。`--concurrency` 显式指定恒优先。
+- 线程体入口是独立加载面：`reviewagent` 产品包双入口 bundle（`dist/cli.mjs` +
+  `dist/review-worker.mjs`，池缺省探测 cli.mjs 旁的 review-worker.mjs；
+  `REVIEWAGENT_WORKER_ENTRY` 环境变量可覆盖）。
 
 ### 7.2 队列与背压
 
 - `maxQueueDepth`：默认 100；满则 `-32002 queue_full` / HTTP 429。
-- `maxConcurrentJobs`：**已拍板** P1 默认 **1**（与 stdio v1 对齐）；P3 worker 池验证后
-  生产可配 2。
+- `maxConcurrentJobs`：stdio / CLI / `--executor inprocess` 恒 **1**（与 stdio v1
+  对齐）；HTTP server **#31 起缺省 2**（worker 池生产档，`--concurrency` 可调）。
 - 每 tenant 可加 `maxInFlight`，防单租户饿死其它租户。
-- `queued` 超时（默认 30 min）自动 `failed`，错误码 `-32018 queue_timeout`。
-- `jobTimeoutMs`：默认 60 min；超时 abort + `failed`，错误码 `-32014 job_timeout`。
+- `queued` 超时（默认 30 min）自动 `failed`，错误码 `-32018 queue_timeout`（#31
+  已落地：submit 时武装定时器，超时自动终态化，死单不无限占用）。
+- `jobTimeoutMs`：默认 60 min；超时 abort + `failed`，错误码 `-32014 job_timeout`
+  （#31 已落地：dispatch 时武装，超时自动终态化）。
 - SSE 每 job 订阅者上限默认 8、每 tenant 默认 32；慢消费者超过写队列上限后断开，
   客户端靠 `Last-Event-ID` 重连或 `review.get` 快照恢复。
 - `429` 与 `503` 都必须带 `Retry-After`（秒）。
@@ -1078,6 +1086,13 @@ server 不应直接依赖 `RunRecord` 的内部形状。该投影已在 #23 随 
 - `RepoContext` 对每个 job 缓存源码与 symbol index；并发 × 大仓会放大内存。
 - 准入检查：`maxRepoFiles`、`maxRepoBytes`、`maxDiffBytes`；超限在 submit 阶段拒绝。
 - 预取预算与 config 语义不变；server 不额外注入上下文。
+
+**缺省值标定（#31 soak 落档）**：`maxRepoFiles = 20_000`、`maxRepoBytes = 512 MiB`
+（capabilities 面可见）。标定依据：RepoContext 缓存 Java 源码 + symbol index
+（≈3–5× 源码字节的内存形态）× 并发 worker 数；企业服务仓 base 快照典型
+<5k 文件 / <100 MiB——20k / 512 MiB 是只拦病理输入（monorepo 整检出仓——应传
+子目录）的宽松天花板，正常服务仓零误伤。点开头目录不计（与 rg 缺省跳隐藏面
+同口径）。
 
 ---
 
@@ -1137,6 +1152,16 @@ server 不应直接依赖 `RunRecord` 的内部形状。该投影已在 #23 随 
 - SIGTERM：停止收单（`server_draining`）→ 排空 running → 关闭 store → 退出。
 - drain 超时（默认 60s）后 abort 剩余 job，标记 `cancelled`（reason=`SERVER_DRAIN`）。
 - `close()` 幂等；重复调用返回同一 Promise。
+
+**#31 落地序（drain 窗口可观察）**：`service.close()` 先 kick——draining 同步
+置位，**监听保持绑定**直到排空完成：drain 窗口内新 submit → 503 +
+`-32010 server_draining` + `Retry-After: 5`、`/readyz` → 503（滚动发布门可
+观察，非连接拒绝）、`/healthz` → 200、读 / 取消面照常应答（客户端可 cancel
+加速 drain）。排空完成后才断 SSE（open stream 会卡死 `server.close`）→
+`closeIdleConnections` + `server.close` → store / 幂等表 / worker 池收口 →
+进程以 128+信号号退出码退出（SIGTERM 143）。Windows 无信号语义——优雅
+drain 的进程级验证走 POSIX 门控（CI ubuntu）；Windows 面由进程内 fake 信号
+全链路 + soak（真池同构装配）覆盖。
 
 ### 8.6 服务启动与部署
 

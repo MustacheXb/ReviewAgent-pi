@@ -7,7 +7,10 @@ import { build } from "esbuild";
  * reviewagent 自包含构建（做法 A）：
  * 1. 构建 vendored pi 四包 dist；
  * 2. 构建 review-llm / review-pi dist；
- * 3. esbuild 把 CLI 入口 bundle 成 dist/cli.mjs；
+ * 3. esbuild 双入口 bundle：CLI 入口 → dist/cli.mjs；worker 池线程体入口 →
+ *    dist/review-worker.mjs（#31 P3b——server 形态缺省 worker 执行器，线程体
+ *    是独立加载面：worker-pool 缺省入口解析按「cli.mjs 旁 review-worker.mjs」
+ *    探测，两产物必须同目录落位）；
  * 4. @vscode/ripgrep / web-tree-sitter / tree-sitter-java 保持 external，
  *    由本包 dependencies 在安装时随 npm 正常安装。
  *
@@ -17,8 +20,10 @@ import { build } from "esbuild";
 const packageDir = path.resolve(import.meta.dirname, "..");
 const repoRoot = path.resolve(packageDir, "..", "..");
 const cliEntry = path.join(repoRoot, "packages", "review-pi", "src", "cli", "main.ts");
+const workerEntry = path.join(repoRoot, "packages", "review-pi", "src", "rpc", "worker-entry.ts");
 const outDir = path.join(packageDir, "dist");
 const outFile = path.join(outDir, "cli.mjs");
+const workerOutFile = path.join(outDir, "review-worker.mjs");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -38,13 +43,13 @@ run("pnpm", ["build:pi"]);
 run("pnpm", ["--filter", "review-llm", "build"]);
 run("pnpm", ["--filter", "review-pi", "build"]);
 
-await build({
-  entryPoints: [cliEntry],
+// 双入口共用同一构建面（同 externals / banner / target）：CLI 与 worker 线程体
+// 的依赖闭包同源（worker-entry ⊂ cli 依赖面），差异只在入口
+const sharedBuildOptions = {
   bundle: true,
   platform: "node",
   format: "esm",
   target: "node22",
-  outfile: outFile,
   external: ["@vscode/ripgrep", "openai", "tree-sitter-java", "web-tree-sitter"],
   banner: {
     js: [
@@ -53,10 +58,26 @@ await build({
     ].join("\n"),
   },
   logLevel: "warning",
+};
+
+await build({
+  ...sharedBuildOptions,
+  entryPoints: [cliEntry],
+  outfile: outFile,
 });
 
-if (!existsSync(outFile)) {
-  throw new Error(`esbuild did not produce ${outFile}`);
+// worker 线程体（#31）：server 形态缺省 worker 池从本文件 spawn 线程——
+// pool 的缺省入口解析探测 cli.mjs 旁的 review-worker.mjs
+await build({
+  ...sharedBuildOptions,
+  entryPoints: [workerEntry],
+  outfile: workerOutFile,
+});
+
+for (const produced of [outFile, workerOutFile]) {
+  if (!existsSync(produced)) {
+    throw new Error(`esbuild did not produce ${produced}`);
+  }
 }
 
 copyFileSync(
@@ -64,5 +85,6 @@ copyFileSync(
   path.join(packageDir, "THIRD-PARTY-NOTICES.md"),
 );
 
-const size = statSync(outFile).size;
-process.stdout.write(`reviewagent bundle: ${outFile} (${size} bytes)\n`);
+for (const produced of [outFile, workerOutFile]) {
+  process.stdout.write(`reviewagent bundle: ${produced} (${statSync(produced).size} bytes)\n`);
+}

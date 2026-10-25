@@ -75,7 +75,7 @@ const KNOWN_DISPOSITION_STATS_FLAGS: readonly string[] = ["--store", "--out"];
 /** rpc 子命令（#24 S3；#27 v2）的已知旗标（全可选） */
 const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--cwd", "--concurrency"];
 
-/** server 子命令（#28；#30 增 store 面）的已知旗标（--auth-token-file / --data-dir(sqlite 面) 必填，其余可选） */
+/** server 子命令（#28；#30 增 store 面；#31 增 executor 面）的已知旗标（--auth-token-file / --data-dir(sqlite 面) 必填，其余可选） */
 const KNOWN_SERVER_FLAGS: readonly string[] = [
   "--host",
   "--port",
@@ -85,6 +85,7 @@ const KNOWN_SERVER_FLAGS: readonly string[] = [
   "--artifact-retention-days",
   "--store",
   "--data-dir",
+  "--executor",
 ];
 
 /** server 缺省绑定面（HOST / PORT 环境变量可覆盖；显式旗标再优先——#28） */
@@ -100,7 +101,7 @@ function isValidPort(value: number): boolean {
 export const USAGE_TEXT = `usage: reviewagent review [--repo <path>] --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
        reviewagent smoke [--model <id>]
        reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
-       reviewagent server --auth-token-file <file> [--data-dir <dir>] [--store sqlite|memory] [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]
+       reviewagent server --auth-token-file <file> [--data-dir <dir>] [--store sqlite|memory] [--executor worker|inprocess] [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]
        reviewagent disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
        reviewagent disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
@@ -135,7 +136,12 @@ server 旗标（HTTP JSON-RPC 长驻；退出码 SIGINT 130、SIGTERM 143、启�
   --host      <addr>       绑定地址（缺省 HOST 环境变量，再缺省 ${DEFAULT_SERVER_HOST}——仅本机回环）
   --port      <n>          绑定端口（缺省 PORT 环境变量，再缺省 ${DEFAULT_SERVER_PORT}）
   --out       <dir>        审计与运行记录落盘根（sqlite 模式缺省 --data-dir；memory 模式缺省 ${DEFAULT_OUT_DIR}）
-  --concurrency <n>        并发执行 job 数（缺省 1；>1 实验性——安全前提未验证）
+  --executor  <mode>       检视执行形态（缺省 worker）：worker = worker_threads 池——检视执行与
+                            HTTP 面解耦（解析不占主线程 event loop，健康/提交/查询/SSE 不被阻塞；
+                            硬取消边界 = abort 宽限 ~10s 后 terminate）；inprocess = 进程内逃生口
+                            （与 rpc stdio 面同款执行器）
+  --concurrency <n>        并发执行 job 数（缺省随 executor：worker 2、inprocess 1；
+                            显式指定恒优先）
   --artifact-retention-days <n>  产物保留窗口天数（缺省 30；succeeded 落定起算，窗外下载
                             → 404 + -32017——ADR-0013 决策 8）
 
@@ -214,6 +220,14 @@ export interface ServerCliArgs {
    * 同落此；memory 模式禁用——parse 层互斥校验）。缺席省键仅对 memory 成立。
    */
   readonly dataDir?: string;
+  /**
+   * 检视执行形态（#31 P3b，缺省 worker）：worker = worker_threads 池——
+   * 检视执行与 HTTP 面解耦（同步 tree-sitter 解析不占主线程 event loop，
+   * 健康/提交/查询/SSE 不被解析阻塞；硬取消边界 = abort 宽限 ~10s 后
+   * terminate 强制回收）；inprocess = 逃生口（进程内 KernelReviewRun
+   * Executor，与 rpc stdio 面同款）。
+   */
+  readonly executor: "worker" | "inprocess";
 }
 
 /** 解析后的 disposition 记录面参数（store 已解析：--store 显式或 --out 派生） */
@@ -545,6 +559,18 @@ function parseServerArgs(
     };
   }
 
+  // #31 P3b executor 面：worker 池缺省（生产形态）；inprocess 逃生口。
+  // concurrency 缺省随 executor：worker 池 = 2（每 worker 独立 isolate，
+  // 生产安全档），inprocess = 1（主线程执行）；显式 --concurrency 恒优先。
+  const executorRaw = flags.values.get("--executor");
+  if (executorRaw !== undefined && executorRaw !== "worker" && executorRaw !== "inprocess") {
+    return {
+      ok: false,
+      message: `invalid --executor ${JSON.stringify(executorRaw)}: expected "worker" or "inprocess"`,
+    };
+  }
+  const executor = executorRaw ?? "worker";
+
   const retentionRaw = flags.values.get("--artifact-retention-days");
   if (retentionRaw !== undefined && !/^[1-9]\d*$/.test(retentionRaw)) {
     return {
@@ -565,7 +591,8 @@ function parseServerArgs(
         flags.values.get("--out") ??
         (dataDir !== undefined && store === "sqlite" ? dataDir : DEFAULT_OUT_DIR),
       authTokenFile,
-      concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : 1,
+      executor,
+      concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : executor === "worker" ? 2 : 1,
       store,
       ...(dataDir !== undefined ? { dataDir } : {}),
       ...(retentionRaw !== undefined ? { artifactRetentionDays: Number(retentionRaw) } : {}),

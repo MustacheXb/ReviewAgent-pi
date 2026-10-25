@@ -25,7 +25,7 @@ import {
   type SseEndpoint,
   type SseLimits,
 } from "./sse.js";
-import { createArtifactEndpoint, type ArtifactEndpoint } from "./artifacts.js";
+import { createArtifactEndpoint } from "./artifacts.js";
 
 // #28 HTTP wire 缝测试：真 node:http server（临时端口）+ 裸 fetch——断言
 // 信封 / 状态码 / 头的传输层契约；服务层以下（状态机 / 队列 / 租户过滤）

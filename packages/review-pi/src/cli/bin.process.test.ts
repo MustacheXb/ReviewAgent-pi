@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -7,16 +7,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-import { checkRuntimeArtifacts } from "../../bin/lib/cli-runtime.js";
 import { eRunRecordJson } from "../disposition/run-record-fixture.js";
 import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
 import { goldenFixture } from "../testing/golden.js";
 import { repoFixturePath } from "../testing/repos.js";
-import {
-  acquireDistArtifactLock,
-  type DistArtifactLockRelease,
-} from "../testing/dist-artifact-lock.js";
+import { ensureFreshDistArtifacts } from "../testing/dist-self-heal.js";
+import type { DistArtifactLockRelease } from "../testing/dist-artifact-lock.js";
 import { CLI_VERSION } from "./args.js";
 
 // #7 P3b 进程级烟测：spawn 真 bin（bin/review-pi.js → spawn dist/cli/main.js），
@@ -32,7 +29,6 @@ import { CLI_VERSION } from "./args.js";
 // 退出码契约：成功（含诚实截断）0 / 其余 1；拒跑 1 + 人话提示。
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const repoRoot = path.resolve(packageDir, "..", "..");
 const BIN_PATH = path.join(packageDir, "bin", "review-pi.js");
 
 /** 哨兵 key：只该进 Authorization 头；出现在任何输出/落盘面即失败 */
@@ -59,39 +55,12 @@ afterAll(() => {
   }
 });
 
-// ---- 自愈构建：与 bin 同一真源判鲜（cli-runtime 腿表），陈旧即按腿重建 ----
+// ---- 自愈构建：收拢至 testing/dist-self-heal.ts（判鲜 + 陈旧按腿重建 + 锁） ----
 // CI 有显式 dist 前置构建（见 .github/workflows/ci.yml），本钩子通常 no-op；
 // 本地首次跑或源码新于产物时自愈，保证进程烟测永远对着新鲜产物。
 // 先取 dist 产物锁再判鲜/重建：回拨用例与并行 fork 的 spawn/重建互斥。
 beforeAll(async () => {
-  releaseDistLock = await acquireDistArtifactLock();
-  const check = checkRuntimeArtifacts();
-  if (check.ok) {
-    return;
-  }
-  const staleCommands = new Set(check.refusals.map((refusal) => refusal.buildCommand));
-  // 腿间有依赖序：vendored pi 四包（root 脚本按依赖序）→ review-llm → 本包
-  const buildOrder = [
-    "pnpm build:pi",
-    "pnpm --filter review-llm build",
-    "pnpm --filter review-pi build",
-  ];
-  for (const command of buildOrder) {
-    if (!staleCommands.has(command)) {
-      continue;
-    }
-    const run = spawnSync(command, {
-      cwd: repoRoot,
-      shell: true,
-      encoding: "utf8",
-      timeout: 480_000,
-    });
-    if (run.status !== 0) {
-      throw new Error(
-        `self-heal build failed (${command}, exit ${run.status}):\n${run.stdout ?? ""}${run.stderr ?? ""}`,
-      );
-    }
-  }
+  releaseDistLock = await ensureFreshDistArtifacts();
 }, 600_000);
 
 // ---- loopback stub：真 HTTP 传输层上的 canned 网关 ----
