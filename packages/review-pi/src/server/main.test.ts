@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -59,6 +59,8 @@ function serverArgs(overrides: Record<string, unknown> = {}): {
   out: string;
   authTokenFile: string;
   concurrency: number;
+  store: "memory" | "sqlite";
+  dataDir?: string;
 } {
   return {
     host: "127.0.0.1",
@@ -66,6 +68,9 @@ function serverArgs(overrides: Record<string, unknown> = {}): {
     out: makeTempDir("review-pi-server-out-"),
     authTokenFile: path.join(makeTempDir("review-pi-server-tokens-"), "tokens.json"),
     concurrency: 1,
+    // #30 存量面统一 memory（进程内 fake executor——零持久化需求）；
+    // sqlite 装配面由专属用例覆盖（dataDir + jobs.sqlite + 重启恢复）
+    store: "memory",
     ...overrides,
   };
 }
@@ -287,4 +292,64 @@ test("drain 序：open SSE 流先 closeAll 再 server.close——退出不悬挂
   // 流被 closeAll 断开：生成器收 done（而非悬挂在 reader.read）
   const after = await iterator.next();
   expect(after.done).toBe(true);
+});
+
+// ---- #30 P3a：sqlite 默认装配接线（dataDir + 跨实例历史可见 + drain store.close）----
+
+test("sqlite 装配：jobs.sqlite 落 dataDir；drain（store.close 落盘收口）后重启实例可见历史 job", async () => {
+  const dataDir = makeTempDir("review-pi-server-data-");
+  const argsA = serverArgs({ store: "sqlite", dataDir });
+  writeTokens(argsA.authTokenFile);
+  const signalsA = fakeSignalTarget();
+  const listenedA: { host: string; port: number }[] = [];
+  const executorA = new FakeReviewRunExecutor();
+  const exitedA = runServerMain(argsA, {
+    executor: executorA,
+    endpoint: FAKE_ENDPOINT,
+    signals: signalsA,
+    onListening: (address) => listenedA.push(address),
+  });
+  await waitFor(() => listenedA.length > 0);
+  const clientA = new ReviewHttpClient({ baseUrl: `http://127.0.0.1:${listenedA[0]!.port}`, token: "tok-demo" });
+  const submitted = await clientA.submit({
+    caseId: "MR-sqlite-boot",
+    repoPath: argsA.out, // 任意存在目录（fake executor 不触盘）
+    diff: { kind: "inline", text: "+x\n" },
+    configId: "E",
+  });
+  await waitFor(() => executorA.executions.length > 0, "execution start");
+  executorA.executions[0]!.resolve(fakeReviewRunSummary());
+
+  // 轮询至 succeeded（settle + store write-through 均为同步/微任务面，毫秒级）
+  const deadline = Date.now() + 5_000;
+  let view = await clientA.reviewGet(submitted.jobId);
+  while (view.status !== "succeeded" && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    view = await clientA.reviewGet(submitted.jobId);
+  }
+  expect(view.status).toBe("succeeded");
+
+  // drain 序含 store.close（sqlite 落盘收口）——此后 dataDir 即重启可用面
+  signalsA.emit("SIGTERM");
+  expect(await exitedA).toBe(143);
+  expect(existsSync(path.join(dataDir, "jobs.sqlite"))).toBe(true);
+
+  // 重启（同 dataDir 新实例）：历史终态 job 跨实例可见（sqlite 装配非 memory）
+  const argsB = serverArgs({ store: "sqlite", dataDir });
+  writeTokens(argsB.authTokenFile);
+  const signalsB = fakeSignalTarget();
+  const listenedB: { host: string; port: number }[] = [];
+  const exitedB = runServerMain(argsB, {
+    executor: new FakeReviewRunExecutor(),
+    endpoint: FAKE_ENDPOINT,
+    signals: signalsB,
+    onListening: (address) => listenedB.push(address),
+  });
+  await waitFor(() => listenedB.length > 0);
+  const clientB = new ReviewHttpClient({ baseUrl: `http://127.0.0.1:${listenedB[0]!.port}`, token: "tok-demo" });
+  const historical = await clientB.reviewGet(submitted.jobId);
+  expect(historical.status).toBe("succeeded");
+  expect(historical.result?.runId).toBe("run-fake-1");
+  signalsB.emit("SIGTERM");
+  expect(await exitedB).toBe(143);
 });

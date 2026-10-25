@@ -75,7 +75,7 @@ const KNOWN_DISPOSITION_STATS_FLAGS: readonly string[] = ["--store", "--out"];
 /** rpc 子命令（#24 S3；#27 v2）的已知旗标（全可选） */
 const KNOWN_RPC_FLAGS: readonly string[] = ["--out", "--cwd", "--concurrency"];
 
-/** server 子命令（#28）的已知旗标（--auth-token-file 必填，其余可选） */
+/** server 子命令（#28；#30 增 store 面）的已知旗标（--auth-token-file / --data-dir(sqlite 面) 必填，其余可选） */
 const KNOWN_SERVER_FLAGS: readonly string[] = [
   "--host",
   "--port",
@@ -83,6 +83,8 @@ const KNOWN_SERVER_FLAGS: readonly string[] = [
   "--auth-token-file",
   "--concurrency",
   "--artifact-retention-days",
+  "--store",
+  "--data-dir",
 ];
 
 /** server 缺省绑定面（HOST / PORT 环境变量可覆盖；显式旗标再优先——#28） */
@@ -98,7 +100,7 @@ function isValidPort(value: number): boolean {
 export const USAGE_TEXT = `usage: reviewagent review [--repo <path>] --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
        reviewagent smoke [--model <id>]
        reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
-       reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]
+       reviewagent server --auth-token-file <file> [--data-dir <dir>] [--store sqlite|memory] [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]
        reviewagent disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
        reviewagent disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
@@ -126,9 +128,13 @@ rpc 旗标（全可选；退出码 shutdown/EOF 0、SIGINT 130、SIGTERM 143、S
 server 旗标（HTTP JSON-RPC 长驻；退出码 SIGINT 130、SIGTERM 143、启动失败 1；协议见 ADR-0013）：
   --auth-token-file <file>  Bearer token→principal 映射 JSON（必需；缺文件/非法内容拒启动；
                             文件轮换（mtime/size 变化）热生效不重启）
+  --data-dir <dir>          job 库与产物根目录（sqlite 存储必填：jobs.sqlite + runs/audit/record 同根；
+                            --out 缺席时产物根即它）
+  --store    <backend>      job 存储后端（缺省 sqlite——node:sqlite 持久，重启恢复：queued 重入队、
+                            running→failed(-32015)；memory = 进程内逃生口：无持久化、不接受 --data-dir）
   --host      <addr>       绑定地址（缺省 HOST 环境变量，再缺省 ${DEFAULT_SERVER_HOST}——仅本机回环）
   --port      <n>          绑定端口（缺省 PORT 环境变量，再缺省 ${DEFAULT_SERVER_PORT}）
-  --out       <dir>        审计与运行记录落盘根（缺省 ${DEFAULT_OUT_DIR}）
+  --out       <dir>        审计与运行记录落盘根（sqlite 模式缺省 --data-dir；memory 模式缺省 ${DEFAULT_OUT_DIR}）
   --concurrency <n>        并发执行 job 数（缺省 1；>1 实验性——安全前提未验证）
   --artifact-retention-days <n>  产物保留窗口天数（缺省 30；succeeded 落定起算，窗外下载
                             → 404 + -32017——ADR-0013 决策 8）
@@ -181,7 +187,7 @@ export interface RpcCliArgs {
 }
 
 /**
- * 解析后的 server 命令参数（#28，ADR-0013）。host/port 的解析优先级：
+ * 解析后的 server 命令参数（#28，ADR-0013；#30 P3a 增 store/dataDir）。host/port 的解析优先级：
  * 显式旗标 > HOST / PORT 环境变量 > 缺省（环境变量坏值 fail fast——
  * 运维靠环境变量注入时，配置错误要在 parse 层给出人话，不是 bind 时的 EADDRNOTAVAIL）。
  */
@@ -197,6 +203,17 @@ export interface ServerCliArgs {
    * succeeded 落定时刻起算；窗外下载 → 404 + -32017（ADR-0013 决策 8）。
    */
   readonly artifactRetentionDays?: number;
+  /**
+   * job 存储后端（#30 P3a，缺省 sqlite——生产默认：node:sqlite 持久，重启
+   * 恢复 + 跨重启 SSE 重放随它成立）；`memory` = 逃生口（`node:sqlite` 不可
+   * 用或纯进程内场景——无持久化，重启即失忆）。
+   */
+  readonly store: "sqlite" | "memory";
+  /**
+   * job 库根目录（sqlite 模式必填：jobs.sqlite 落此，产物根在 --out 缺席时
+   * 同落此；memory 模式禁用——parse 层互斥校验）。缺席省键仅对 memory 成立。
+   */
+  readonly dataDir?: string;
 }
 
 /** 解析后的 disposition 记录面参数（store 已解析：--store 显式或 --out 派生） */
@@ -447,6 +464,10 @@ function parseRpcArgs(
  * 坏值 fail fast（PORT 非端口数 / HOST 空白——bind 期的 EADDRNOTAVAIL 不如
  * parse 层人话）；concurrency 口径同 rpc；--artifact-retention-days 正整数
  * 校验（#29，缺席省键 = 装配层 30 天缺省）。
+ * #30 P3a store 面：--store 值域 sqlite|memory（缺省 sqlite——生产默认）；
+ * sqlite 必填 --data-dir、memory 禁用 --data-dir（互斥 fail fast，不留
+ * 二义配置）；--out 缺席时产物根缺省 = dataDir（sqlite 面；spec「runs /
+ * audit / record 落 data-dir」）。
  */
 function parseServerArgs(
   rest: readonly string[],
@@ -458,6 +479,31 @@ function parseServerArgs(
   const authTokenFile = flags.values.get("--auth-token-file");
   if (authTokenFile === undefined) {
     return { ok: false, message: "missing required flag --auth-token-file" };
+  }
+
+  const storeRaw = flags.values.get("--store");
+  if (storeRaw !== undefined && storeRaw !== "sqlite" && storeRaw !== "memory") {
+    return {
+      ok: false,
+      message: `invalid --store ${JSON.stringify(storeRaw)}: expected "sqlite" or "memory"`,
+    };
+  }
+  const store = storeRaw ?? "sqlite";
+  const dataDir = flags.values.get("--data-dir");
+  if (store === "memory") {
+    if (dataDir !== undefined) {
+      return {
+        ok: false,
+        message: "flag --data-dir is not accepted with --store memory: remove --data-dir, or pass --store sqlite",
+      };
+    }
+  } else if (dataDir === undefined) {
+    // sqlite 是缺省后端：缺 --data-dir 的报错必须同时给两条出路（显式给目录
+    // 或显式选逃生口），否则「忘了旗标」与「故意不要持久化」不可区分
+    return {
+      ok: false,
+      message: "missing required flag --data-dir (sqlite is the default store; pass --data-dir <dir>, or --store memory to opt out of persistence)",
+    };
   }
 
   const hostFlag = flags.values.get("--host");
@@ -513,9 +559,15 @@ function parseServerArgs(
     args: {
       host,
       port: portFlag !== undefined ? Number(portFlag) : portEnv !== undefined ? Number(portEnv) : DEFAULT_SERVER_PORT,
-      out: flags.values.get("--out") ?? DEFAULT_OUT_DIR,
+      // sqlite 面缺省产物根 = dataDir（spec：runs / audit / record 落 data-dir）；
+      // 显式 --out 恒优先；memory 面维持 --out 缺省（无 dataDir 可派生）
+      out:
+        flags.values.get("--out") ??
+        (dataDir !== undefined && store === "sqlite" ? dataDir : DEFAULT_OUT_DIR),
       authTokenFile,
       concurrency: concurrencyRaw !== undefined ? Number(concurrencyRaw) : 1,
+      store,
+      ...(dataDir !== undefined ? { dataDir } : {}),
       ...(retentionRaw !== undefined ? { artifactRetentionDays: Number(retentionRaw) } : {}),
     },
   };

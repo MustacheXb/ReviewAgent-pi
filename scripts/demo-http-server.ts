@@ -279,6 +279,7 @@ async function main(): Promise<void> {
     "utf8",
   );
   const outDir = path.join(workDir, "runs");
+  const dataDir = path.join(workDir, "data"); // #30：sqlite job 库根（jobs.sqlite 落此）
 
   // 2. 回环 stub 网关（进程内，bind 0）+ 真 server 子进程（检视执行走真 runReview）
   const stub = await startStubGateway(demoCorpus());
@@ -298,6 +299,8 @@ async function main(): Promise<void> {
       "127.0.0.1",
       "--port",
       String(port),
+      "--data-dir",
+      dataDir,
       "--out",
       outDir,
       "--artifact-retention-days",
@@ -485,7 +488,21 @@ async function main(): Promise<void> {
       }, 5_000).unref();
     });
     await stub.close();
-    rmSync(workDir, { recursive: true, force: true });
+    // Windows 收尾：server 子进程死后 sqlite 句柄释放有延迟（#30 起含
+    // data/jobs.sqlite），立即 rmSync 会 EPERM——重试消化竞态；仍占用则容忍
+    // （tmp 泄漏无害——demo 退出码只看全链路成败，不因清理失败翻红）
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        rmSync(workDir, { recursive: true, force: true });
+        break;
+      } catch {
+        if (attempt >= 4) {
+          log(`[demo] 临时目录清理跳过（句柄延迟释放，无害）：${workDir}`);
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
     log("[demo] server 已停止，stub 已关闭，临时文件已清理");
   }
 }

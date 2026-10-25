@@ -9,6 +9,13 @@
  * #29 P2b：per-job 事件日志（readEvents 重放 / gap+快照兜底）与产物定位
  * （artifacts：audit/record 服务器路径 + 终态时刻）——SSE 端点与 artifact
  * 下载端点的 service 单源。
+ * #30 P3a：状态与事件日志过 `ReviewJobStore` 缝 write-through（转移点
+ * `saveJob` + 发射点 `appendEvent`——jobId / 提交序由 store 单源分配，跨重启
+ * 防碰撞）；构造期启动恢复（queued 重入队执行、running / cancelling →
+ * failed（-32015 SERVER_RESTART）不假装续跑）；`readEvents` / `get` / `list`
+ * / `artifacts` 双读（内存 miss → store——跨重启历史 job 可查，SSE
+ * `Last-Event-ID` 跨重启重放成立）。缺省 memory store（#29 行为原样——
+ * 存量调用方零改动）；生产装配注入 sqlite（server/main.ts）。
  *
  * 不变量（spec §7.2）：
  * - submit 只受理并入队，不等待执行完成（worker 启动排微任务，响应恒为 queued 快照）；
@@ -41,6 +48,11 @@ import {
   type ReviewJobStatus,
   type ReviewRequest,
 } from "./protocol.js";
+import {
+  createMemoryJobStore,
+  type ReviewJobStore,
+  type StoredReviewJob,
+} from "./store.js";
 
 /** spec §5：diff 上限 8 MiB（可配置） */
 const DEFAULT_MAX_DIFF_BYTES = 8 * 1024 * 1024;
@@ -70,11 +82,19 @@ export interface ReviewServiceOptions {
   readonly now?: () => Date;
   /**
    * per-job 内存事件日志保留上限（#29 SSE `Last-Event-ID` 重放单源）：超出
-   * 丢最旧。缺省不设限（进程生命周期内全量保留）——内存 store 的保护闸；
-   * #30 SQLite store 落地后由持久保留窗口接管同语义。调用方 afterSeq 落在
-   * 保留窗外 → readEvents 判 gap（reset + 最新快照兜底）。
+   * 丢最旧。缺省不设限（进程生命周期内全量保留）——**memory store 的保护闸**
+   * （仅未显式注入 store 时生效）；sqlite store 恒全量保留（跨重启重放依赖，
+   * 由持久保留窗口接管同语义）。调用方 afterSeq 落在保留窗外 → readEvents
+   * 判 gap（reset + 最新快照兜底）。
    */
   readonly maxJobEvents?: number;
+  /**
+   * job / 事件日志持久化缝（#30 P3a）：缺省 memory store（#29 行为原样——
+   * 存量调用方零改动）。生产装配注入 sqlite（server/main.ts）——重启恢复
+   * （queued 重入队、running / cancelling → failed -32015）与跨重启 SSE
+   * 重放随 store 持久性成立。store 生命周期归装配层（service.close 不关它）。
+   */
+  readonly store?: ReviewJobStore;
 }
 
 /** job 对外快照：progress/result/error 缺席省键（与内核审计同款纪律） */
@@ -156,10 +176,8 @@ interface InternalJob {
   readonly request: ReviewRunRequest;
   readonly submittedSeq: number;
   readonly submittedAt: string;
-  /** per-job 事件序（首事件 = 1；SSE Last-Event-ID 重放同口径） */
+  /** per-job 事件序（首事件 = 1；SSE Last-Event-ID 重放同口径；恢复时从 store 续号） */
   eventSeq: number;
-  /** 事件日志（emitEvent 追加；超出 maxJobEvents 丢最旧——readEvents 重放源） */
-  events: ReviewJobEvent[];
   /** 终态落定时刻（保留窗口判定基准；queued → cancelled 也算落定） */
   finishedAtMs?: number;
   progress?: ReviewRunProgress;
@@ -171,6 +189,25 @@ interface InternalJob {
   settle: () => void;
 }
 
+/**
+ * view 投影源：InternalJob 与 StoredReviewJob 的公共结构面（结构兼容——
+ * 投影逻辑单源，内存态与 store 恢复态同一口径）。finishedAtMs 不进 view
+ * 投影（artifacts 单独消费）。
+ */
+interface JobViewSource {
+  readonly jobId: string;
+  readonly status: ReviewJobStatus;
+  readonly request: ReviewRunRequest;
+  readonly submittedAt: string;
+  readonly finishedAtMs?: number;
+  readonly progress?: ReviewRunProgress;
+  readonly result?: ReviewRunSummary;
+  readonly error?: { readonly message: string };
+}
+
+/** 重启恢复的 failed 文案（-32015 SERVER_RESTART——机读码嵌 message） */
+const SERVER_RESTART_MESSAGE = "job interrupted by server restart (-32015 SERVER_RESTART)";
+
 export function createReviewService(options: ReviewServiceOptions): ReviewService {
   const limits: ReviewServiceLimits = {
     maxDiffBytes: options.limits?.maxDiffBytes ?? DEFAULT_MAX_DIFF_BYTES,
@@ -179,42 +216,45 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const now = options.now ?? (() => new Date());
   const defaultRepoPath = options.defaultRepoPath;
-  const maxJobEvents = options.maxJobEvents;
-  // jobId 的启动毫秒单源（spec §6.2：job-<进程启动毫秒>-<进程内单调序号>）
+  // store 缝（#30）：显式注入优先；缺省 memory（maxJobEvents 窗只在缺省内态生效）
+  const store: ReviewJobStore =
+    options.store ?? createMemoryJobStore({ ...(options.maxJobEvents !== undefined ? { maxJobEvents: options.maxJobEvents } : {}) });
+  // jobId 的启动毫秒单源（spec §6.2：job-<进程启动毫秒>-<进程内单调序号>；
+  // 序号由 store 单源分配——跨重启防碰撞）
   const startMs = now().getTime();
 
   const jobs = new Map<string, InternalJob>();
   const queue: InternalJob[] = [];
   /** 订阅注册体（listener + 属主租户——emitEvent 按租户过滤投递） */
   const listeners = new Set<{ readonly listener: ReviewJobListener; readonly tenantId: string }>();
-  let jobCounter = 0;
   let draining = false;
   let runningCount = 0;
   let pumpScheduled = false;
 
-  const viewOf = (job: InternalJob): ReviewJobView => ({
-    jobId: job.jobId,
-    status: job.status,
-    caseId: job.request.caseId,
-    configId: job.request.configId,
-    submittedAt: job.submittedAt,
+  const viewOf = (source: JobViewSource): ReviewJobView => ({
+    jobId: source.jobId,
+    status: source.status,
+    caseId: source.request.caseId,
+    configId: source.request.configId,
+    submittedAt: source.submittedAt,
     // progress 仅存在于 running/cancelling（spec §6.1）——终态快照不带执行中间态
-    ...(job.progress !== undefined && (job.status === "running" || job.status === "cancelling")
-      ? { progress: job.progress }
+    ...(source.progress !== undefined && (source.status === "running" || source.status === "cancelling")
+      ? { progress: source.progress }
       : {}),
-    ...(job.result !== undefined ? { result: job.result } : {}),
-    ...(job.error !== undefined ? { error: job.error } : {}),
+    ...(source.result !== undefined ? { result: source.result } : {}),
+    ...(source.error !== undefined ? { error: source.error } : {}),
   });
 
   // listeners 快照遍历：通知中注销自身不破坏本轮迭代（pi rpc-mode 同款教训）；
-  // 只投递给属主租户的订阅（事件面与 get/list/cancel 同隔离口径）
+  // 只投递给属主租户的订阅（事件面与 get/list/cancel 同隔离口径）。
+  // 写序（#30 刻意）：先 saveJob（状态快照）后 appendEvent（事件）——两写间
+  // 崩溃留下「状态已推进、事件缺尾」的中间态，重启恢复以 job 行状态为准，
+  // 事件序从 lastSeq 延续（见 store.ts 模块注「崩溃窗口收敛语义」）。
   const emitEvent = (job: InternalJob): void => {
     job.eventSeq += 1;
     const event: ReviewJobEvent = { seq: job.eventSeq, job: viewOf(job) };
-    job.events.push(event);
-    if (maxJobEvents !== undefined && job.events.length > maxJobEvents) {
-      job.events.splice(0, job.events.length - maxJobEvents);
-    }
+    store.saveJob(job);
+    store.appendEvent(job.jobId, event);
     for (const { listener, tenantId } of [...listeners]) {
       if (tenantId === job.tenantId) {
         listener(event);
@@ -383,8 +423,9 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
         limit: limits.maxQueueDepth,
       });
     }
-    jobCounter += 1;
-    const jobId = `job-${startMs}-${jobCounter}`;
+    // jobId / 提交序由 store 单源分配（跨重启防碰撞——sqlite 持久计数器）
+    const allocated = store.allocateJobId(startMs);
+    const jobId = allocated.jobId;
     let settleJobPromise!: () => void;
     const settled = new Promise<void>((resolve) => {
       settleJobPromise = resolve;
@@ -401,15 +442,15 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
         configId: request.configId,
         ...(request.modelId !== undefined ? { modelId: request.modelId } : {}),
       },
-      submittedSeq: jobCounter,
+      submittedSeq: allocated.seq,
       submittedAt: now().toISOString(),
       eventSeq: 0,
-      events: [],
       controller: new AbortController(),
       settled,
       settle: settleJobPromise,
     };
     jobs.set(jobId, job);
+    store.saveJob(job); // queued 快照持久（重启恢复面：input 已随快照落盘）
     queue.push(job);
     schedulePump();
     return viewOf(job);
@@ -421,27 +462,36 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     return job !== undefined && job.tenantId === ctx.principal.tenantId ? job : undefined;
   };
 
+  /**
+   * 属主判定双读（#30）：内存 miss → store（重启后的历史 job——恢复的终态
+   * job 不进内存 Map，get / readEvents / artifacts 的 store 侧路径）。
+   * 租户口径与 findJob 同面（异租户 = 不存在）。
+   */
+  const ownedJob = (jobId: string, ctx: CallContext): JobViewSource | undefined => {
+    const internal = jobs.get(jobId);
+    if (internal !== undefined) {
+      return internal.tenantId === ctx.principal.tenantId ? internal : undefined;
+    }
+    const stored = store.getJob(jobId);
+    return stored !== undefined && stored.tenantId === ctx.principal.tenantId ? stored : undefined;
+  };
+
   const get = async (
     jobId: string,
     ctx: CallContext,
   ): Promise<ReviewJobView | undefined> => {
-    const job = findJob(jobId, ctx);
-    return job === undefined ? undefined : viewOf(job);
+    const owned = ownedJob(jobId, ctx);
+    return owned === undefined ? undefined : viewOf(owned);
   };
 
   const list = async (
     query: ListReviewParams,
     ctx: CallContext,
   ): Promise<ReviewJobPage> => {
-    const views = [...jobs.values()]
-      .filter((job) => job.tenantId === ctx.principal.tenantId)
-      .sort((a, b) => b.submittedSeq - a.submittedSeq)
-      .map(viewOf);
-    const filtered =
-      query.status === undefined
-        ? views
-        : views.filter((view) => view.status === query.status);
-    return { jobs: filtered };
+    // 全走 store 单源（write-through 下与内存一致；跨重启历史 job 同口径）：
+    // 租户过滤 + 状态过滤 + submittedSeq 降序由 store 契约定序
+    const stored = store.listJobs(ctx.principal.tenantId, query.status);
+    return { jobs: stored.map(viewOf) };
   };
 
   /** 状态转移单源（public cancel 与 close drain 共用；drain 是服务端自身行为，不走租户门） */
@@ -474,36 +524,35 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
   };
 
   /**
-   * `Last-Event-ID` 重放读取（#29 P2b）。方法体零 await：SSE 层「先 subscribe
-   * 再 readEvents」的序里不存在发射窗口交错（重放集与 live 投递不重不漏，
-   * 迟到事件只走 live 面）。
+   * `Last-Event-ID` 重放读取（#29 P2b；#30 起事件日志单源在 store——跨重启
+   * 重放成立）。方法体零 await：SSE 层「先 subscribe 再 readEvents」的序里
+   * 不存在发射窗口交错（重放集与 live 投递不重不漏，迟到事件只走 live 面）。
    */
   const readEvents = (
     jobId: string,
     afterSeq: number,
     ctx: CallContext,
   ): Promise<ReviewJobEventReplay | undefined> => {
-    const job = findJob(jobId, ctx);
-    if (job === undefined) {
+    const owned = ownedJob(jobId, ctx);
+    if (owned === undefined) {
       return Promise.resolve(undefined);
     }
-    // 保留窗起点：无保留事件（从未发射或已全清理）时 = 下一事件位（eventSeq+1）
-    const firstRetainedSeq = job.events.length > 0 ? job.events[0]!.seq : job.eventSeq + 1;
+    const slice = store.readJobEvents(jobId, afterSeq);
+    if (slice === undefined) {
+      return Promise.resolve(undefined); // 防御：owned 命中则 store 必有该 job
+    }
     // afterSeq+1 之后有被清理的事件 → 无法连续重放（gap）；afterSeq 超前于当前
-    // 位（> eventSeq——调用方持错位/旧实例 id）同样判 gap：若按空重放处理，SSE
+    // 位（> lastSeq——调用方持错位/旧实例 id）同样判 gap：若按空重放处理，SSE
     // 层投递护栏（seq ≤ 已投递位即丢弃）会静默饿死后续全部 live 事件
-    const dropped = Math.max(0, firstRetainedSeq - 1 - afterSeq);
-    if (dropped > 0 || afterSeq > job.eventSeq) {
+    const dropped = Math.max(0, slice.firstRetainedSeq - 1 - afterSeq);
+    if (dropped > 0 || afterSeq > slice.lastSeq) {
       // reset + 最新快照：seq 盖当前位（客户端续用该 id 重连，不再向前要求）
       return Promise.resolve({
         kind: "gap",
-        snapshot: { seq: job.eventSeq, job: viewOf(job) },
+        snapshot: { seq: slice.lastSeq, job: viewOf(owned) },
       });
     }
-    return Promise.resolve({
-      kind: "replay",
-      events: job.events.filter((event) => event.seq > afterSeq),
-    });
+    return Promise.resolve({ kind: "replay", events: slice.events });
   };
 
   /** 产物定位（#29 P2b）：路径取自 succeeded 摘要；finishedAtMs 终态落定时刻 */
@@ -511,16 +560,16 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     jobId: string,
     ctx: CallContext,
   ): Promise<ReviewJobArtifacts | undefined> => {
-    const job = findJob(jobId, ctx);
+    const owned = ownedJob(jobId, ctx);
     return Promise.resolve(
-      job === undefined
+      owned === undefined
         ? undefined
         : {
-            status: job.status,
-            ...(job.result !== undefined
-              ? { auditPath: job.result.auditPath, recordPath: job.result.recordPath }
+            status: owned.status,
+            ...(owned.result !== undefined
+              ? { auditPath: owned.result.auditPath, recordPath: owned.result.recordPath }
               : {}),
-            ...(job.finishedAtMs !== undefined ? { finishedAtMs: job.finishedAtMs } : {}),
+            ...(owned.finishedAtMs !== undefined ? { finishedAtMs: owned.finishedAtMs } : {}),
           },
     );
   };
@@ -545,6 +594,58 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     closePromise ??= doClose();
     return closePromise;
   };
+
+  /**
+   * 启动恢复（#30 构造期，同步完成——先于任何查询）：
+   * - queued → 重建 InternalJob 入队（执行输入从 store 全量恢复——realpath
+   *   后的 repoPath + diff / issue 全文），eventSeq 从既有日志续号；
+   * - running / cancelling → failed（-32015 SERVER_RESTART，不假装续跑）：
+   *   终态不进内存 Map（查询走 store 侧路径）；恢复转移事件照常 append——
+   *   SSE `Last-Event-ID` 持有的客户端重连即收该事件。
+   */
+  const restoreActiveJobs = (): void => {
+    for (const stored of store.loadActiveJobs()) {
+      if (stored.status === "queued") {
+        let settleRestored!: () => void;
+        const settled = new Promise<void>((resolve) => {
+          settleRestored = resolve;
+        });
+        const job: InternalJob = {
+          jobId: stored.jobId,
+          tenantId: stored.tenantId,
+          status: "queued",
+          request: stored.request,
+          submittedSeq: stored.submittedSeq,
+          submittedAt: stored.submittedAt,
+          eventSeq: store.readJobEvents(stored.jobId, 0)?.lastSeq ?? 0,
+          controller: new AbortController(),
+          settled,
+          settle: settleRestored,
+        };
+        jobs.set(job.jobId, job);
+        queue.push(job);
+      } else {
+        // 终态快照纪律：执行中间态（progress）不落终态；error 携带机读码
+        const failed: StoredReviewJob = {
+          jobId: stored.jobId,
+          tenantId: stored.tenantId,
+          status: "failed",
+          request: stored.request,
+          submittedAt: stored.submittedAt,
+          submittedSeq: stored.submittedSeq,
+          finishedAtMs: now().getTime(),
+          error: { message: SERVER_RESTART_MESSAGE },
+        };
+        store.saveJob(failed);
+        const lastSeq = store.readJobEvents(failed.jobId, 0)?.lastSeq ?? 0;
+        store.appendEvent(failed.jobId, { seq: lastSeq + 1, job: viewOf(failed) });
+      }
+    }
+    if (queue.length > 0) {
+      schedulePump();
+    }
+  };
+  restoreActiveJobs();
 
   return {
     submit,

@@ -11,6 +11,9 @@ import { expect, test } from "vitest";
 // tarball 的内容物同源）必须含 server 形态且真跑通最小 wire 面：
 // spawn → healthz 就绪 → capabilities（Bearer）→ 401 面 → SIGTERM 收尾。
 //
+// #30 P3a 增面：默认装配切 sqlite（--data-dir）——本测同时冒烟 node:sqlite
+// 经 createRequire 运行时加载在 bundle 里可用（esbuild 不内联动态 require）。
+//
 // 不打真网关：子进程注入不可达回环 REVIEWER_URL（CI 零网络纪律）——本测
 // 只证「server 形态进了产物 + 进程面活着 + 鉴权/信封面正确」，检视执行链
 // 的真跑冒烟在 smoke-gateway-config-* 另有档。
@@ -39,12 +42,25 @@ async function reserveFreePort(): Promise<number> {
 async function startBundledServer(
   cliPath: string,
   tokenFile: string,
-  outDir: string,
+  dataDir: string,
   port: number,
 ): Promise<{ child: ChildProcess; baseUrl: string; stderrTail(): string }> {
+  // #30：默认 sqlite 装配（--data-dir）——node:sqlite 可用性与 store 接线
+  // 随 healthz 就绪一并冒烟
   const child = spawn(
     process.execPath,
-    [cliPath, "server", "--auth-token-file", tokenFile, "--host", "127.0.0.1", "--port", String(port), "--out", outDir],
+    [
+      cliPath,
+      "server",
+      "--auth-token-file",
+      tokenFile,
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(port),
+      "--data-dir",
+      dataDir,
+    ],
     {
       cwd: REPO_ROOT,
       env: {
@@ -104,8 +120,12 @@ testLocal("pack 冒烟：bundle 含 server 形态——spawn → healthz → cap
   );
   const port = await reserveFreePort();
 
-  const { child, baseUrl } = await startBundledServer(BUNDLED_CLI, tokenFile, path.join(workDir, "runs"), port);
+  const dataDir = path.join(workDir, "data");
+  const { child, baseUrl } = await startBundledServer(BUNDLED_CLI, tokenFile, dataDir, port);
   try {
+    // #30 sqlite 默认装配落位证：构造期建库（node:sqlite 在 bundle 里可用）
+    expect(existsSync(path.join(dataDir, "jobs.sqlite"))).toBe(true);
+
     // liveness（匿名）
     const health = await fetch(`${baseUrl}/healthz`);
     expect(health.status).toBe(200);

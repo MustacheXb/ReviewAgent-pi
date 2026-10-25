@@ -4,8 +4,9 @@
  *
  * 端口纪律：executor 是唯一 import 内核执行入口（runReview）的模块。服务层
  * 拥有 job 状态，executor 只负责执行。真适配器职责（spec #21 §7.3）：
- * - 内核参数派生面收敛在此：experimentId 恒 "reviewagent-rpc"、rep 恒 1、
- *   启动期单次解析的 endpoint 凭据、--out resolve 产物 runsRoot；
+ * - 内核参数派生面收敛在此：experimentId 缺省恒 "reviewagent-rpc"（#30 起
+ *   经 experimentIdOf 缝可注入按 job 派生）、rep 恒 1、启动期单次解析的
+ *   endpoint 凭据、--out resolve 产物 runsRoot；
  * - ReviewRunResult → ReviewRunSummary 本地投影（内核返回类型不改）；
  * - 内核异常合同化：publicMessage 固定 generic 进协议面，诊断细节走
  *   onDiagnostic（缺省 stderr）——绝不进 view（spec §9 安全缝）；
@@ -133,8 +134,15 @@ const RPC_EXPERIMENT_ID = "reviewagent-rpc";
 export interface KernelReviewRunExecutorOptions {
   /** 启动期单次解析的网关凭据（rpc 进程装配时 fail fast；全程复用，不逐 job 重解析） */
   readonly endpoint: ReviewerEndpoint;
-  /** 运行留盘根目录（--out resolve 产物；experimentId 恒 reviewagent-rpc、rep 恒 1） */
+  /** 运行留盘根目录（--out resolve 产物；rep 恒 1） */
   readonly runsRoot: string;
+  /**
+   * experimentId 派生缝（#30 P3a）：缺省恒 "reviewagent-rpc"（stdio 现状
+   * 不变）；sqlite 装配传 identity（jobId）——产物目录 {runsRoot}/{jobId}/…
+   * 按 job 隔离，跨 job 互不覆盖（重启重入队重跑覆盖自身，rep 恒 1 语义
+   * 不变）。
+   */
+  readonly experimentIdOf?: (jobId: string) => string;
   /** 传输层注入；缺省 globalThis.fetch（离线测试注入 fake 适配器） */
   readonly fetch?: FetchFunction;
   /** 诊断输出缝（内核异常细节）；缺省写 stderr——绝不进协议面（spec §9） */
@@ -149,12 +157,14 @@ export interface KernelReviewRunExecutorOptions {
 export class KernelReviewRunExecutor implements ReviewRunExecutor {
   private readonly endpoint: ReviewerEndpoint;
   private readonly runsRoot: string;
+  private readonly experimentIdOf: (jobId: string) => string;
   private readonly fetch: FetchFunction;
   private readonly onDiagnostic: (message: string) => void;
 
   constructor(options: KernelReviewRunExecutorOptions) {
     this.endpoint = options.endpoint;
     this.runsRoot = options.runsRoot;
+    this.experimentIdOf = options.experimentIdOf ?? (() => RPC_EXPERIMENT_ID);
     this.fetch = options.fetch ?? globalThis.fetch;
     this.onDiagnostic =
       options.onDiagnostic ??
@@ -176,7 +186,7 @@ export class KernelReviewRunExecutor implements ReviewRunExecutor {
         baseUrl: this.endpoint.baseUrl,
         fetch: this.fetch,
         runsRoot: this.runsRoot,
-        experimentId: RPC_EXPERIMENT_ID,
+        experimentId: this.experimentIdOf(ctx.jobId),
         rep: 1,
         signal: ctx.signal,
         ...(ctx.onProgress !== undefined ? { onProgress: ctx.onProgress } : {}),

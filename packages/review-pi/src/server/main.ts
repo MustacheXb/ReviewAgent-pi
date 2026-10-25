@@ -7,6 +7,10 @@
  *
  * #29 P2b：装配增 SSE / artifact 端点（service 单源；--artifact-retention-days
  * 透传保留窗口，capabilities limits 暴露）。
+ * #30 P3a：默认装配切 sqlite job store（--data-dir 必填、node:sqlite 启动
+ * 检测 fail fast、--store memory 逃生口；重启恢复与跨重启 SSE 重放随 store
+ * 成立）；sqlite 面产物目录按 job 隔离（experimentId = jobId）；drain 尾
+ * store.close 落盘收口。
  *
  * 启动顺序（spec）：token 文件校验 → .env.local（cli/main.ts 已装载）→
  * endpoint 解析（REVIEWER_URL / REVIEWER_API_KEY 仅启动期从环境注入一次——
@@ -32,6 +36,8 @@ import { RPC_METHOD } from "../rpc/protocol.js";
 import { KernelReviewRunExecutor, type ReviewRunExecutor } from "../rpc/executor.js";
 import type { RpcServerInfo, RpcSignalTarget } from "../rpc/main.js";
 import { createReviewService } from "../rpc/service.js";
+import { createSqliteReviewJobStore } from "../rpc/sqlite-store.js";
+import { createMemoryJobStore, type ReviewJobStore } from "../rpc/store.js";
 import { createTokenFileAuthenticator, type Authenticator } from "./auth.js";
 import {
   DEFAULT_ARTIFACT_RETENTION_DAYS,
@@ -92,14 +98,33 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
   // 2. endpoint 启动期解析一次（环境注入面；key 绝不进日志 / 错误 / capabilities）
   const endpoint = io.endpoint ?? resolveReviewerEndpoint();
 
-  // 3. service 装配（executor 经端口注入内核——server 子树不 import run/ 内件）
+  // 3. job 存储装配（#30 P3a）：默认 sqlite（--data-dir 必填已由 parse 层保证；
+  //    node:sqlite 可用性在此启动检测——不可用构造期 fail fast 人话，不静默
+  //    降级 memory）；--store memory 逃生口。store 生命周期归本装配层：
+  //    drain 尾 close（sqlite 落盘收口）；启动失败路径随进程退出（WAL 已提交
+  //    事务已落盘，连接无泄漏面）
+  let store: ReviewJobStore;
+  if (args.store === "memory") {
+    store = createMemoryJobStore();
+  } else if (args.dataDir !== undefined) {
+    store = createSqliteReviewJobStore({ dataDir: args.dataDir });
+  } else {
+    // parse 层已拦（sqlite 必填 --data-dir）——防御性守卫：绝不静默降级
+    throw new Error("sqlite store requires --data-dir (unreachable via parse; kept as fail-fast guard)");
+  }
+
+  // 4. service 装配（executor 经端口注入内核——server 子树不 import run/ 内件）
   const executor =
     io.executor ??
     new KernelReviewRunExecutor({
       endpoint,
       runsRoot: resolve(args.out),
+      // 产物目录按 job 隔离（experimentId = jobId）：跨 job 互不覆盖，重启
+      // 重入队重跑覆盖自身（rep 恒 1 语义不变）；memory 逃生口维持恒
+      // reviewagent-rpc 现状
+      ...(args.store === "sqlite" ? { experimentIdOf: (jobId: string) => jobId } : {}),
     });
-  const service = createReviewService({ executor, concurrency: args.concurrency });
+  const service = createReviewService({ executor, concurrency: args.concurrency, store });
   // SSE / artifact 端点（#29 P2b）：service 单源装配，server 路由层只做接线
   const sse: SseEndpoint = createSseEndpoint({ service });
   const artifactEndpoint: ArtifactEndpoint = createArtifactEndpoint({
@@ -142,7 +167,7 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
     onInternalError: io.onInternalError ?? defaultInternalErrorSink,
   });
 
-  // 4. listen + 信号 drain（单例：首个触发者定序；开闸即注销，重复信号走默认处置）。
+  // 5. listen + 信号 drain（单例：首个触发者定序；开闸即注销，重复信号走默认处置）。
   // 信号注册先于 listen——启动途中（bind 进行时）到达的信号同样要触发 drain，
   // 不允许「listen 竞态窗口吞 SIGTERM」。listen 途中 drain 有专门收口：
   // pending listen 期间 close() 会让 listen 与 close 双双永久悬挂（Node 实证），
@@ -187,6 +212,8 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
       await service.close(); // 取消 queued、等 running 落定
     } catch {
       exitCode = 1;
+    } finally {
+      store.close(); // #30：store 落盘收口（幂等；service.close 后无新查询面）
     }
     settleExit(exitCode);
   };
@@ -205,7 +232,7 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
   registerSignal("SIGINT", SIGNAL_EXIT_CODES.SIGINT);
   registerSignal("SIGTERM", SIGNAL_EXIT_CODES.SIGTERM);
 
-  // 5. listen（端口占用等绑定失败异常上抛 → 退 1）
+  // 6. listen（端口占用等绑定失败异常上抛 → 退 1）
   const onListenError = (error: Error): void => {
     if (listenState.outcome !== "pending") {
       return; // drain 已收口（unref 后 bind 失败迟到——不影响退出序）

@@ -95,6 +95,33 @@ test("投影：summary 与磁盘真源一致（experimentId 恒 reviewagent-rpc�
   );
 }, 120_000);
 
+// ---- experimentIdOf 注入缝（#30 P3a：sqlite 装配 = jobId——产物按 job 隔离）----
+
+test("experimentIdOf 注入：产物目录按 job 隔离（缺省恒 reviewagent-rpc 不变由上例锁）", async () => {
+  const script = fakeFetch(configDToolCorpus());
+  const runsRoot = tempRunsRoot("review-pi-rpc-executor-jobid-");
+  const executor = new KernelReviewRunExecutor({
+    endpoint: OFFLINE_ENDPOINT,
+    runsRoot,
+    fetch: script.fetch,
+    // sqlite 装配形态：experimentId = jobId（跨 job 互不覆盖；重启重入队
+    // 重跑覆盖自身——rep 恒 1 语义不变）
+    experimentIdOf: (jobId) => jobId,
+  });
+
+  const summary = await executor.execute(
+    { ...BASE_REQUEST, configId: "D" },
+    { jobId: "job-1700000000000-7", signal: new AbortController().signal },
+  );
+
+  expect(summary.recordPath).toBe(
+    path.join(runsRoot, "job-1700000000000-7", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
+  );
+  expect(summary.auditPath).toContain(
+    path.join(runsRoot, "job-1700000000000-7", "audit", "vul4j", "VUL4J-1", "D", "rep-1", "audit"),
+  );
+}, 120_000);
+
 // ---- 错误合同：publicMessage 安全文案 + 诊断走注入 sink（#23）----
 
 test("内核错误 → ReviewExecutionError：publicMessage 固定 generic，诊断细节只进 onDiagnostic", async () => {

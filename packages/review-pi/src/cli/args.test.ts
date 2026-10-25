@@ -412,21 +412,33 @@ describe("rpc 子命令", () => {
 // ---- server 子命令（#28，ADR-0013：HTTP JSON-RPC 长驻 + Bearer 鉴权 + 幂等） ----
 
 describe("server 子命令", () => {
-  test("最小 argv：--auth-token-file 必填 + 全缺省（host=127.0.0.1、port=8787、out、concurrency=1）", () => {
-    expect(parseCliArgs(["server", "--auth-token-file", "tokens.json"])).toEqual({
+  test("最小 argv（缺省 sqlite）：--data-dir 必填落位、out 缺省即 dataDir、host/port/concurrency 缺省", () => {
+    expect(parseCliArgs(["server", "--auth-token-file", "tokens.json", "--data-dir", "data"])).toEqual({
       ok: true,
       command: "server",
       args: {
         host: "127.0.0.1",
         port: 8787,
-        out: "reviewagent-output",
+        out: "data",
         authTokenFile: "tokens.json",
         concurrency: 1,
+        store: "sqlite",
+        dataDir: "data",
       },
     });
   });
 
-  test("缺 --auth-token-file → 用法错误（鉴权器无从构造）", () => {
+  test("--store memory 逃生口：无 --data-dir 面、out 缺省维持 reviewagent-output", () => {
+    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory"])).toEqual({
+      ok: true,
+      command: "server",
+      args: expect.objectContaining({ store: "memory", out: "reviewagent-output" }),
+    });
+    const memory = parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory"]);
+    expect(memory.ok && "dataDir" in memory.args).toBe(false);
+  });
+
+  test("缺 --auth-token-file → 用法错误（鉴权器无从构造；先于 store 面判定）", () => {
     expect(parseCliArgs(["server"])).toEqual({
       ok: false,
       message: "missing required flag --auth-token-file",
@@ -437,13 +449,25 @@ describe("server 子命令", () => {
     process.env.HOST = "0.0.0.0";
     process.env.PORT = "9000";
     try {
-      expect(parseCliArgs(["server", "--auth-token-file", "t.json"])).toEqual({
+      expect(
+        parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory"]),
+      ).toEqual({
         ok: true,
         command: "server",
         args: expect.objectContaining({ host: "0.0.0.0", port: 9000 }),
       });
       expect(
-        parseCliArgs(["server", "--auth-token-file", "t.json", "--host", "10.0.0.1", "--port", "8080"]),
+        parseCliArgs([
+          "server",
+          "--auth-token-file",
+          "t.json",
+          "--store",
+          "memory",
+          "--host",
+          "10.0.0.1",
+          "--port",
+          "8080",
+        ]),
       ).toEqual({
         ok: true,
         command: "server",
@@ -456,13 +480,17 @@ describe("server 子命令", () => {
   });
 
   test("PORT 环境变量坏值 / --port 坏值 → parse 层人话（不等 bind 期 EADDRNOTAVAIL）", () => {
-    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--port", "99999"])).toEqual({
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory", "--port", "99999"]),
+    ).toEqual({
       ok: false,
       message: 'invalid --port "99999": must be an integer between 1 and 65535',
     });
     process.env.PORT = "not-a-port";
     try {
-      expect(parseCliArgs(["server", "--auth-token-file", "t.json"])).toEqual({
+      expect(
+        parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory"]),
+      ).toEqual({
         ok: false,
         message: 'invalid PORT environment variable "not-a-port": must be an integer between 1 and 65535',
       });
@@ -474,7 +502,9 @@ describe("server 子命令", () => {
   test("HOST 环境变量空白 → 用法错误（缺省链不静默穿过坏值）", () => {
     process.env.HOST = "   ";
     try {
-      expect(parseCliArgs(["server", "--auth-token-file", "t.json"])).toEqual({
+      expect(
+        parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory"]),
+      ).toEqual({
         ok: false,
         message: 'invalid HOST environment variable "   ": must be a non-empty address',
       });
@@ -484,11 +514,15 @@ describe("server 子命令", () => {
   });
 
   test("--concurrency 非正整数 / 未知旗标 → 用法错误（与 rpc 同口径）", () => {
-    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--concurrency", "0"])).toEqual({
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory", "--concurrency", "0"]),
+    ).toEqual({
       ok: false,
       message: 'invalid --concurrency "0": must be a positive integer',
     });
-    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--tls"])).toEqual({
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory", "--tls"]),
+    ).toEqual({
       ok: false,
       message: 'unknown flag "--tls"',
     });
@@ -498,20 +532,36 @@ describe("server 子命令", () => {
 
   test("--artifact-retention-days 正整数解析；缺席 = 缺席省键（30 缺省在装配层）", () => {
     expect(
-      parseCliArgs(["server", "--auth-token-file", "t.json", "--artifact-retention-days", "7"]),
+      parseCliArgs([
+        "server",
+        "--auth-token-file",
+        "t.json",
+        "--store",
+        "memory",
+        "--artifact-retention-days",
+        "7",
+      ]),
     ).toEqual({
       ok: true,
       command: "server",
       args: expect.objectContaining({ artifactRetentionDays: 7 }),
     });
-    const absent = parseCliArgs(["server", "--auth-token-file", "t.json"]);
+    const absent = parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory"]);
     expect(absent.ok && "artifactRetentionDays" in absent.args).toBe(false);
   });
 
   test("--artifact-retention-days 坏值 → parse 层人话（0 / 小数 / 非数字）", () => {
     for (const bad of ["0", "-1", "1.5", "week"]) {
       expect(
-        parseCliArgs(["server", "--auth-token-file", "t.json", "--artifact-retention-days", bad]),
+        parseCliArgs([
+          "server",
+          "--auth-token-file",
+          "t.json",
+          "--store",
+          "memory",
+          "--artifact-retention-days",
+          bad,
+        ]),
       ).toEqual({
         ok: false,
         message: `invalid --artifact-retention-days ${JSON.stringify(bad)}: must be a positive integer`,
@@ -519,10 +569,56 @@ describe("server 子命令", () => {
     }
   });
 
+  // ---- #30 P3a：job 存储后端旗标 ----
+
+  test("--store 坏值 → parse 层人话（值域 sqlite|memory）", () => {
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--data-dir", "d", "--store", "redis"]),
+    ).toEqual({
+      ok: false,
+      message: 'invalid --store "redis": expected "sqlite" or "memory"',
+    });
+  });
+
+  test("sqlite（缺省后端）缺 --data-dir → 用法错误（报错给两条出路：给目录或显式选逃生口）", () => {
+    expect(parseCliArgs(["server", "--auth-token-file", "t.json"])).toEqual({
+      ok: false,
+      message:
+        "missing required flag --data-dir (sqlite is the default store; pass --data-dir <dir>, or --store memory to opt out of persistence)",
+    });
+    expect(parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "sqlite"])).toEqual({
+      ok: false,
+      message:
+        "missing required flag --data-dir (sqlite is the default store; pass --data-dir <dir>, or --store memory to opt out of persistence)",
+    });
+  });
+
+  test("--store memory + --data-dir → 互斥拒绝（不留二义配置）", () => {
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--store", "memory", "--data-dir", "d"]),
+    ).toEqual({
+      ok: false,
+      message:
+        "flag --data-dir is not accepted with --store memory: remove --data-dir, or pass --store sqlite",
+    });
+  });
+
+  test("--out 显式优先（sqlite 面不派生 dataDir）；--data-dir 落位 dataDir 键", () => {
+    expect(
+      parseCliArgs(["server", "--auth-token-file", "t.json", "--data-dir", "data", "--out", "runs-here"]),
+    ).toEqual({
+      ok: true,
+      command: "server",
+      args: expect.objectContaining({ store: "sqlite", dataDir: "data", out: "runs-here" }),
+    });
+  });
+
   test("USAGE_TEXT 宣告 server 用法面（单一来源）", () => {
     expect(USAGE_TEXT).toContain(
-      "reviewagent server --auth-token-file <file> [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]",
+      "reviewagent server --auth-token-file <file> [--data-dir <dir>] [--store sqlite|memory] [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]",
     );
     expect(USAGE_TEXT).toContain("HTTP JSON-RPC 长驻服务");
+    expect(USAGE_TEXT).toContain("--data-dir");
+    expect(USAGE_TEXT).toContain("--store    <backend>");
   });
 });
