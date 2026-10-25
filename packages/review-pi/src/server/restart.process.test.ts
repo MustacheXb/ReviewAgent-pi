@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { ChildProcess } from "node:child_process";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
@@ -11,6 +10,8 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { checkRuntimeArtifacts, CLI_COMPILED_ENTRY } from "../../bin/lib/cli-runtime.js";
 import { sseBody, type FakeReply } from "../provider/fake-fetch.js";
 import { goldenFixture } from "../testing/golden.js";
+import { reserveFreePort } from "../testing/free-port.js";
+import { createTempDirRegistry } from "../testing/temp-dir.js";
 import { repoFixturePath } from "../testing/repos.js";
 import {
   acquireDistArtifactLock,
@@ -28,6 +29,7 @@ import { ReviewHttpClient, type ReviewHttpClientEvent } from "./http-client.js";
 // - SSE `Last-Event-ID` 跨重启补齐（事件日志持久化：running 转移事件在崩溃
 //   前已落库，恢复失败转移事件重启后照常补发）；
 // - 产物目录按 job 隔离（experimentId = jobId——sqlite 装配面）；
+// - 幂等表跨重启持久（同 clientRequestId 重放 → 同 jobId，不重复检视）；
 // - `node:sqlite` 不可用 → 启动 fail fast 人话（含 `--store memory` 逃生口
 //   指引，不静默降级）。
 //
@@ -47,28 +49,16 @@ const SENTINEL_KEY = "sk-restart-smoke-sentinel-b2d4";
 /** Bearer token（token 文件注入面；非凭据——哨兵只盯 REVIEWER_API_KEY） */
 const AUTH_TOKEN = "tok-restart";
 
-const tempDirs: string[] = [];
+const tempDirs = createTempDirRegistry();
 
 /** 文件级 dist 产物锁（见 testing/dist-artifact-lock.ts）：本文件全程 spawn
  *  真 server，与 bin.process.test.ts 的 mtime 回拨用例 / rpc.process.test.ts
  *  的真 bin spawn 跨 fork 互斥 */
 let releaseDistLock: DistArtifactLockRelease | undefined;
 
-function makeTempDir(prefix: string): string {
-  const dir = mkdtempSync(path.join(tmpdir(), prefix));
-  tempDirs.push(dir);
-  return dir;
-}
-
 afterAll(() => {
   releaseDistLock?.();
-  for (const dir of tempDirs.splice(0)) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // Windows 句柄释放延迟：tmp 泄漏无害，不 FAIL suite
-    }
-  }
+  tempDirs.removeAll();
 });
 
 // ---- 自愈构建：与 bin 同一真源判鲜（cli-runtime 腿表），陈旧即按腿重建 ----
@@ -293,18 +283,6 @@ function spawnServer(options: SpawnServerOptions): ServerHandle {
   };
 }
 
-/** 借端口法拿空闲端口（bind 0 → 读真分配值 → 释放；容忍微小竞态） */
-async function reserveFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = http.createServer();
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address() as { port: number };
-      probe.close(() => resolve(port));
-    });
-    probe.once("error", reject);
-  });
-}
-
 /** 轮询 healthz 就绪（匿名 liveness；上限防挂） */
 async function waitForHealthz(baseUrl: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -419,8 +397,8 @@ test(
   "进程级崩溃恢复：SIGKILL 不 drain → 重启（同 dataDir）——queued 续跑 / running→failed(-32015) / SSE 跨重启补齐",
   async () => {
     const stub = await startTwoPhaseStub(oneFindingCorpus());
-    const dataDir = makeTempDir("review-pi-restart-data-");
-    const tokenFile = path.join(makeTempDir("review-pi-restart-tokens-"), "tokens.json");
+    const dataDir = tempDirs.makeTempDir("review-pi-restart-data-");
+    const tokenFile = path.join(tempDirs.makeTempDir("review-pi-restart-tokens-"), "tokens.json");
     writeTokenFile(tokenFile);
 
     // A 实例：sqlite 装配（--data-dir；--out 缺省即 dataDir——spec 产物根同 data-dir）
@@ -447,12 +425,14 @@ test(
       }
       expect(stub.requests().length).toBeGreaterThanOrEqual(1);
 
-      // job2：queued（并发 1，被 job1 占住）——重启恢复的续跑面
+      // job2：queued（并发 1，被 job1 占住）——重启恢复的续跑面；带
+      // clientRequestId 锚定幂等面（重启后重放断言用）
       job2 = await clientA.submit({
         caseId: "MR-QUEUED",
         repoPath: repoFixturePath("sample"),
         diff: { kind: "inline", text: goldenFixture("vul4j-1.diff") },
         configId: "B",
+        clientRequestId: "restart-req-1",
       });
       expect(job2.status).toBe("queued");
     } finally {
@@ -514,6 +494,18 @@ test(
       expect(job2Seqs).toEqual(job2Seqs.map((_, index) => index + 1));
       expect(job2Events[job2Events.length - 1]?.status).toBe("succeeded");
 
+      // 幂等跨重启：同 clientRequestId 重放 → 同 jobId（幂等表随 jobs.sqlite
+      // 共库持久——不重复检视、不新建 job；命中返回既有终态 view）
+      const replayed = await clientB.submit({
+        caseId: "MR-QUEUED",
+        repoPath: repoFixturePath("sample"),
+        diff: { kind: "inline", text: goldenFixture("vul4j-1.diff") },
+        configId: "B",
+        clientRequestId: "restart-req-1",
+      });
+      expect(replayed.jobId).toBe(job2!.jobId);
+      expect(replayed.status).toBe("succeeded");
+
       // 产物面：job2 产物目录按 job 隔离（experimentId = jobId——sqlite 装配）
       expect(existsSync(path.join(dataDir, "jobs.sqlite"))).toBe(true);
       expect(existsSync(path.join(dataDir, job2!.jobId, "audit"))).toBe(true);
@@ -524,7 +516,8 @@ test(
       };
       expect(record.baseline.findings.map((finding) => finding.id)).toEqual(["F100"]);
 
-      // 传输层：挂住 1 + 恢复六回合 = 7 请求全带哨兵头
+      // 传输层：挂住 1 + 恢复六回合 = 7 请求全带哨兵头（幂等重放命中不触
+      // stub——不新增请求即「不重复检视」的传输面证据）
       const requests = stub.requests();
       expect(requests).toHaveLength(7);
       for (const request of requests) {
@@ -558,8 +551,8 @@ test(
 // ---- 启动失败面：node:sqlite 不可用 fail fast ----
 
 test("node:sqlite 不可用 → 启动 fail fast：exit 1 + 人话（--store memory 逃生口指引，不静默降级）", async () => {
-  const dataDir = makeTempDir("review-pi-restart-nosqlite-");
-  const tokenFile = path.join(makeTempDir("review-pi-restart-tokens-"), "tokens.json");
+  const dataDir = tempDirs.makeTempDir("review-pi-restart-nosqlite-");
+  const tokenFile = path.join(tempDirs.makeTempDir("review-pi-restart-tokens-"), "tokens.json");
   writeTokenFile(tokenFile);
 
   const server = spawnServer({

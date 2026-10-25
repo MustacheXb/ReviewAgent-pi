@@ -68,6 +68,13 @@ export interface ReviewJobEventSlice {
 }
 
 /**
+ * jobId 形态单源（`job-<startMs>-<seq>`；对外不透明——ADR-0013 决策 2，内部
+ * 形态可演化）：memory / sqlite 两实现的分配器共指——两处字面量会静默漂移
+ * （sqlite 的持久计数器与 memory 的进程计数器各写一份时尤甚）。
+ */
+export const formatJobId = (startMs: number, seq: number): string => `job-${startMs}-${seq}`;
+
+/**
  * ReviewJobStore 端口。实现约束：
  * - `saveJob` upsert 语义（同 jobId 全量覆写）；调用方（service）保证转移
  *   单调——store 不做状态机校验；
@@ -118,7 +125,7 @@ export function createMemoryJobStore(options: MemoryJobStoreOptions = {}): Revie
   return {
     allocateJobId(startMs: number): AllocatedJobId {
       counter += 1;
-      return { jobId: `job-${startMs}-${counter}`, seq: counter };
+      return { jobId: formatJobId(startMs, counter), seq: counter };
     },
 
     saveJob(job: StoredReviewJob): void {

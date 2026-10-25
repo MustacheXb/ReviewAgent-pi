@@ -11,11 +11,11 @@
  * - memory 特有 describe：maxJobEvents 保留窗（readEvents gap 材料推进）。
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
+
+import { createTempDirRegistry } from "../testing/temp-dir.js";
 
 import type { ReviewRunProgress, ReviewRunRequest, ReviewRunSummary } from "./executor.js";
 import { fakeReviewRunSummary } from "./executor.js";
@@ -264,26 +264,19 @@ function describeStoreContract(name: string, makeStore: () => ReviewJobStore): v
 
 describeStoreContract("ReviewJobStore 契约：memory", () => createMemoryJobStore());
 
-const sqliteTempDirs: string[] = [];
+const sqliteTempDirs = createTempDirRegistry();
 
 afterAll(() => {
-  for (const dir of sqliteTempDirs.splice(0)) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // Windows 句柄释放延迟：tmp 泄漏无害，不 FAIL suite
-    }
-  }
+  sqliteTempDirs.removeAll();
 });
 
+/** sqlite 特有用例的独立 dataDir（跨实例 / 直查库等每用例一库） */
 function makeSqliteDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "review-pi-store-"));
-  sqliteTempDirs.push(dir);
-  return dir;
+  return sqliteTempDirs.makeTempDir("review-pi-store-");
 }
 
 describeStoreContract("ReviewJobStore 契约：sqlite", () =>
-  createSqliteReviewJobStore({ dataDir: makeSqliteDir() }),
+  createSqliteReviewJobStore({ dataDir: sqliteTempDirs.makeTempDir("review-pi-store-") }),
 );
 
 // ---- memory 特有：保留窗 ----

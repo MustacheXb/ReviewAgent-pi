@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import type { ChildProcess } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+
+import { reserveFreePort } from "../testing/free-port.js";
 
 // #28 pack 冒烟：`reviewagent` 打包产物（esbuild bundle dist/cli.mjs——pack
 // tarball 的内容物同源）必须含 server 形态且真跑通最小 wire 面：
@@ -25,18 +26,6 @@ const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 const BUNDLED_CLI = path.join(REPO_ROOT, "packages", "reviewagent", "dist", "cli.mjs");
 
 const testLocal = test.skipIf(!existsSync(BUNDLED_CLI));
-
-/** 借端口法拿空闲端口（bind 0 → 读真分配值 → 释放；冒烟容忍微小竞态） */
-async function reserveFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address() as { port: number };
-      probe.close(() => resolve(port));
-    });
-    probe.once("error", reject);
-  });
-}
 
 /** spawn bundled server 并等 healthz 就绪；失败抛人话（含子进程 stderr 尾部） */
 async function startBundledServer(

@@ -316,6 +316,7 @@ test("sqlite 装配：jobs.sqlite 落 dataDir；drain（store.close 落盘收口
     repoPath: argsA.out, // 任意存在目录（fake executor 不触盘）
     diff: { kind: "inline", text: "+x\n" },
     configId: "E",
+    clientRequestId: "sqlite-boot-req-1",
   });
   await waitFor(() => executorA.executions.length > 0, "execution start");
   executorA.executions[0]!.resolve(fakeReviewRunSummary());
@@ -350,6 +351,19 @@ test("sqlite 装配：jobs.sqlite 落 dataDir；drain（store.close 落盘收口
   const historical = await clientB.reviewGet(submitted.jobId);
   expect(historical.status).toBe("succeeded");
   expect(historical.result?.runId).toBe("run-fake-1");
+
+  // 幂等装配面：同 clientRequestId 重放 → 同 jobId（幂等表随 jobs.sqlite 持久，
+  // 重启不失忆——不重复检视）
+  const replayed = await clientB.submit({
+    caseId: "MR-sqlite-boot",
+    repoPath: argsA.out,
+    diff: { kind: "inline", text: "+x\n" },
+    configId: "E",
+    clientRequestId: "sqlite-boot-req-1",
+  });
+  expect(replayed.jobId).toBe(submitted.jobId);
+  expect(replayed.status).toBe("succeeded");
+
   signalsB.emit("SIGTERM");
   expect(await exitedB).toBe(143);
 });

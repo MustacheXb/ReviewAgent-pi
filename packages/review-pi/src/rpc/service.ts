@@ -205,8 +205,12 @@ interface JobViewSource {
   readonly error?: { readonly message: string };
 }
 
-/** 重启恢复的 failed 文案（-32015 SERVER_RESTART——机读码嵌 message） */
-const SERVER_RESTART_MESSAGE = "job interrupted by server restart (-32015 SERVER_RESTART)";
+/**
+ * 重启恢复的 failed 文案（-32015 SERVER_RESTART——机读码嵌 message）。
+ * 导出面：测试单源引用（`view.error.message` 强等值断言，替代散落的
+ * `-32015` 子串匹配——措辞调整不碎测试）。
+ */
+export const SERVER_RESTART_MESSAGE = "job interrupted by server restart (-32015 SERVER_RESTART)";
 
 export function createReviewService(options: ReviewServiceOptions): ReviewService {
   const limits: ReviewServiceLimits = {
@@ -516,11 +520,19 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
 
   const cancel = async (jobId: string, ctx: CallContext): Promise<ReviewJobView> => {
     const job = findJob(jobId, ctx);
-    if (job === undefined) {
-      throw new RpcError(JSON_RPC_ERROR.JOB_NOT_FOUND, `Unknown job: ${jobId}`, { jobId });
+    if (job !== undefined) {
+      cancelJob(job);
+      return viewOf(job);
     }
-    cancelJob(job);
-    return viewOf(job);
+    // 内存 miss → store 双读（#30，与 get / readEvents / artifacts 同口径）：
+    // store-only job 恒终态（恢复时 queued 即入内存、running / cancelling 已
+    // 转 failed；本实例 submit 的 job 恒驻内存 Map）——终态 cancel 幂等返回
+    // 当前 view（与进程内语义一致），不当 Unknown job（否则与 get 可查矛盾）
+    const stored = store.getJob(jobId);
+    if (stored !== undefined && stored.tenantId === ctx.principal.tenantId) {
+      return viewOf(stored);
+    }
+    throw new RpcError(JSON_RPC_ERROR.JOB_NOT_FOUND, `Unknown job: ${jobId}`, { jobId });
   };
 
   /**

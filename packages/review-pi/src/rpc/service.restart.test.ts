@@ -9,17 +9,15 @@
  * FakeReviewRunExecutor 驱动（进程级真崩溃面在 restart.process.test.ts）。
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
 import { realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, expect, test } from "vitest";
 
 import { FakeReviewRunExecutor, fakeReviewRunSummary } from "./executor.js";
 import { localCallContext, type CallContext } from "./context.js";
 import type { ReviewRequest } from "./protocol.js";
-import { createReviewService, type ReviewJobEvent } from "./service.js";
+import { SERVER_RESTART_MESSAGE, createReviewService, type ReviewJobEvent } from "./service.js";
 import { createSqliteReviewJobStore, type SqliteJobStoreOptions } from "./sqlite-store.js";
+import { createTempDirRegistry } from "../testing/temp-dir.js";
 
 /** 固定时钟：跨实例 startMs 相同——jobId 防碰撞只能靠持久计数器（回归面刻意压满） */
 const BOOT_A = new Date("2026-10-25T00:00:00.000Z");
@@ -28,28 +26,18 @@ const nowOf = (date: Date) => () => date;
 
 const CTX: CallContext = localCallContext("req-restart");
 
-const tempDirs: string[] = [];
+const tempDirs = createTempDirRegistry();
 
 function makeDataDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "review-pi-restart-"));
-  tempDirs.push(dir);
-  return dir;
+  return tempDirs.makeTempDir("review-pi-restart-");
 }
 
 function makeRepoDir(): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "review-pi-restart-repo-"));
-  tempDirs.push(dir);
-  return realpathSync(dir);
+  return realpathSync(tempDirs.makeTempDir("review-pi-restart-repo-"));
 }
 
 afterAll(() => {
-  for (const dir of tempDirs.splice(0)) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // Windows 句柄释放延迟：tmp 泄漏无害，不 FAIL suite
-    }
-  }
+  tempDirs.removeAll();
 });
 
 function restartRequest(repo: string, overrides: Partial<ReviewRequest> = {}): ReviewRequest {
@@ -64,8 +52,6 @@ function restartRequest(repo: string, overrides: Partial<ReviewRequest> = {}): R
 
 /** 冲刷微任务链（恢复入队的 pump / 事件发射均在微任务） */
 const flushAsync = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-
-const SERVER_RESTART_HINT = "-32015";
 
 test("恢复：running 作业 → failed（-32015 SERVER_RESTART，不假装续跑）", async () => {
   const dataDir = makeDataDir();
@@ -90,7 +76,7 @@ test("恢复：running 作业 → failed（-32015 SERVER_RESTART，不假装续�
 
   const view = await serviceB.get(submitted.jobId, CTX);
   expect(view?.status).toBe("failed");
-  expect(view?.error?.message).toContain(SERVER_RESTART_HINT);
+  expect(view?.error?.message).toBe(SERVER_RESTART_MESSAGE);
   // 不假装续跑：B 的 executor 只收到恢复入队的 job（本用例无 queued，零执行）
   expect(executorB.executions).toHaveLength(0);
 });
@@ -164,7 +150,7 @@ test("恢复：cancelling 作业 → failed（-32015；abort 中的取消不跨�
   });
   const view = await serviceB.get(submitted.jobId, CTX);
   expect(view?.status).toBe("failed");
-  expect(view?.error?.message).toContain(SERVER_RESTART_HINT);
+  expect(view?.error?.message).toBe(SERVER_RESTART_MESSAGE);
 });
 
 test("恢复：SSE 事件日志跨重启补齐——readEvents(afterSeq=1) 重放 failed 转移事件", async () => {
@@ -193,7 +179,7 @@ test("恢复：SSE 事件日志跨重启补齐——readEvents(afterSeq=1) 重�
   expect(events.map((event: ReviewJobEvent) => [event.seq, event.job.status])).toEqual([
     [2, "failed"],
   ]);
-  expect(events[0]?.job.error?.message).toContain(SERVER_RESTART_HINT);
+  expect(events[0]?.job.error?.message).toBe(SERVER_RESTART_MESSAGE);
 
   // 零位重连（无 Last-Event-ID）：全量重放（running → failed）
   const full = await serviceB.readEvents(submitted.jobId, 0, CTX);
@@ -290,4 +276,40 @@ test("恢复：list 跨重启可见全部历史 job（含终态）——恢复�
   expect((await serviceB.list({}, otherTenant)).jobs).toEqual([]);
   expect(await serviceB.get(`job-${BOOT_A.getTime()}-1`, otherTenant)).toBeUndefined();
   expect(await serviceB.readEvents(`job-${BOOT_A.getTime()}-1`, 0, otherTenant)).toBeUndefined();
+});
+
+test("恢复：跨重启历史终态 job 的 cancel 幂等返回 view（与 get 双读同口径，不当 Unknown job）", async () => {
+  const dataDir = makeDataDir();
+  const repo = makeRepoDir();
+  const executorA = new FakeReviewRunExecutor();
+  const serviceA = createReviewService({
+    executor: executorA,
+    store: createSqliteReviewJobStore({ dataDir }),
+    now: nowOf(BOOT_A),
+  });
+  const submitted = await serviceA.submit(restartRequest(repo), CTX);
+  await flushAsync();
+  executorA.executions[0]!.resolve(fakeReviewRunSummary()); // succeeded 落定（write-through 持久）
+  await flushAsync();
+  // 崩溃（终态 job 不进重启实例的内存 Map——store-only 路径）
+
+  const serviceB = createReviewService({
+    executor: new FakeReviewRunExecutor(),
+    store: createSqliteReviewJobStore({ dataDir }),
+    now: nowOf(BOOT_B),
+  });
+  // cancel 与 get 同口径可查：终态幂等返回当前 view（进程内语义跨重启不变）
+  const view = await serviceB.cancel(submitted.jobId, CTX);
+  expect(view.status).toBe("succeeded");
+  expect(view.result?.runId).toBe("run-fake-1");
+
+  // 越权 / 未知 job 仍 -32001（异租户与不存在同面）
+  const otherTenant: CallContext = {
+    principal: { tenantId: "other", subject: "s", scopes: [] },
+    requestId: "req-other",
+  };
+  await expect(serviceB.cancel(submitted.jobId, otherTenant)).rejects.toMatchObject({
+    code: -32001,
+  });
+  await expect(serviceB.cancel("job-unknown", CTX)).rejects.toMatchObject({ code: -32001 });
 });

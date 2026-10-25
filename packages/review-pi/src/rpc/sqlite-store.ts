@@ -32,7 +32,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ConfigId } from "../contracts/config.js";
 import type { ReviewJobStatus } from "./protocol.js";
 import type { ReviewJobEvent } from "./service.js";
-import type { AllocatedJobId, ReviewJobStore, StoredReviewJob } from "./store.js";
+import { formatJobId, type AllocatedJobId, type ReviewJobStore, type StoredReviewJob } from "./store.js";
 
 export interface SqliteJobStoreOptions {
   /** 数据根目录（建库 `<dataDir>/jobs.sqlite`；runs / audit / record 同根——spec） */
@@ -146,14 +146,26 @@ function toStoredJob(row: JobRow): StoredReviewJob {
   };
 }
 
-export function createSqliteReviewJobStore(options: SqliteJobStoreOptions): ReviewJobStore {
+/**
+ * 打开共享库连接（`<dataDir>/jobs.sqlite`）：建目录 + WAL / synchronous /
+ * busy_timeout PRAGMA + jobs 侧 schema（DDL 幂等）。除本适配器外，同库其他
+ * 面（如 server 侧幂等表）经此复用同一开库纪律——`node:sqlite` 可用性
+ * fail fast（loadDatabaseSync 人话错误）与 PRAGMA 面不双源。同文件多连接
+ * （各面各持一连接）在 WAL + busy_timeout 下是 sqlite 一等公民用法。
+ */
+export function openJobsDatabase(dataDir: string): DatabaseSync {
   const DatabaseSync = loadDatabaseSync();
-  mkdirSync(options.dataDir, { recursive: true });
-  const db: DatabaseSync = new DatabaseSync(path.join(options.dataDir, DB_FILENAME));
+  mkdirSync(dataDir, { recursive: true });
+  const db: DatabaseSync = new DatabaseSync(path.join(dataDir, DB_FILENAME));
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec(SCHEMA_SQL);
+  return db;
+}
+
+export function createSqliteReviewJobStore(options: SqliteJobStoreOptions): ReviewJobStore {
+  const db = openJobsDatabase(options.dataDir);
 
   const putBlob = db.prepare(
     "INSERT INTO blobs (sha256, content) VALUES (?, ?) ON CONFLICT(sha256) DO NOTHING",
@@ -237,7 +249,7 @@ export function createSqliteReviewJobStore(options: SqliteJobStoreOptions): Revi
   return {
     allocateJobId(startMs: number): AllocatedJobId {
       counter += 1;
-      return { jobId: `job-${startMs}-${counter}`, seq: counter };
+      return { jobId: formatJobId(startMs, counter), seq: counter };
     },
 
     saveJob,

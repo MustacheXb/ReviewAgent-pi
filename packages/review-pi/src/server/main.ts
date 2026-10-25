@@ -51,7 +51,11 @@ import {
   type AccessLogEvent,
   type InternalErrorLogEvent,
 } from "./http-server.js";
-import { createIdempotencyKeeper } from "./idempotency.js";
+import {
+  createIdempotencyKeeper,
+  createSqliteIdempotencyKeeper,
+  type IdempotencyKeeper,
+} from "./idempotency.js";
 import { createSseEndpoint, type SseEndpoint } from "./sse.js";
 
 /** 信号 → 退出码（128+信号号惯例；与 rpc/main.ts 同表） */
@@ -113,6 +117,15 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
     throw new Error("sqlite store requires --data-dir (unreachable via parse; kept as fail-fast guard)");
   }
 
+  // 3.5 幂等存储（#30）：sqlite 面持久化（jobs.sqlite 共库——重启后同
+  //     clientRequestId 重放仍返回既有 job，不重复检视）；memory 逃生口
+  //     维持进程内表。close 归本装配层（drain 尾随 store 一并收口）
+  const sqliteIdempotency =
+    args.store === "sqlite" && args.dataDir !== undefined
+      ? createSqliteIdempotencyKeeper({ dataDir: args.dataDir })
+      : undefined;
+  const idempotency: IdempotencyKeeper = sqliteIdempotency ?? createIdempotencyKeeper();
+
   // 4. service 装配（executor 经端口注入内核——server 子树不 import run/ 内件）
   const executor =
     io.executor ??
@@ -158,7 +171,7 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
   const server = createReviewHttpServer({
     service,
     authenticator,
-    idempotency: createIdempotencyKeeper(),
+    idempotency,
     serverInfo,
     sse,
     artifacts: artifactEndpoint,
@@ -214,6 +227,7 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
       exitCode = 1;
     } finally {
       store.close(); // #30：store 落盘收口（幂等；service.close 后无新查询面）
+      sqliteIdempotency?.close(); // 幂等表连接同收（memory 面无 close）
     }
     settleExit(exitCode);
   };
