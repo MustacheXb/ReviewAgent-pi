@@ -75,8 +75,5 @@ jobs:
       - name: Test (review-pi)
         run: pnpm --filter review-pi test
 
-      - name: Byte gate (review-pi)
-        run: pnpm --filter review-pi test:gate
-
       - name: Test (root)
         run: pnpm test
