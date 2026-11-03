@@ -10,3 +10,8 @@ packages/ai/src/providers/data/** -text
 # （vul4j-1.diff 含 git diff 原生形态的「单空格」空上下文行，换行转换会破坏一致性）；
 # 合成样本仓库一并禁用转换，保证跨平台检出字节一致
 packages/review-pi/testdata/** -text
+
+# npm bin 入口必须 LF：shebang 行 CRLF 会使 Unix 执行面 /usr/bin/env 'node\r'
+# 失败，pnpm pack 也直接拒收（ERR_PNPM_BIN_CRLF）——Windows autocrlf 检出
+# 会静默转换，故按 eol=lf 钉死（tarball 安装冒烟在本机 Windows 可复现的门）
+packages/reviewagent/bin/** text eol=lf
