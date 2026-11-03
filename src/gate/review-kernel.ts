@@ -18,16 +18,16 @@ import type { RunResult } from "../instrument/contracts/run.js";
  *   （pi 适配器在 pi-kernel.ts，仅 scripts/run-migration-gate.ts 装配与测试
  *   消费）。
  *
- * 值类型迁移注（#32）：EXPERIMENT_SOURCES / ExperimentSource / RunUnit /
- * ReviewKernelId 原落 experiment/plan.ts（防 plan ↔ review-kernel 循环引用）；
- * 评测计划面删除后随缝迁入本模块（plan 已不存在，循环不复存在）——命名保留
- * 历史缝词汇（与 RunRecord 审计目录骨架 runs/<source>/<caseId>/<configId>/
+ * 值类型迁移注（#32）：ExperimentSource 词汇（原 EXPERIMENT_SOURCES const，
+ * 值面零消费者已经核实——转纯类型联合）/ RunUnit / ReviewKernelId 原落
+ * experiment/plan.ts（防 plan ↔ review-kernel 循环引用）；评测计划面删除后
+ * 随缝迁入本模块（plan 已不存在，循环不复存在）——命名保留历史缝词汇
+ * （与 RunRecord 审计目录骨架 runs/<source>/<caseId>/<configId>/
  * rep-<rep> 同构；历史 A-D 值域经 ConfigId 只读兼容保留）。
  */
 
 /** 数据源规范名（与 MRCase.labels.source 的词表一致；迁移门单案恒 "vul4j"） */
-export const EXPERIMENT_SOURCES = ["defects4j", "vul4j", "msb-java", "clean-mr"] as const;
-export type ExperimentSource = (typeof EXPERIMENT_SOURCES)[number];
+export type ExperimentSource = "defects4j" | "vul4j" | "msb-java" | "clean-mr";
 
 /**
  * 检视内核 id：pi = vendored pi 内核（packages/review-pi，ADR-0009 从 0 重写）

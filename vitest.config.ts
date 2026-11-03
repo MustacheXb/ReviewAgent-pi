@@ -23,7 +23,10 @@ export default defineConfig({
       // 装配），由手工流程触达，不计入常规门
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.test.ts"],
-      // 零网络常规门的最低覆盖线（全局；当前基线 86.9% lines）
+      // 零网络常规门的最低覆盖线（全局；#32 E-only 生产化后基线 ≈ 98% lines
+      // ——研究测试树退役后由 gate 面行为测试（pi-kernel / cli-args /
+      // migration-gate）承载，instrument/contracts 纯类型模块零可执行语句、
+      // 不计入聚合）
       thresholds: { lines: 80, branches: 80, functions: 80, statements: 80 },
     },
   },
