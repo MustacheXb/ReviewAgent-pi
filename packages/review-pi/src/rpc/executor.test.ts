@@ -226,7 +226,6 @@ test("service running cancel 全链路：cancelling → executor abort → cance
       caseId: "VUL4J-1",
       repoPath: repoFixturePath("sample"),
       diff: { kind: "inline", text: SAMPLE_DIFF },
-      configId: "E",
     },
     localCallContext("req-executor-test"),
   );

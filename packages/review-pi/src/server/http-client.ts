@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 
 import { RpcResponseError } from "../rpc/client.js";
 import type { RpcServerInfo } from "../rpc/main.js";
-import { RPC_METHOD, type ListReviewParams, type ReviewRequest } from "../rpc/protocol.js";
+import { RPC_METHOD, assertProtocolVersion, type ListReviewParams, type ReviewRequest } from "../rpc/protocol.js";
 import type { HttpReviewJobView } from "./http-view.js";
 
 /** JSON-RPC error 响应 + HTTP 传输细节（429/503 的 Retry-After 暴露给重试决策） */
@@ -80,9 +80,12 @@ export class ReviewHttpClient {
     this.#fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  /** server.capabilities（POST /rpc 方法面；与 GET /v1/capabilities 同源同构） */
+  /** server.capabilities（POST /rpc 方法面；与 GET /v1/capabilities 同源同构；v3 硬断言：代数错配即抛人话错） */
   capabilities(): Promise<RpcServerInfo> {
-    return this.#call<RpcServerInfo>(RPC_METHOD.CAPABILITIES, undefined);
+    return this.#call<RpcServerInfo>(RPC_METHOD.CAPABILITIES, undefined).then((info) => {
+      assertProtocolVersion(info);
+      return info;
+    });
   }
 
   /** review.submit → 202 + envelope result（jobView 初始 queued；HTTP 投影视图） */

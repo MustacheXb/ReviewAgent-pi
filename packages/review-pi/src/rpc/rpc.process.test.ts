@@ -27,9 +27,10 @@ import type { ReviewJobView } from "./service.js";
 // - C 组（POSIX 门控）：SIGINT → 130 / SIGTERM → 143（bin 转发 + 内核 drain）；
 // - D 组：running cancel 进程级——stub 挂住 SSE 响应 → cancel → 内核 abort →
 //   cancelling → cancelled，--out 零落盘（无审计/RunRecord）；
-// - E 组（#27 v2，ADR-0013）：统一形切换面——protocolVersion 2、v1 旧扁平
-//   diff 直接 -32602（无 legacy alias）、--cwd 缺省链（repoPath 省略）+
-//   diff {kind:"file"} 相对路径按子进程 process.cwd() 解析。
+// - E 组（#27 v2→#32 v3，ADR-0013/ADR-0014）：统一形切换面——
+//   protocolVersion 3、v1 旧扁平 diff 直接 -32602（无 legacy alias）、携带
+//   configId 的 submit → -32019 显式拒收（v3 配置选择根除）、--cwd 缺省链
+//   （repoPath 省略）+ diff {kind:"file"} 相对路径按子进程 process.cwd() 解析。
 //
 // 与 bin.process.test.ts 的关系：loopback stub 与 oneFindingCorpus 是按 rpc 面
 // 需要的窄化重写（rpc 长驻不发 smoke 探针——只有 POST SSE 路径），wire 渲染
@@ -234,13 +235,12 @@ function expectNoKeyLeak(haystacks: readonly { label: string; text: string }[]):
   }
 }
 
-/** 提交参数（A/B/D 组共用：config B 零工具，六回复脚本对应形态；#27 v2 统一形——inline diff） */
+/** 提交参数（A/B/D 组共用：v3 无 configId——服务端恒 E 派生；六回复脚本一轮完成；inline diff） */
 function submitParams() {
   return {
     caseId: "VUL4J-1",
     repoPath: repoFixturePath("sample"),
     diff: { kind: "inline" as const, text: goldenFixture("vul4j-1.diff") },
-    configId: "B" as const,
   };
 }
 
@@ -445,7 +445,7 @@ test(
 
       // capabilities：协议版本 / 六方法表 / features / limits 派生 / serverId
       const caps = await client.capabilities();
-      expect(caps.protocolVersion).toBe(2);
+      expect(caps.protocolVersion).toBe(3);
       expect(caps.serverId).toMatch(/^\d+-\d+$/);
       expect(caps.methods).toEqual([
         "server.capabilities",
@@ -455,7 +455,7 @@ test(
         "review.cancel",
         "shutdown",
       ]);
-      // stdio v2 能力声明（ADR-0013：按形态声明差异）
+      // stdio v3 能力声明（ADR-0013：按形态声明差异）
       expect(caps.features).toEqual({
         sse: false,
         artifactDownload: false,
@@ -478,7 +478,7 @@ test(
       expect(submitted.status).toBe("queued");
       expect(submitted.jobId).not.toBe("");
       expect(submitted.caseId).toBe("VUL4J-1");
-      expect(submitted.configId).toBe("B");
+      expect(submitted.configId).toBe("E");
 
       // 检视完成（stub 六回复）→ result 携带 findings
       const completed = await waitForJobStatus(client, submitted.jobId, "succeeded", 120_000);
@@ -561,7 +561,7 @@ test(
       session.send({ jsonrpc: "2.0", id: "raw-1", method: "server.capabilities" });
       const caps = await session.nextLine();
       expect(caps.id).toBe("raw-1");
-      expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(2);
+      expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(3);
 
       // submit → 轮询读行直到 completed 事件（响应与事件混流，逐行过 JSON.parse）
       session.send({
@@ -619,7 +619,7 @@ describeIfPosix("信号退出码（POSIX）", () => {
     const session = spawnRawRpc({ outDir, env: stubEnv("http://127.0.0.1:9/v1") });
     session.send({ jsonrpc: "2.0", id: "sig-1", method: "server.capabilities" });
     const caps = await session.nextLine();
-    expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(2);
+    expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(3);
 
     session.kill("SIGINT");
     const exit = await session.waitForClose(30_000);
@@ -707,10 +707,10 @@ test(
   120_000,
 );
 
-// ---- E 组（#27 v2，ADR-0013）：统一形切换面 ----
+// ---- E 组（#27 v2→#32 v3，ADR-0013/ADR-0014）：统一形切换面 ----
 
 test(
-  "统一形 v2：v1 旧扁平 diff → -32602（无 legacy alias）+ --cwd 缺省链（repoPath 省略）+ diff file kind 相对路径解析",
+  "统一形 v3：v1 旧扁平 diff → -32602（无 legacy alias）+ 携带 configId → -32019 拒收 + --cwd 缺省链（repoPath 省略）+ diff file kind 相对路径解析",
   async () => {
     const stub = await startLoopbackStub(oneFindingCorpus());
     try {
@@ -726,10 +726,10 @@ test(
         cwd: workDir,
       });
 
-      // capabilities：protocolVersion 2 是统一契约代数的唯一切换信号
+      // capabilities：protocolVersion 3 是统一契约代数的唯一切换信号
       session.send({ jsonrpc: "2.0", id: "v2-caps", method: "server.capabilities" });
       const caps = await session.nextLine();
-      expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(2);
+      expect((caps.result as { protocolVersion?: number })?.protocolVersion).toBe(3);
 
       // v1 旧扁平形（diff 纯字符串）→ invalid_params（ADR-0013 决策 3：
       // stdio v1 零外部调用方，不保留 legacy alias）
@@ -741,13 +741,30 @@ test(
           caseId: "VUL4J-1",
           repoPath: repoFixturePath("sample"),
           diff: goldenFixture("vul4j-1.diff"),
-          configId: "B",
         },
       });
       const legacy = await session.nextLine();
       expect(legacy).toMatchObject({ id: "v2-legacy", error: { code: -32602 } });
 
-      // v2：repoPath 省略 → --cwd 承担缺省；diff {kind:"file"} 相对路径按
+      // v3 拒收面：携带 configId → -32019 专用码（哪怕值 = "E"——v2 的合法值
+      // 同样拒；携带即携带，与值无关。配置选择已根除：服务端恒 E 派生，
+      // 静默忽略会养出 v2/v3 双方言客户端）
+      session.send({
+        jsonrpc: "2.0",
+        id: "v3-config",
+        method: "review.submit",
+        params: {
+          caseId: "VUL4J-1",
+          repoPath: repoFixturePath("sample"),
+          diff: { kind: "inline", text: goldenFixture("vul4j-1.diff") },
+          configId: "E",
+        },
+      });
+      const rejected = await session.nextLine();
+      expect(rejected).toMatchObject({ id: "v3-config", error: { code: -32019 } });
+      expect((rejected.error as { message?: string })?.message ?? "").toContain("configId");
+
+      // v3：repoPath 省略 → --cwd 承担缺省；diff {kind:"file"} 相对路径按
       // 子进程 process.cwd()（workDir）解析 → 检视全链跑通
       session.send({
         jsonrpc: "2.0",
@@ -756,7 +773,6 @@ test(
         params: {
           caseId: "VUL4J-1",
           diff: { kind: "file", path: "case.diff" },
-          configId: "B",
         },
       });
       let jobId = "";
@@ -778,7 +794,7 @@ test(
       expect(completedSeen).toBe(true);
       expect(jobId).not.toBe("");
 
-      // 帧纪律 + EOF → 0（v2 参数形不改变进程面契约）
+      // 帧纪律 + EOF → 0（v3 参数形不改变进程面契约）
       session.endStdin();
       const exit = await session.waitForClose(30_000);
       expect(exit.status).toBe(0);

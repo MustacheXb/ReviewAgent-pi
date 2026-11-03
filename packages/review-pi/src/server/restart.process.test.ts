@@ -287,7 +287,6 @@ test(
         caseId: "MR-HANG",
         repoPath: repoFixturePath("sample"),
         diff: { kind: "inline", text: goldenFixture("vul4j-1.diff") },
-        configId: "B",
       });
       await waitForStatus(clientA, job1.jobId, "running", 30_000);
       // running 先于 fetch 发出：等请求真到达 stub 再崩溃——挂住的才是在飞请求
@@ -303,7 +302,6 @@ test(
         caseId: "MR-QUEUED",
         repoPath: repoFixturePath("sample"),
         diff: { kind: "inline", text: goldenFixture("vul4j-1.diff") },
-        configId: "B",
         clientRequestId: "restart-req-1",
       });
       expect(job2.status).toBe("queued");
@@ -372,7 +370,6 @@ test(
         caseId: "MR-QUEUED",
         repoPath: repoFixturePath("sample"),
         diff: { kind: "inline", text: goldenFixture("vul4j-1.diff") },
-        configId: "B",
         clientRequestId: "restart-req-1",
       });
       expect(replayed.jobId).toBe(job2!.jobId);

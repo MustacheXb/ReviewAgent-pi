@@ -37,7 +37,7 @@
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { ConfigId } from "../contracts/config.js";
+import { CONFIG_E, type ConfigId } from "../contracts/config.js";
 import { resolvePath } from "../shared/paths.js";
 import type { CallContext } from "./context.js";
 import { ReviewExecutionError, type ReviewRunContext } from "./executor.js";
@@ -594,7 +594,8 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
         repoPath,
         diff: diffText,
         issueDescription: request.issueDescription ?? "",
-        configId: request.configId,
+        // v3 派生（#32 / ADR-0014 §10）：submit 无 configId，服务端恒 E
+        configId: CONFIG_E,
         ...(request.modelId !== undefined ? { modelId: request.modelId } : {}),
       },
       submittedSeq: allocated.seq,

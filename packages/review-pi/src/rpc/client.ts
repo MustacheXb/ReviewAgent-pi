@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import type { RpcServerInfo } from "./main.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
-import { RPC_METHOD, type ReviewJobStatus, type ReviewRequest } from "./protocol.js";
+import { RPC_METHOD, assertProtocolVersion, type ReviewJobStatus, type ReviewRequest } from "./protocol.js";
 import type { ReviewJobEvent, ReviewJobView } from "./service.js";
 
 /** stderr 滚动缓冲上限（错误消息只引尾段；长跑服务端的 stderr 不无限累积） */
@@ -184,9 +184,12 @@ export class ReviewRpcClient {
     }
   }
 
-  /** server.capabilities → 协议版本 / serverId / 方法表 / features / limits */
+  /** server.capabilities → 协议版本 / serverId / 方法表 / features / limits（v3 硬断言：代数错配即抛人话错） */
   capabilities(): Promise<RpcServerInfo> {
-    return this.send<RpcServerInfo>(RPC_METHOD.CAPABILITIES);
+    return this.send<RpcServerInfo>(RPC_METHOD.CAPABILITIES).then((info) => {
+      assertProtocolVersion(info);
+      return info;
+    });
   }
 
   /** review.submit（统一 ReviewRequest，#27 v2）→ 排队后的 job 快照（status queued） */

@@ -4,6 +4,13 @@
 
 export type ConfigId = "A" | "B" | "C" | "D" | "E";
 
+/**
+ * v3 起唯一在产的配置（#32 / ADR-0014 §10：协议无配置选择面——submit 不带
+ * configId、CLI 无旗标；本常量是服务端派生单源：service / 幂等指纹 / CLI
+ * 直驱内核的 configId 全部由它取值，RunRecord / 审计 / disposition 恒 E）。
+ */
+export const CONFIG_E = "E" as const satisfies ConfigId;
+
 export interface ReviewConfig {
   readonly configId: ConfigId;
   /** A/B = false（零工具）；C/D/E = true */

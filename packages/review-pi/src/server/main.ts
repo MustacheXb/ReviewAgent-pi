@@ -41,7 +41,7 @@ import { resolve } from "node:path";
 
 import type { ServerCliArgs } from "../cli/args.js";
 import { resolveReviewerEndpoint, type ReviewerEndpoint } from "../provider/reviewer-endpoint.js";
-import { RPC_METHOD } from "../rpc/protocol.js";
+import { PROTOCOL_VERSION, RPC_METHOD } from "../rpc/protocol.js";
 import { KernelReviewRunExecutor, type ReviewRunExecutor } from "../rpc/executor.js";
 import type { RpcServerInfo, RpcSignalTarget } from "../rpc/main.js";
 import { createReviewService } from "../rpc/service.js";
@@ -178,7 +178,7 @@ export async function runServerMain(args: ServerCliArgs, io: ServerMainIo = {}):
   });
   const artifactRetentionDays = args.artifactRetentionDays ?? DEFAULT_ARTIFACT_RETENTION_DAYS;
   const serverInfo: RpcServerInfo = {
-    protocolVersion: 2,
+    protocolVersion: PROTOCOL_VERSION,
     serverId: `${process.pid}-${(io.nowMs ?? Date.now)()}`,
     // HTTP 方法表不含 shutdown（进程生命周期归运维信号面——ADR-0013 决策 9）
     methods: [

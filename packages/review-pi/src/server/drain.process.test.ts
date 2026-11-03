@@ -330,7 +330,6 @@ describeIfPosix("进程级优雅 drain（POSIX 门控——Windows kill() 无信
           caseId: "MR-HANG",
           repoPath: repoFixturePath("sample"),
           diff: { kind: "inline", text: SAMPLE_DIFF },
-          configId: "B",
         });
         await waitForStatus(client, job1.jobId, "running", 30_000);
         // 等 round-1 真到达闸门（此刻挂住的才是在飞请求）
@@ -345,7 +344,6 @@ describeIfPosix("进程级优雅 drain（POSIX 门控——Windows kill() 无信
           caseId: "MR-FLOW",
           repoPath: repoFixturePath("sample"),
           diff: { kind: "inline", text: SAMPLE_DIFF },
-          configId: "B",
         });
         const flowed = await waitForStatus(client, job2.jobId, "succeeded", 180_000);
         expect(flowed.result?.findings).toHaveLength(1);
@@ -369,7 +367,6 @@ describeIfPosix("进程级优雅 drain（POSIX 门控——Windows kill() 无信
               caseId: "MR-REJECTED",
               repoPath: repoFixturePath("sample"),
               diff: { kind: "inline", text: SAMPLE_DIFF },
-              configId: "B",
             },
           }),
         });
@@ -454,7 +451,6 @@ test(
         caseId: "MR-INPROC",
         repoPath: repoFixturePath("sample"),
         diff: { kind: "inline", text: SAMPLE_DIFF },
-        configId: "B",
       });
       const done = await waitForStatus(client, job.jobId, "succeeded", 180_000);
       expect(done.result?.findings).toHaveLength(1);

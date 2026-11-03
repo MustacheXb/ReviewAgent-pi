@@ -6,9 +6,10 @@
  *
  * 命令面：
  * - review：统一 ReviewRequest 校验（validateReviewRequest 单源，#27——
- *   旗标投影为统一模型，与 stdio/HTTP 同一实现）→ 凭据 fail fast
- *   （resolveReviewerEndpoint 构造期）→ config E 全链（缺省，ADR-0011 切流；
- *   --config A-E 透传内核配置矩阵）→ 审计/记录落盘（--out）→
+ *   旗标投影为统一模型，与 stdio/HTTP 同一实现；v3 起无 configId——服务端
+ *   /CLI 派生恒 E，#32 / ADR-0014 §10）→ 凭据 fail fast
+ *   （resolveReviewerEndpoint 构造期）→ config E 全链（七工具 + Context
+ *   Ledger；无 --config 旗标，传入即用法错误）→ 审计/记录落盘（--out）→
  *   呈现投影（ADR-0010：REVIEW_PI_PRESENTATION_ENGINE 注入引擎时 stdout
  *   呈现档译中文，失败降级英文源；未配置恒等直通）→ stdout 单 JSON 文档
  *   （render.ts，已测）；
@@ -36,7 +37,7 @@
  * key 绝不回显。
  *
  * 进程调用形态：review-pi review [--repo <path>] --mr <diff-file>
- *   [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
+ *   [--issue <text>] [--out <dir>] [--model <id>]
  *   review-pi smoke [--model <id>]
  *   review-pi rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
  *   review-pi disposition --run <run-record.json> --finding <id>
@@ -48,6 +49,7 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { runDispositionCommand } from "../disposition/command.js";
+import { CONFIG_E } from "../contracts/config.js";
 import { formatSmokeDiagnostics, runSmokeProbes } from "../provider/gateway-probe.js";
 import { resolveReviewerEndpoint } from "../provider/reviewer-endpoint.js";
 import { runReview } from "../run/review-run.js";
@@ -78,7 +80,6 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
     repoPath: args.repo,
     diff: { kind: "file", path: args.mr },
     issueDescription: args.issue,
-    configId: args.config,
     modelId: args.model,
   });
   if (!validation.ok) {
@@ -103,7 +104,9 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
     apiKey: endpoint.apiKey,
     baseUrl: endpoint.baseUrl,
     modelId: args.model,
-    configId: args.config,
+    // v3 派生（#32 / ADR-0014 §10）：CLI 直驱内核也走 CONFIG_E 单源——
+    // 与 service / 幂等指纹同款恒 E，stdout 的 configId 字段值不再来自用户面
+    configId: CONFIG_E,
     fetch: globalThis.fetch,
     runsRoot,
     experimentId: CLI_EXPERIMENT_ID,

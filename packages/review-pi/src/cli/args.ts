@@ -1,5 +1,4 @@
 import { basename } from "node:path";
-import { CONFIGS, type ConfigId } from "../contracts/config.js";
 import { dispositionStorePath } from "../disposition/store.js";
 import { DISPOSITION_DECISIONS, type DispositionDecision } from "../disposition/record.js";
 import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
@@ -8,13 +7,12 @@ import { REVIEW_MODEL_ID } from "../provider/pi-client.js";
  * #7 review-pi CLI 参数解析（进程内主缝第一层）：`review-pi review`、
  * `review-pi smoke` 与 `review-pi disposition` 三个子命令的用法契约。
  * 形态对齐 DSH 线 review-agent args.ts（union 结果、不抛异常——用户输入
- * 错误是预期路径，不是完整性事故）；config 合法性对照 CONFIGS 注册表
- * （A–E 矩阵真源）。
+ * 错误是预期路径，不是完整性事故）。v3 起无 --config 旗标（配置恒 E，
+ * 服务端派生；传入即未知旗标用法错误——#32 / ADR-0014 §10）。
  *
  * pi 线差异（自立决策，不从 DSH 仓导入）：
- * - 缺省 config = E（生产入口切流，ADR-0011：自主拉取 + Context Ledger；
- *   2026-10-19 决策前曾为 B——P3b 时代「生产形态」口径已随选型死亡；
- *   DSH 线缺省 A）；
+ * - v2 时代缺省 config = E（ADR-0011 切流）；v3 起配置选择面根除——
+ *   恒 E 无旗标（协议 v3 同款决策，ADR-0015）；
  * - 无 --language 旗标（输出语言是 DSH 线后分家决策，pi 线自立 ADR 前不实装）；
  * - smoke 只认 --model（双探针自检不跑检视，参数面自然更窄）；
  * - disposition（#15）本地数据面：无网络无凭据；--decision 三值枚举在
@@ -46,11 +44,10 @@ export const CLI_VERSION = "0.1.0";
 /** --out 缺省（review 落盘根与 disposition 处置库派生根共用同一约定） */
 const DEFAULT_OUT_DIR = "reviewagent-output";
 
-/** review 子命令的已知旗标（未知旗标 = 用法错误） */
+/** review 子命令的已知旗标（未知旗标 = 用法错误；v3 起无 --config——配置恒 E，#32 / ADR-0014 §10） */
 const KNOWN_REVIEW_FLAGS: readonly string[] = [
   "--repo",
   "--mr",
-  "--config",
   "--issue",
   "--out",
   "--model",
@@ -98,24 +95,24 @@ function isValidPort(value: number): boolean {
 }
 
 /** 用法文案（stderr 错误路径的同款文案，单一来源） */
-export const USAGE_TEXT = `usage: reviewagent review [--repo <path>] --mr <diff-file> [--config A-E] [--issue <text>] [--out <dir>] [--model <id>]
+export const USAGE_TEXT = `usage: reviewagent review [--repo <path>] --mr <diff-file> [--issue <text>] [--out <dir>] [--model <id>]
        reviewagent smoke [--model <id>]
        reviewagent rpc [--out <dir>] [--cwd <dir>] [--concurrency <n>]
        reviewagent server --auth-token-file <file> [--data-dir <dir>] [--store sqlite|memory] [--executor worker|inprocess] [--host <addr>] [--port <n>] [--out <dir>] [--concurrency <n>] [--artifact-retention-days <n>]
        reviewagent disposition --run <run-record.json> --finding <id> --decision accept|reject|false-positive [--note <text>] ([--store <file>] | [--out <dir>])
        reviewagent disposition --stats ([--store <file>] | [--out <dir>])
   （smoke = 网关冒烟自检，P1b 双探针：网关健康 + 模型可达，输出人话诊断）
-  （rpc = stdio JSONL 长驻模式：stdin 收 JSON-RPC 命令、stdout 回 JSON 行、stderr 诊断——ADR-0012；统一契约 v2 见 ADR-0013）
+  （rpc = stdio JSONL 长驻模式：stdin 收 JSON-RPC 命令、stdout 回 JSON 行、stderr 诊断——ADR-0012；统一契约 v3（无配置选择）见 ADR-0013/ADR-0015）
   （server = HTTP JSON-RPC 长驻服务：POST /rpc + GET /healthz|/readyz|/v1/capabilities，Bearer 鉴权 + 幂等——ADR-0013）
   （disposition = Finding 人工处置落库 + 接受率 KPI：本地数据面，无网络、不碰凭据与 .env.local）
 
 review 旗标：
   --repo    <path>       仓库快照根目录（缺省当前目录 process.cwd()；相对路径按它解析）
   --mr      <diff-file>  MR diff 文件路径（必需；caseId = 文件名去扩展名）
-  --config  <A-E>        配置形态（缺省 E = 生产入口：自主拉取 + Context Ledger，ADR-0011 切流）
   --issue   <text>       MR 议题描述（缺省空）
   --out     <dir>        输出目录（审计与运行记录落盘；缺省 ${DEFAULT_OUT_DIR}）
   --model   <id>         评审模型 id（缺省 ${REVIEW_MODEL_ID}；自由 id 透传）
+  （v3 起无 --config 旗标：配置恒 E——自主拉取 + Context Ledger，服务端派生；传入即用法错误）
 
 smoke 旗标：
   --model   <id>         冒烟模型 id（同缺省与校验；端点/key 走 REVIEWER_* 环境变量或 .env.local，绝不回显）
@@ -159,13 +156,12 @@ disposition 旗标（KPI）：
   --store    <file>      处置库文件（与 --out 互斥；派生规则同上）
   --out      <dir>       处置库派生根（同上）`;
 
-/** 解析后的 review 命令参数（config 已收窄为 A–E；caseId 由 --mr 派生） */
+/** 解析后的 review 命令参数（v3 无 --config 旗标——配置恒 E，服务端派生；caseId 由 --mr 派生） */
 export interface ReviewCliArgs {
   readonly repo: string;
   readonly mr: string;
   /** 检视单元身份：--mr 文件名去扩展名（一案一 diff 文件约定） */
   readonly caseId: string;
-  readonly config: ConfigId;
   readonly issue: string;
   readonly out: string;
   /** 评审模型：缺省 REVIEW_MODEL_ID；自由 id 透传（空串/空白 = 用法错误） */
@@ -600,7 +596,7 @@ function parseServerArgs(
   };
 }
 
-/** review 面必填与缺省：--mr（caseId = 文件名去扩展名）、--repo 缺省 process.cwd()（#27）、--config 缺省 E（ADR-0011 切流）、--issue 缺省空 */
+/** review 面必填与缺省：--mr（caseId = 文件名去扩展名）、--repo 缺省 process.cwd()（#27）、--issue 缺省空；v3 起无 --config 旗标（配置恒 E，传入即未知旗标用法错误） */
 function parseReviewArgs(
   values: Map<string, string>,
   model: string,
@@ -610,10 +606,6 @@ function parseReviewArgs(
   if (mr === undefined) {
     return { ok: false, message: "missing required flag --mr" };
   }
-  const configRaw = values.get("--config") ?? "E";
-  if (!(configRaw in CONFIGS)) {
-    return { ok: false, message: `invalid --config ${JSON.stringify(configRaw)}: expected one of A, B, C, D, E` };
-  }
 
   return {
     ok: true,
@@ -622,7 +614,6 @@ function parseReviewArgs(
       repo,
       mr,
       caseId: basename(mr).replace(/\.[^.]*$/, ""),
-      config: configRaw as ConfigId,
       issue: values.get("--issue") ?? "",
       out: values.get("--out") ?? DEFAULT_OUT_DIR,
       model,

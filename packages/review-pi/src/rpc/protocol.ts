@@ -4,6 +4,9 @@
  * #27 v2：submit 参数切统一 `ReviewRequest`（ADR-0013 决策 3——三形态共享
  * 单源校验器；diff 判别联合、repoPath 可省、无 v1 旧扁平形 alias，
  * `protocolVersion` 2 即唯一切换信号）。
+ * v3（#32 / ADR-0014 §10）：submit 无 `configId`——服务端恒 E（派生常量，
+ * 不再是请求参数）；携带 `configId` 的请求 → -32019 专用错误码显式拒绝
+ * （不静默忽略、不复用 invalid_params——零静默纪律 + 可编程分类）。
  *
  * 信封纪律（spec §4）：
  * - 每行恰好一个 JSON-RPC 2.0 文档；batch（数组信封）→ -32600；
@@ -11,8 +14,6 @@
  * - 不支持通知（无 id 请求）：本方法集全部需要应答，缺 id → -32600；
  * - 未知方法 → -32601（信封有效，属方法层错误，由 dispatch 报）。
  */
-
-import { CONFIGS, type ConfigId } from "../contracts/config.js";
 
 /**
  * 错误码表（HTTP 方案 §4.4 全表为单源 + ADR-0013 决策 9 补 -32018——
@@ -62,10 +63,35 @@ export const JSON_RPC_ERROR = {
   ARTIFACT_EXPIRED: -32017,
   /** 排队超 queueTimeout 自动终态化（§7.2 引用，决策 9 补号；HTTP #28） */
   QUEUE_TIMEOUT: -32018,
+  /** v3 起携带 configId 的 submit 显式拒绝（配置选择已根除——服务端恒 E；#32 / ADR-0014 §10） */
+  CONFIG_ID_REJECTED: -32019,
 } as const;
 
 /** JSON-RPC id：响应必须原样回显请求 id；parse 失败时为 null */
 export type JsonRpcId = string | number | null;
+
+/**
+ * 应用层协议代数（单源）：v3 = submit 无 configId（配置选择根除，服务端恒 E）、
+ * 携带 configId → -32019 拒绝。capabilities 的 `protocolVersion` 与客户端
+ * 硬断言共用此常量——代数切换信号唯此一个（先例：v2 即唯一切换信号）。
+ * 主线 v3 / Demo 线 v2 为预期分叉，不互通、不做兼容层（ADR-0014 §10）。
+ */
+export const PROTOCOL_VERSION = 3;
+
+/**
+ * 客户端版本硬断言（v3，#32 / ADR-0014 §10）：capabilities.protocolVersion
+ * ≠ PROTOCOL_VERSION 即抛——版本错配不静默降级成诡异行为。双向明确：
+ * v3 client 连 v2 server 在此报错（说明 v3 起无配置选择 + 对端代数）；
+ * 反向 v2 client 连 v3 server 由 submit 的 -32019 拒绝兜住（v2 必带
+ * configId）。typed 客户端（HTTP / stdio 宿主面）在 capabilities() 出口调用。
+ */
+export function assertProtocolVersion(serverInfo: { readonly protocolVersion: number }): void {
+  if (serverInfo.protocolVersion !== PROTOCOL_VERSION) {
+    throw new Error(
+      `server protocol version mismatch: server reports ${serverInfo.protocolVersion}, client requires ${PROTOCOL_VERSION} — protocol v3 removed config selection (review.submit takes no configId); refusing to proceed`,
+    );
+  }
+}
 
 /** review job 状态全集（spec §6.1 状态机；list 参数校验与 service 状态机共用单源） */
 export const REVIEW_JOB_STATUSES = [
@@ -136,6 +162,8 @@ export class RpcError extends Error {
  * 协议层可选（省略时的默认值属形态面职责——stdio = `--cwd` /
  * `process.cwd()`，CLI = `process.cwd()`，HTTP 必填显式）；路径的存在性 /
  * realpath 校验属 service 层域校验（失败 -32012）。
+ * v3（#32）：无 `configId`——配置已内化为服务端派生常量 E（RunRecord /
+ * 审计 / disposition / 幂等口径恒 E）；携带即 -32019 拒绝（见校验器）。
  */
 export interface ReviewRequest {
   /** 幂等键（HTTP #28 实装 (tenantId, clientRequestId) 唯一；stdio v2 接受不承诺） */
@@ -147,7 +175,6 @@ export interface ReviewRequest {
     | { readonly kind: "inline"; readonly text: string }
     | { readonly kind: "file"; readonly path: string };
   readonly issueDescription?: string;
-  readonly configId: ConfigId;
   readonly modelId?: string;
   /** 自由元数据（透传留痕，不参与执行语义；幂等对比口径亦不含——ADR-0013 决策 4） */
   readonly metadata?: Record<string, unknown>;
@@ -222,11 +249,6 @@ export function validateListParams(params: unknown): ParamValidation<ListReviewP
   return { ok: true, value: { status } };
 }
 
-/** configId 合法值守卫（A–E；单源 CONFIGS，不另列字母表；hasOwn 防原型链成员混入） */
-function isConfigId(value: string): value is ConfigId {
-  return Object.hasOwn(CONFIGS, value);
-}
-
 /** diff 判别联合校验：inline 非空 text / file 非空 path；其余形态（含 v1 旧扁平形）拒绝 */
 function validateDiffParam(
   diff: Record<string, unknown>,
@@ -253,9 +275,11 @@ function validateDiffParam(
 
 /**
  * 校验 review.submit 参数（统一 `ReviewRequest` 单源，三形态共享）：
- * 必填 caseId / diff 判别联合 / configId（A–E）；可选 repoPath（在场必须非空）、
+ * 必填 caseId / diff 判别联合；可选 repoPath（在场必须非空）、
  * issueDescription / modelId / clientRequestId / metadata。v1 旧扁平形
  * （diff 纯字符串）无 legacy alias——直接 invalid_params（ADR-0013 决策 3）。
+ * v3（#32）：`configId` 在场即 -32019 专用拒绝（契约代数错误先于字段校验
+ * ——它不是「值不对」而是「参数不该存在」；携带即携带，与值无关）。
  */
 export function validateReviewRequest(params: unknown): ParamValidation<ReviewRequest> {
   if (!isRecord(params)) {
@@ -263,6 +287,15 @@ export function validateReviewRequest(params: unknown): ParamValidation<ReviewRe
   }
   const { caseId, repoPath, diff, configId, issueDescription, modelId, clientRequestId, metadata } =
     params;
+  if (configId !== undefined) {
+    return {
+      ok: false,
+      error: new RpcError(
+        JSON_RPC_ERROR.CONFIG_ID_REJECTED,
+        "configId is not accepted: protocol v3 removed config selection (server always runs config E); omit configId and resubmit",
+      ),
+    };
+  }
   if (typeof caseId !== "string" || !CASE_ID_PATTERN.test(caseId)) {
     return {
       ok: false,
@@ -282,9 +315,6 @@ export function validateReviewRequest(params: unknown): ParamValidation<ReviewRe
   if (!diffValidation.ok) {
     return diffValidation;
   }
-  if (typeof configId !== "string" || !isConfigId(configId)) {
-    return { ok: false, error: invalidParams("configId must be one of A-E") };
-  }
   if (issueDescription !== undefined && typeof issueDescription !== "string") {
     return { ok: false, error: invalidParams("issueDescription must be a string when present") };
   }
@@ -302,7 +332,6 @@ export function validateReviewRequest(params: unknown): ParamValidation<ReviewRe
     value: {
       caseId,
       diff: diffValidation.value,
-      configId,
       ...(repoPath !== undefined ? { repoPath } : {}),
       ...(issueDescription !== undefined ? { issueDescription } : {}),
       ...(modelId !== undefined ? { modelId } : {}),

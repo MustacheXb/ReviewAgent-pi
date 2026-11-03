@@ -299,7 +299,7 @@ function stubEnv(stubBaseUrl: string): Record<string, string> {
 // ---- 检视命令面 ----
 
 test(
-  "单 MR 检视（config B 显式——缺省已切流 E，ADR-0011；B 形态进程面回放资产保留）：exit 0 + stdout 单 JSON + 候选存活成 finding + 落盘 + 凭据哨兵",
+  "单 MR 检视（v3 无配置选择——服务端恒 E 派生，ADR-0011 切流 + #32）：exit 0 + stdout 单 JSON + 候选存活成 finding + 落盘 + 凭据哨兵",
   async () => {
     const stub = await startLoopbackStub(oneFindingCorpus());
     try {
@@ -308,7 +308,7 @@ test(
       writeFileSync(mrFile, goldenFixture("vul4j-1.diff"), "utf8");
 
       const run = await runBin(
-        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir, "--config", "B"],
+        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir],
         {
           env: stubEnv(stub.baseUrl),
           // .env.local 诱饵：显式环境变量必须胜出（诱饵 URL 是死端口，诱饵 key 不入传输层）
@@ -332,12 +332,12 @@ test(
       expect(outcome).toMatchObject({
         ok: true,
         caseId: "VUL4J-1",
-        configId: "B",
+        configId: "E",
         truncated: false,
         rounds: 1,
         toolCalls: 0,
       });
-      expect(outcome.runId).toMatch(/^\d{8}T\d{6}\.\d{3}-B-VUL4J-1$/);
+      expect(outcome.runId).toMatch(/^\d{8}T\d{6}\.\d{3}-E-VUL4J-1$/);
       // 候选 → 裁决通过 → finding 存活（独立期望：字面量造的候选，非代码回算）
       expect(outcome.findings).toHaveLength(1);
       expect(outcome.findings[0]).toMatchObject({
@@ -447,7 +447,7 @@ test(
       writeFileSync(mrFile, goldenFixture("vul4j-1.diff"), "utf8");
 
       const run = await runBin(
-        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir, "--config", "B"],
+        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir],
         { env: { ...stubEnv(stub.baseUrl), REVIEW_PI_PRESENTATION_ENGINE: enginePath } },
       );
 
@@ -502,7 +502,7 @@ test(
       writeFileSync(mrFile, goldenFixture("vul4j-1.diff"), "utf8");
 
       const run = await runBin(
-        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir, "--config", "B"],
+        ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir],
         { env: { ...stubEnv(stub.baseUrl), REVIEW_PI_PRESENTATION_ENGINE: enginePath } },
       );
 

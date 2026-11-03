@@ -22,7 +22,7 @@ import { ReviewHttpClient } from "../server/http-client.js";
 //   外网纪律，回环不算）→ succeeded——这同时是「dist/review-worker.mjs 进
 //   产物且可解析」的证明（pool 缺省入口探测 cli.mjs 旁 review-worker.mjs，
 //   #31 build.mjs 双入口的验收面）；
-// - CLI review 一次性形态：`review` 子命令真跑一轮（config B 六回合）→
+// - CLI review 一次性形态：`review` 子命令真跑一轮（v3 恒 E 六回合）→
 //   exit 0 + 落盘 record 含 F100；
 // - stdio rpc 形态：`rpc` 子命令 JSONL 握手（capabilities）→ stdin EOF →
 //   exit 0。
@@ -306,7 +306,6 @@ testLocal(
         caseId: "VUL4J-1",
         repoPath: repoFixturePath("sample"),
         diff: { kind: "inline", text: SAMPLE_DIFF },
-        configId: "B",
       });
       const statusDeadline = Date.now() + 180_000;
       let view = job;
@@ -354,7 +353,7 @@ testLocal("pack 三形态之 CLI review：一次性检视真跑——exit 0 + �
     const outDir = path.join(workDir, "out");
 
     const result = await runProduct(
-      ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--config", "B", "--out", outDir],
+      ["review", "--repo", repoFixturePath("sample"), "--mr", mrFile, "--out", outDir],
       productEnv(stub.baseUrl),
       180_000,
     );
@@ -410,7 +409,7 @@ testLocal("pack 三形态之 stdio rpc：JSONL capabilities 握手 + stdin EOF �
     }
     expect(handshake?.id).toBe("pack-1");
     expect(handshake?.error).toBeUndefined();
-    expect((handshake?.result as { protocolVersion: number }).protocolVersion).toBe(2);
+    expect((handshake?.result as { protocolVersion: number }).protocolVersion).toBe(3);
     expect(result.exit.status).toBe(0);
     // 握手不打网关（无 job → stub 零请求是预期）——只扫输出 / 落盘面
     expectSentinelFreeText(

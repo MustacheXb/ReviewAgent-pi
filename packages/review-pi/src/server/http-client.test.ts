@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, expect, test } from "vitest";
 
 import type { RpcServerInfo } from "../rpc/main.js";
+import { PROTOCOL_VERSION } from "../rpc/protocol.js";
 import { FakeReviewRunExecutor, fakeReviewRunSummary } from "../rpc/executor.js";
 import { createReviewService, type ReviewService } from "../rpc/service.js";
 import { createTokenFileAuthenticator } from "./auth.js";
@@ -21,6 +22,8 @@ import { createArtifactEndpoint } from "./artifacts.js";
 // 透传语义（demo 脚本同款链路）。
 // #29 P2b 增补：events() async generator（SSE 订阅/重放/断流收尾）与
 // downloadArtifact()（成功读回 + 错误面透传）的客户端面语义。
+// #32 v3 增补：capabilities 版本硬断言（server 报旧版 → client 人话错，
+// 不静默降级成错配协议方言）。
 
 const tempDirs: string[] = [];
 
@@ -47,7 +50,12 @@ interface ClientFixture {
   close(): Promise<void>;
 }
 
-async function startFixture(): Promise<ClientFixture> {
+/** fixture 选项（缺省全走 v3 真值；版本硬断言测试注入错配版本） */
+interface ClientFixtureOptions {
+  readonly protocolVersion?: number;
+}
+
+async function startFixture(options: ClientFixtureOptions = {}): Promise<ClientFixture> {
   const repoDir = makeTempDir("review-pi-client-repo-");
   const tokenFile = path.join(makeTempDir("review-pi-client-tokens-"), "tokens.json");
   writeFileSync(
@@ -72,7 +80,7 @@ async function startFixture(): Promise<ClientFixture> {
   const executor = new FakeReviewRunExecutor();
   const service = createReviewService({ executor });
   const serverInfo: RpcServerInfo = {
-    protocolVersion: 2,
+    protocolVersion: options.protocolVersion ?? PROTOCOL_VERSION,
     serverId: "test-server",
     methods: ["server.capabilities", "review.submit", "review.get", "review.list", "review.cancel"],
     features: HTTP_RPC_FEATURES,
@@ -118,10 +126,25 @@ test("capabilities：typed 返回 serverInfo（submitHttpStatus 202 / idempotenc
   const fixture = await startFixture();
   try {
     const info = await fixture.client.capabilities();
-    expect(info.protocolVersion).toBe(2);
+    expect(info.protocolVersion).toBe(PROTOCOL_VERSION);
     expect(info.features.submitHttpStatus).toBe(202);
     expect(info.features.idempotency).toBe(true);
     expect(info.features.defaultRepo).toBeNull();
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("v3 版本硬断言：server 报 v2 → capabilities 即抛人话错（代数错配不静默降级——错配客户端立即暴露）", async () => {
+  const fixture = await startFixture({ protocolVersion: 2 });
+  try {
+    const error = await fixture.client.capabilities().catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("protocol version mismatch");
+    expect(message).toContain("reports 2");
+    expect(message).toContain("requires 3");
+    expect(message).toContain("v3 removed config selection");
   } finally {
     await fixture.close();
   }
@@ -134,7 +157,6 @@ test("submit → get → list → cancel 全链路：typed view 形状与 job �
       caseId: "MR-101",
       repoPath: fixture.repoDir,
       diff: { kind: "inline", text: "--- a\n+++ b\n@@ -1 +1 @@\n+x\n" },
-      configId: "E",
       clientRequestId: "demo-rev-1",
     });
     expect(submitted.jobId).toMatch(/^job-/);
@@ -154,7 +176,6 @@ test("submit → get → list → cancel 全链路：typed view 形状与 job �
       caseId: "MR-101",
       repoPath: fixture.repoDir,
       diff: { kind: "inline", text: "--- a\n+++ b\n@@ -1 +1 @@\n+x\n" },
-      configId: "E",
       clientRequestId: "demo-rev-1",
     });
     expect(replayed.jobId).toBe(submitted.jobId);
@@ -196,7 +217,6 @@ test("传输错误 → HttpRpcResponseError（httpStatus / retryAfterSeconds 暴
         caseId: "MR-drain",
         repoPath: fixture.repoDir,
         diff: { kind: "inline", text: "+x\n" },
-        configId: "E",
       })
       .catch((error: unknown) => error);
     expect(draining).toBeInstanceOf(HttpRpcResponseError);
@@ -214,7 +234,6 @@ test("幂等冲突 → RpcResponseError(-32016)（data 携 clientRequestId）", 
       caseId: "MR-conflict",
       repoPath: fixture.repoDir,
       diff: { kind: "inline" as const, text: "+x\n" },
-      configId: "E" as const,
       clientRequestId: "conflict-1",
     };
     await fixture.client.submit(base);
@@ -264,7 +283,6 @@ async function succeedJob(
     caseId,
     repoPath: fixture.repoDir,
     diff: { kind: "inline", text: "+x\n" },
-    configId: "E",
   });
   await pollUntil("execution start", () => fixture.executor.executions.length > 0);
   fixture.executor.executions[0]!.resolve(
@@ -296,7 +314,6 @@ test("events()：for await 逐事件（seq 单调、HTTP 投影、break 收流�
       caseId: "MR-sse",
       repoPath: fixture.repoDir,
       diff: { kind: "inline", text: "+x\n" },
-      configId: "E",
     });
     const events: ReviewHttpClientEvent[] = [];
     for await (const event of fixture.client.events(submitted.jobId)) {
@@ -441,7 +458,6 @@ test("downloadArtifact() 错误面：非终态 → -32001；scope 不足 → -32
       caseId: "MR-dl-running",
       repoPath: fixture.repoDir,
       diff: { kind: "inline", text: "+x\n" },
-      configId: "E",
     });
     await expect(fixture.client.downloadArtifact(running.jobId, "audit")).rejects.toMatchObject({
       name: "HttpRpcResponseError",

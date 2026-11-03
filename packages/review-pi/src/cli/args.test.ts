@@ -7,10 +7,10 @@ import { parseCliArgs, USAGE_TEXT } from "./args.js";
 // `review-pi smoke` / `review-pi disposition` 三个子命令的 argv 用法面。
 // 形态对齐 DSH 线 args.ts（union 结果、不抛异常——用户输入错误是预期
 // 路径），pi 线差异：
-// - 缺省 config = E（生产入口切流，ADR-0011：自主拉取 + Context Ledger；
-//   2026-10-19 决策前曾为 B；DSH 线缺省 A）；
+// - v3 起无 --config 旗标（#32 / ADR-0014 §10：配置恒 E 服务端派生；传入
+//   即未知旗标用法错误——v2 时代曾 A-E 矩阵 + 缺省 E）；
 // - 无 --language 旗标（输出语言是 DSH 线后分家决策，pi 线自立 ADR 前不实装）；
-// - smoke = P1b 双探针（无工具调用探针——config B 零工具，检视链不需要）；
+// - smoke = P1b 双探针（网关健康 + 模型可达，检视链不需要）；
 // - disposition（#15）= Finding 处置落库 + KPI：本地数据面，--decision
 //   三值枚举在 parse 层校验，库缺省 <out>/review-pi-cli/dispositions.json。
 
@@ -25,7 +25,7 @@ test("空 argv 与未知子命令 → 用法错误（不抛异常）", () => {
   });
 });
 
-test("review 最小 argv：必填旗标 + 全缺省（config E = 生产入口切流 ADR-0011 / out / model / issue）", () => {
+test("review 最小 argv：必填旗标 + 全缺省（v3 无 config 旗标——恒 E；out / model / issue 缺省）", () => {
   const parsed = parseCliArgs(["review", "--repo", "repo", "--mr", "case.diff"]);
   expect(parsed).toEqual({
     ok: true,
@@ -34,7 +34,6 @@ test("review 最小 argv：必填旗标 + 全缺省（config E = 生产入口切
       repo: "repo",
       mr: "case.diff",
       caseId: "case",
-      config: "E",
       issue: "",
       out: "reviewagent-output",
       model: REVIEW_MODEL_ID,
@@ -51,15 +50,15 @@ test("caseId 派生：--mr 文件名去扩展名（含路径与无扩展名形�
   expect(doubleDot.ok && doubleDot.command === "review" && doubleDot.args.caseId).toBe("case.old");
 });
 
-test("--config：A-E 全矩阵合法；非法值 → 用法错误并列出合法集", () => {
-  for (const configId of ["A", "B", "C", "D", "E"] as const) {
-    const parsed = parseCliArgs(["review", "--repo", "r", "--mr", "m.diff", "--config", configId]);
-    expect(parsed.ok && parsed.command === "review" && parsed.args.config).toBe(configId);
-  }
-  const bad = parseCliArgs(["review", "--repo", "r", "--mr", "m.diff", "--config", "F"]);
-  expect(bad).toEqual({
+test("--config：v3 起旗标根除——传任何值（含 E）→ 未知旗标用法错误（旧脚本立刻暴露，不静默换义）", () => {
+  // E（v2 时代的缺省合法值）与任意其他值同罪：旗标本身不存在
+  expect(parseCliArgs(["review", "--repo", "r", "--mr", "m.diff", "--config", "E"])).toEqual({
     ok: false,
-    message: 'invalid --config "F": expected one of A, B, C, D, E',
+    message: 'unknown flag "--config"',
+  });
+  expect(parseCliArgs(["review", "--repo", "r", "--mr", "m.diff", "--config", "F"])).toEqual({
+    ok: false,
+    message: 'unknown flag "--config"',
   });
 });
 
@@ -102,7 +101,6 @@ test("--repo 可省（缺省 process.cwd()，#27 统一 repoPath 缺省链）；
       repo: process.cwd(),
       mr: "m.diff",
       caseId: "m",
-      config: "E",
       issue: "",
       out: "reviewagent-output",
       model: REVIEW_MODEL_ID,

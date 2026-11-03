@@ -126,7 +126,7 @@ async function startTestServer(
       : {}),
   });
   const serverInfo: RpcServerInfo = {
-    protocolVersion: 2,
+    protocolVersion: 3,
     serverId: "test-server",
     methods: ["server.capabilities", "review.submit", "review.get", "review.list", "review.cancel"],
     features: HTTP_RPC_FEATURES,
@@ -187,13 +187,12 @@ function rpcFetch(
   });
 }
 
-/** review.submit 参数样例（repoPath 默认指向临时仓库目录） */
+/** review.submit 参数样例（repoPath 默认指向临时仓库目录；v3 无 configId——服务端恒 E 派生） */
 function submitParams(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     caseId: "MR-101",
     repoPath: "/nonexistent-repo-for-shape-tests",
     diff: { kind: "inline", text: "--- a\n+++ b\n@@ -1 +1 @@\n+x\n" },
-    configId: "E",
     ...overrides,
   };
 }
@@ -246,7 +245,7 @@ test("GET /v1/capabilities 鉴权后 200 + serverInfo（与 server.capabilities 
     });
     expect(res.status).toBe(200);
     const info = (await res.json()) as RpcServerInfo;
-    expect(info.protocolVersion).toBe(2);
+    expect(info.protocolVersion).toBe(3);
     expect(info.features.submitHttpStatus).toBe(202);
     expect(info.features.idempotency).toBe(true);
     expect(info.features.defaultRepo).toBeNull();
@@ -398,6 +397,29 @@ test("HTTP 面 repoPath 必填：缺席 → 200 + -32602（无 cwd 缺省链，A
     const body = (await res.json()) as { error: { code: number; message: string } };
     expect(body.error.code).toBe(-32602);
     expect(body.error.message).toContain("repoPath");
+  } finally {
+    await server.close();
+  }
+});
+
+test("v3 面 configId 拒收：submit 携带（哪怕值 = E）→ 200 + -32019 专用码（#32 / ADR-0014 §10——携带即携带，静默忽略养双方言客户端）", async () => {
+  const server = await startTestServer();
+  try {
+    const res = await rpcFetch(
+      server.baseUrl,
+      {
+        jsonrpc: "2.0",
+        id: "s-v3",
+        method: "review.submit",
+        params: { ...submitParams({ repoPath: server.repoDir }), configId: "E" },
+      },
+      { token: "tok-platform" },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { error: { code: number; message: string } };
+    expect(body.error.code).toBe(-32019);
+    expect(body.error.message).toContain("configId");
+    expect(body.error.message).toContain("v3");
   } finally {
     await server.close();
   }
@@ -978,7 +1000,7 @@ test("内部异常（非 RpcError）→ 200 + 固定文案 Internal error + onIn
     limits: { maxDiffBytes: 8 * 1024 * 1024, maxQueueDepth: 64 },
   } as unknown as ReviewService;
   const serverInfo: RpcServerInfo = {
-    protocolVersion: 2,
+    protocolVersion: 3,
     serverId: "test-server",
     methods: ["review.get"],
     features: HTTP_RPC_FEATURES,

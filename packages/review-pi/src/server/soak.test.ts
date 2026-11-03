@@ -212,7 +212,6 @@ async function submitJob(client: ReviewHttpClient, caseId: string): Promise<JobR
     caseId,
     repoPath: repoFixturePath("sample"),
     diff: { kind: "inline", text: SAMPLE_DIFF },
-    configId: "B",
   });
   return { jobId: view.jobId, caseId, status: view.status };
 }
@@ -399,7 +398,6 @@ test(
             caseId: "SOAKFAST-999",
             repoPath: repoFixturePath("sample"),
             diff: { kind: "inline", text: SAMPLE_DIFF },
-            configId: "B",
           },
         }),
       });

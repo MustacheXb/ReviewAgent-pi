@@ -45,7 +45,6 @@ function restartRequest(repo: string, overrides: Partial<ReviewRequest> = {}): R
     caseId: "VUL4J-1",
     repoPath: repo,
     diff: { kind: "inline", text: "--- a\n+++ b\n@@ -1 +1 @@\n-x\n+y\n" },
-    configId: "E",
     ...overrides,
   };
 }

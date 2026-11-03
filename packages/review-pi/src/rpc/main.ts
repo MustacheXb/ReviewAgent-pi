@@ -39,6 +39,7 @@ import { KernelReviewRunExecutor, type ReviewRunExecutor } from "./executor.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import {
   JSON_RPC_ERROR,
+  PROTOCOL_VERSION,
   RPC_METHOD,
   RpcError,
   errorResponse,
@@ -277,7 +278,7 @@ export async function runRpcMain(args: RpcCliArgs, io: RpcMainIo = {}): Promise<
     ...(args.cwd !== undefined ? { defaultRepoPath: args.cwd } : {}),
   });
   const serverInfo: RpcServerInfo = {
-    protocolVersion: 2,
+    protocolVersion: PROTOCOL_VERSION,
     serverId: `${process.pid}-${(io.nowMs ?? Date.now)()}`,
     methods: [
       RPC_METHOD.CAPABILITIES,

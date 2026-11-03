@@ -35,7 +35,6 @@ function reviewRequest(overrides: Partial<ReviewRequest> = {}): ReviewRequest {
   return {
     caseId: "VUL4J-1",
     diff: { kind: "inline", text: "--- a\n+++ b\n" },
-    configId: "E",
     ...overrides,
   };
 }

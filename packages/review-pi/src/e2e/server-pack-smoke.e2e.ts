@@ -146,7 +146,7 @@ testLocal("pack 冒烟：bundle 含 server 形态——spawn → healthz → cap
       };
       limits: { maxBodyBytes?: number; artifactRetentionDays?: number };
     };
-    expect(info.protocolVersion).toBe(2);
+    expect(info.protocolVersion).toBe(3);
     expect(info.methods).toContain("review.submit");
     expect(info.methods).not.toContain("shutdown"); // HTTP 方法表不含进程生命周期方法
     expect(info.features.submitHttpStatus).toBe(202);

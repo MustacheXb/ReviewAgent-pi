@@ -12,6 +12,8 @@ import { ReviewRpcClient } from "./client.js";
 // - stop() 升级链：EOF 超时 → POSIX 组 SIGTERM（被拦）→ SIGKILL / Windows
 //   taskkill /T /F 树杀——stop 必须收敛不挂死（防孤儿 node 的本机教训）；
 // - 生命周期守卫：未 start 发请求 / 二次 start 的人话错误。
+// - #32 v3 版本硬断言：capabilities 报旧版协议 → 人话错当场抛（代数错配
+//   不静默降级——stdio 宿主客户端与 HTTP typed client 同语义）。
 //
 // fake server 写临时 .mjs 而非 `node -e`：Windows CreateProcess 对含引号/
 // 反斜杠的长参数转义有坑，文件形态跨平台零歧义（bin.process.test.ts 的
@@ -92,6 +94,14 @@ const EOF_EXIT_SCRIPT = `
 process.stdin.resume();
 `;
 
+/** 版本错配面：capabilities 响应报 v2——client 硬断言当场抛（process 面无恙） */
+const VERSION_MISMATCH_SCRIPT = `
+function onLine(request) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: 2, serverId: "fake-v2-server" } }) + "\\n");
+}
+${LINE_READER_PREAMBLE}
+`;
+
 test("生命周期守卫：未 start 发请求 → not started；二次 start → already started", async () => {
   const client = new ReviewRpcClient();
   expect(() => client.capabilities()).toThrow(/not started/);
@@ -107,6 +117,28 @@ test("生命周期守卫：未 start 发请求 → not started；二次 start �
   await expect(started.start()).rejects.toThrow(/already started/);
   await started.stop();
   expect(started.getExitInfo()).toBeDefined();
+}, 30_000);
+
+test("v3 版本硬断言：server 报 v2 → capabilities 抛人话错（代数错配不静默降级；进程面无恙照常 stop）", async () => {
+  const scriptPath = writeFakeServerScript("version-mismatch.mjs", VERSION_MISMATCH_SCRIPT);
+  const client = new ReviewRpcClient({
+    command: process.execPath,
+    args: [scriptPath],
+    stopEofTimeoutMs: 400,
+    stopTermTimeoutMs: 400,
+  });
+  await client.start();
+  try {
+    const error = await client.capabilities().catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("protocol version mismatch");
+    expect(message).toContain("reports 2");
+    expect(message).toContain("requires 3");
+    expect(message).toContain("v3 removed config selection");
+  } finally {
+    await client.stop();
+  }
 }, 30_000);
 
 test("单请求超时：只 reject 该请求不杀进程；迟到响应被忽略；后续请求照常", async () => {

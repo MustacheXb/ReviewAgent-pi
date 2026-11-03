@@ -6,7 +6,9 @@
  * 单例语义（首触发一次性定序、drain 中二信号 no-op）在此锚定；真 bin 的
  * 进程级契约（跨进程退出码、帧纪律）另见 rpc.process.test.ts。
  * #27 v2（ADR-0013）：submit 走统一 ReviewRequest；capabilities protocolVersion
- * 2 + stdio features 声明；limits 无 repoRootEnforced。
+ * + stdio features 声明；limits 无 repoRootEnforced。
+ * #32 v3（ADR-0014 §10）：submit 无 configId（携带 → -32019 显式拒绝），
+ * capabilities 报 PROTOCOL_VERSION 3；配置恒 E 服务端派生。
  */
 
 import { EventEmitter } from "node:events";
@@ -26,7 +28,7 @@ const FIXED_DATE = new Date("2026-10-21T00:00:00.000Z");
 const fixedNow = (): Date => FIXED_DATE;
 
 const SERVER_INFO: RpcServerInfo = {
-  protocolVersion: 2,
+  protocolVersion: 3,
   serverId: "review-pi",
   methods: [
     "server.capabilities",
@@ -101,7 +103,6 @@ test("in-process 全链路：submit→get→list→cancel(终态幂等)→shutdo
         caseId: "VUL4J-1",
         repoPath: repo,
         diff: { kind: "inline", text: "--- a\n+++ b\n" },
-        configId: "E",
       },
     });
 
@@ -216,7 +217,7 @@ test("session：内部异常 → -32603 固定文案（异常 message 不进协�
   });
 
   await session.handleLine(
-    '{"jsonrpc":"2.0","id":1,"method":"review.submit","params":{"caseId":"C","repoPath":"r","diff":{"kind":"inline","text":"d"},"configId":"A"}}',
+    '{"jsonrpc":"2.0","id":1,"method":"review.submit","params":{"caseId":"C","repoPath":"r","diff":{"kind":"inline","text":"d"}}}',
   );
 
   expect(JSON.parse(outputLines[0]!)).toEqual({
@@ -353,7 +354,7 @@ describe("runRpcMain 进程面（S3：stdin 循环 + EOF/信号 drain，注入�
     // 已读入的命令处理完：capabilities 响应在场（统一契约 v2）
     expect(
       protocolDocuments(h).some(
-        (document) => document.id === 1 && (document.result as RpcServerInfo | undefined)?.protocolVersion === 2,
+        (document) => document.id === 1 && (document.result as RpcServerInfo | undefined)?.protocolVersion === 3,
       ),
     ).toBe(true);
     // flush 面：drain 收尾的零字节冲写是最后一步写
@@ -409,7 +410,6 @@ describe("runRpcMain 进程面（S3：stdin 循环 + EOF/信号 drain，注入�
         caseId: "VUL4J-1",
         repoPath: repo,
         diff: { kind: "inline", text: "--- a\n+++ b\n" },
-        configId: "E",
       },
     });
     // 等执行真挂起（fake executor 挂住 = running job 在飞）

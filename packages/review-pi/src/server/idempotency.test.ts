@@ -30,7 +30,6 @@ const BASE_REQUEST = {
   caseId: "MR-1",
   repoPath: "/srv/repos/snapshot-1",
   diff: { kind: "inline", text: "--- a\n+++ b\n" },
-  configId: "E",
 } as const;
 
 test("lookup 未记录 → undefined；record 后命中（recordedAt = now 锚点）", () => {
@@ -77,7 +76,7 @@ test("fingerprint：同请求两次一致；metadata 不参与（ADR-0013 决策
   expect(a).toBe(b);
 });
 
-test("fingerprint：执行相关字段逐项变化 → 不同（repoPath / diff 文本 / issue / configId / modelId）", async () => {
+test("fingerprint：执行相关字段逐项变化 → 不同（repoPath / diff 文本 / issue / modelId；v3 起请求面无 configId，指纹恒 E）", async () => {
   const base = await fingerprintReviewRequest({ ...BASE_REQUEST });
   expect(await fingerprintReviewRequest({ ...BASE_REQUEST, repoPath: "/srv/repos/snapshot-2" })).not.toBe(base);
   expect(
@@ -86,7 +85,6 @@ test("fingerprint：执行相关字段逐项变化 → 不同（repoPath / diff 
   expect(
     await fingerprintReviewRequest({ ...BASE_REQUEST, issueDescription: "CVE-1 described" }),
   ).not.toBe(base);
-  expect(await fingerprintReviewRequest({ ...BASE_REQUEST, configId: "B" })).not.toBe(base);
   expect(await fingerprintReviewRequest({ ...BASE_REQUEST, modelId: "other-model" })).not.toBe(base);
 });
 

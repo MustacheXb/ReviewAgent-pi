@@ -279,7 +279,6 @@ test("drain 序：open SSE 流先 closeAll 再 server.close——退出不悬挂
     caseId: "MR-drain-sse",
     repoPath: args.out, // 任意存在目录（fake executor 不触盘）
     diff: { kind: "inline", text: "+x\n" },
-    configId: "E",
   });
   const iterator = client.events(submitted.jobId)[Symbol.asyncIterator]();
   await waitFor(() => executor.executions.length > 0, "execution start");
@@ -323,14 +322,12 @@ test("drain 全链路：先失败 readiness 再排空——窗口内 submit 503+
     caseId: "MR-drain-running",
     repoPath: args.out, // 任意存在目录（fake executor 不触盘）
     diff: { kind: "inline", text: "+x\n" },
-    configId: "E",
   });
   await waitFor(() => executor.executions.length > 0, "execution start");
   const job2 = await client.submit({
     caseId: "MR-drain-queued",
     repoPath: args.out,
     diff: { kind: "inline", text: "+x\n" },
-    configId: "E",
   });
   expect(job2.status).toBe("queued");
 
@@ -351,7 +348,6 @@ test("drain 全链路：先失败 readiness 再排空——窗口内 submit 503+
           caseId: "MR-drain-rejected",
           repoPath: args.out,
           diff: { kind: "inline", text: "+x\n" },
-          configId: "E",
         },
       }),
     });
@@ -440,7 +436,6 @@ test("sqlite 装配：jobs.sqlite 落 dataDir；drain（store.close 落盘收口
     caseId: "MR-sqlite-boot",
     repoPath: argsA.out, // 任意存在目录（fake executor 不触盘）
     diff: { kind: "inline", text: "+x\n" },
-    configId: "E",
     clientRequestId: "sqlite-boot-req-1",
   });
   await waitFor(() => executorA.executions.length > 0, "execution start");
@@ -483,7 +478,6 @@ test("sqlite 装配：jobs.sqlite 落 dataDir；drain（store.close 落盘收口
     caseId: "MR-sqlite-boot",
     repoPath: argsA.out,
     diff: { kind: "inline", text: "+x\n" },
-    configId: "E",
     clientRequestId: "sqlite-boot-req-1",
   });
   expect(replayed.jobId).toBe(submitted.jobId);

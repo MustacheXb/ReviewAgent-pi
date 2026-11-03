@@ -4,6 +4,8 @@
  * JSON-RPC 2.0 以与 HTTP 线共享方法契约（stdio 为其子集）。
  * #27 v2：submit 参数切统一 ReviewRequest（ADR-0013 决策 3——diff 判别联合、
  * repoPath 可省、clientRequestId/metadata 可选、无 v1 旧扁平形 alias）。
+ * v3（#32 / ADR-0014 §10）：submit 无 configId（服务端恒 E）；携带即
+ * -32019 专用错误码显式拒绝（零静默纪律）。
  */
 
 import { expect, test } from "vitest";
@@ -80,23 +82,21 @@ test("parseIncomingLine：信封违例族 → -32600（id 可提取则回显，�
   );
 });
 
-test("validateReviewRequest：合法参数 → ok（统一形：diff 判别联合、repoPath 可省、clientRequestId/metadata 可选）", () => {
+test("validateReviewRequest：合法参数 → ok（统一形：diff 判别联合、repoPath 可省、clientRequestId/metadata 可选、无 configId——v3 起服务端恒 E）", () => {
   // repoPath 省略 + inline diff（最小统一形；repoPath 缺省由形态面承担：stdio=--cwd、HTTP=必填）
   expect(
     validateReviewRequest({
       caseId: "VUL4J-1",
       diff: { kind: "inline", text: "--- a\n+++ b\n" },
-      configId: "E",
     }),
   ).toEqual({
     ok: true,
     value: {
       caseId: "VUL4J-1",
       diff: { kind: "inline", text: "--- a\n+++ b\n" },
-      configId: "E",
     },
   });
-  // 全字段形态：repoPath 扁平字符串 + file diff + 可选四件
+  // 全字段形态：repoPath 扁平字符串 + file diff + 可选四件（v3：无 configId 位）
   expect(
     validateReviewRequest({
       clientRequestId: "mr-12345-rev-1",
@@ -104,7 +104,6 @@ test("validateReviewRequest：合法参数 → ok（统一形：diff 判别联�
       repoPath: ".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564",
       diff: { kind: "file", path: "/srv/diffs/VUL4J-1.diff" },
       issueDescription: "内存安全",
-      configId: "A",
       modelId: "deepseek-v4-flash",
       metadata: { project: "platform-x", mr: 12345 },
     }),
@@ -116,19 +115,44 @@ test("validateReviewRequest：合法参数 → ok（统一形：diff 判别联�
       repoPath: ".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564",
       diff: { kind: "file", path: "/srv/diffs/VUL4J-1.diff" },
       issueDescription: "内存安全",
-      configId: "A",
       modelId: "deepseek-v4-flash",
       metadata: { project: "platform-x", mr: 12345 },
     },
   });
 });
 
-test("validateReviewRequest：违例族 → -32602（v1 旧扁平形拒绝、diff 联合违例、caseId/configId 越界）", () => {
+test("validateReviewRequest v3：携带 configId → -32019 专用错误码显式拒绝（不静默忽略、不复用 invalid_params——携带即携带，与值无关）", () => {
+  // 基准合法形（无 configId）逐项附加 configId——含曾经的合法值 "E"
   const valid = {
     caseId: "VUL4J-1",
     repoPath: "repo",
     diff: { kind: "inline", text: "d" },
-    configId: "E",
+  } as const;
+  const carried: readonly (readonly [string, unknown])[] = [
+    ["configId = E（v2 的合法值同样拒绝——契约代数断裂，非值域收窄）", { ...valid, configId: "E" }],
+    ["configId = A（历史配置）", { ...valid, configId: "A" }],
+    ["configId = F（越界值）", { ...valid, configId: "F" }],
+    ["configId 非 string", { ...valid, configId: 3 }],
+    ["configId 原型链成员 toString", { ...valid, configId: "toString" }],
+    ["configId null（在场即携带）", { ...valid, configId: null }],
+  ];
+  for (const [label, params] of carried) {
+    const result = validateReviewRequest(params);
+    expect(result.ok, label).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code, label).toBe(-32019);
+      // 错误信息人话：点名 configId 与协议代数（排障不需要翻 ADR）
+      expect(result.error.message, label).toContain("configId");
+      expect(result.error.message, label).toContain("v3");
+    }
+  }
+});
+
+test("validateReviewRequest：违例族 → -32602（v1 旧扁平形拒绝、diff 联合违例、caseId 越界；configId 携带归 -32019 专用族）", () => {
+  const valid = {
+    caseId: "VUL4J-1",
+    repoPath: "repo",
+    diff: { kind: "inline", text: "d" },
   } as const;
   const violations: readonly (readonly [string, unknown])[] = [
     ["params 非对象", "not an object"],
@@ -153,11 +177,6 @@ test("validateReviewRequest：违例族 → -32602（v1 旧扁平形拒绝、dif
     ["file 缺 path", { ...valid, diff: { kind: "file" } }],
     ["file path 空串", { ...valid, diff: { kind: "file", path: "" } }],
     ["file path 非 string", { ...valid, diff: { kind: "file", path: false } }],
-    ["缺 configId", { ...valid, configId: undefined }],
-    ["configId 越界", { ...valid, configId: "F" }],
-    ["configId 非 string", { ...valid, configId: 3 }],
-    ["configId 原型链成员 toString", { ...valid, configId: "toString" }],
-    ["configId 原型链成员 constructor", { ...valid, configId: "constructor" }],
     ["issueDescription 非 string", { ...valid, issueDescription: 7 }],
     ["modelId 非 string", { ...valid, modelId: true }],
     ["clientRequestId 空串", { ...valid, clientRequestId: "" }],
@@ -245,8 +264,10 @@ test("响应构造器：success/error/event 形状（data 缺席省键、id 原�
   });
 });
 
-test("错误码表：-32012 repo_not_found 在场；-32003 保留不发射（ADR-0013 决策 9）", () => {
+test("错误码表：-32012 repo_not_found 在场；-32003 保留不发射（ADR-0013 决策 9）；-32019 config_id 拒绝（v3 起）", () => {
   expect(JSON_RPC_ERROR.REPO_NOT_FOUND).toBe(-32012);
   // -32003 repo_not_allowed：allowlist 随 --repo-root 移除而亡，常量保留防复用
   expect(JSON_RPC_ERROR.REPO_NOT_ALLOWED).toBe(-32003);
+  // -32019 config_id_rejected：v3 起携带 configId 的 submit 专用拒绝码（登记防复用）
+  expect(JSON_RPC_ERROR.CONFIG_ID_REJECTED).toBe(-32019);
 });
