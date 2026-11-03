@@ -62,7 +62,8 @@ export function piKernel(deps: PiKernelDeps): ReviewKernel {
         apiKey: deps.apiKey,
         ...(deps.baseUrl !== undefined ? { baseUrl: deps.baseUrl } : {}),
         modelId: request.model,
-        configId: request.unit.configId,
+        // v3 起（#32 / ADR-0014 §10）：内核配置由 runReview 单源派生恒 E——
+        // 适配面不再传 configId（协议面亦无此字段）
         fetch: deps.fetch,
         runsRoot,
         experimentId,
@@ -93,8 +94,8 @@ function toRootRunResult(request: UnitReviewRequest, result: ReviewRunResult): R
       cacheBreaks: snapshot.audit.cacheBreaks ?? [],
       truncated: snapshot.audit.truncated,
       truncationReasons: snapshot.audit.truncationReasons,
-      ...(snapshot.audit.prefetch !== undefined ? { prefetch: snapshot.audit.prefetch } : {}),
-      ...(snapshot.audit.fullRepo !== undefined ? { fullRepo: snapshot.audit.fullRepo } : {}),
+      // 预取 / 全仓注入留痕已随 A–D 机制根除（#32 / ADR-0014）——pi 快照
+      // 不再携带这两个键（root RunResult 的可选字段保留给历史 legacy 记录读取）
       ...(snapshot.audit.ledger !== undefined ? { ledger: snapshot.audit.ledger } : {}),
     },
     auditPath: result.auditPath,

@@ -56,11 +56,11 @@ test("投影：summary 与磁盘真源一致（experimentId 恒 reviewagent-rpc�
   });
 
   const summary = await executor.execute(
-    { ...BASE_REQUEST, configId: "D" },
+    { ...BASE_REQUEST },
     { jobId: "job-projection-1", signal: new AbortController().signal },
   );
 
-  // 摘要口径（config D：1 轮、1 次工具调用、零 usage、未截断）
+  // 摘要口径（E：1 轮、1 次工具调用、零 usage、未截断）
   expect(summary.runId).not.toBe("");
   expect(summary.findings).toEqual([]);
   expect(summary.rounds).toBe(1);
@@ -88,10 +88,10 @@ test("投影：summary 与磁盘真源一致（experimentId 恒 reviewagent-rpc�
   const audit = JSON.parse(readFileSync(summary.auditPath, "utf8")) as { readonly runId: string };
   expect(audit.runId).toBe(summary.runId);
   expect(summary.recordPath).toBe(
-    path.join(runsRoot, "reviewagent-rpc", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
+    path.join(runsRoot, "reviewagent-rpc", "runs", "vul4j", "VUL4J-1", "E", "rep-1.json"),
   );
   expect(summary.auditPath).toContain(
-    path.join(runsRoot, "reviewagent-rpc", "audit", "vul4j", "VUL4J-1", "D", "rep-1", "audit"),
+    path.join(runsRoot, "reviewagent-rpc", "audit", "vul4j", "VUL4J-1", "E", "rep-1", "audit"),
   );
 }, 120_000);
 
@@ -110,22 +110,22 @@ test("experimentIdOf 注入：产物目录按 job 隔离（缺省恒 reviewagent
   });
 
   const summary = await executor.execute(
-    { ...BASE_REQUEST, configId: "D" },
+    { ...BASE_REQUEST },
     { jobId: "job-1700000000000-7", signal: new AbortController().signal },
   );
 
   expect(summary.recordPath).toBe(
-    path.join(runsRoot, "job-1700000000000-7", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
+    path.join(runsRoot, "job-1700000000000-7", "runs", "vul4j", "VUL4J-1", "E", "rep-1.json"),
   );
   expect(summary.auditPath).toContain(
-    path.join(runsRoot, "job-1700000000000-7", "audit", "vul4j", "VUL4J-1", "D", "rep-1", "audit"),
+    path.join(runsRoot, "job-1700000000000-7", "audit", "vul4j", "VUL4J-1", "E", "rep-1", "audit"),
   );
 }, 120_000);
 
 // ---- 错误合同：publicMessage 安全文案 + 诊断走注入 sink（#23）----
 
 test("内核错误 → ReviewExecutionError：publicMessage 固定 generic，诊断细节只进 onDiagnostic", async () => {
-  // 脚本耗尽：第 2 请求无 canned 回复 → 内核 runReviewTurn 抛错
+  // 脚本耗尽：第 2 请求无 canned 回复 → 内核 agent 循环抛错
   const script = fakeFetch(sixPhaseNoToolCorpus().slice(0, 1));
   const runsRoot = tempRunsRoot("review-pi-rpc-executor-");
   const diagnostics: string[] = [];
@@ -141,7 +141,7 @@ test("内核错误 → ReviewExecutionError：publicMessage 固定 generic，诊
   let caught: unknown;
   try {
     await executor.execute(
-      { ...BASE_REQUEST, configId: "A" },
+      { ...BASE_REQUEST },
       { jobId: "job-error-1", signal: new AbortController().signal },
     );
   } catch (error) {
@@ -178,7 +178,7 @@ test("取消不是失败：ReviewAbortedError 原样透传，不包合同错误�
 
   await expect(
     executor.execute(
-      { ...BASE_REQUEST, configId: "A" },
+      { ...BASE_REQUEST },
       { jobId: "job-abort-1", signal: controller.signal },
     ),
   ).rejects.toBeInstanceOf(ReviewAbortedError);

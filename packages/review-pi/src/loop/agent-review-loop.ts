@@ -34,8 +34,8 @@ import { PHASE_COUNT, PHASE_INSTRUCTIONS, PHASE_ORDER } from "./phases.js";
 import { fromWireToolName, toWireToolName } from "../tools/registry.js";
 import type { ReviewToolkit } from "../tools/toolkit.js";
 
-// agentLoop 钩子驱动循环（#6 P3a，config C/D/E）：六阶段 + 工具子循环跑在
-// pi-agent-core Agent 上，三个预定缝承载 review 语义——
+// agentLoop 钩子驱动循环（#6 P3a；#32 / ADR-0014 起唯一内核形态）：六阶段 +
+// 工具子循环跑在 pi-agent-core Agent 上，三个预定缝承载 review 语义——
 //
 // - shouldStopAfterTurn = review 状态机：工具轮恒继续（t-series 真源：预算
 //   耗尽也 recall，相位只在文本回复时完结，无 force-complete）；文本轮完结
@@ -53,9 +53,9 @@ import type { ReviewToolkit } from "../tools/toolkit.js";
 
 export interface AgentReviewLoopInputs {
   readonly systemPrompt: string;
-  /** 初始上下文消息（MR / fullRepo 等 run 级组装，由调用方按配置决定） */
+  /** 初始上下文消息（MR user 起始的 run 级组装，由调用方决定） */
   readonly initialContextMessages: readonly LlmMessage[];
-  /** 七工具执行面（含 Ledger；config E 传 ledgerMode "enabled" 的 toolkit） */
+  /** 七工具执行面（含功能态 Context Ledger） */
   readonly toolkit: ReviewToolkit;
   readonly apiKey: string;
   /** 网关 base URL 覆盖（REVIEWER_URL；缺省官方接入点） */
@@ -64,8 +64,6 @@ export interface AgentReviewLoopInputs {
   readonly modelId?: string;
   /** 传输层注入；离线测试恒注入 fake 适配器 */
   readonly fetch?: FetchFunction;
-  /** 审计投影 ledger 键（config E）；缺省不投影 */
-  readonly includeLedgerAudit?: boolean;
   /**
    * 取消信号（#23 S2 缝）：abort → agent.abort()（pi 内核取消面，spec #21
    * §6 / ADR-0012 决策 4）；prompt 返回后 signal 已中止 → 上抛
@@ -255,7 +253,8 @@ export async function runAgentReviewLoop(
     cacheBreaks: classifyCacheBreaks(requests),
     truncated,
     truncationReasons,
-    ...(inputs.includeLedgerAudit ? { ledger: inputs.toolkit.ledger.snapshot() } : {}),
+    // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）
+    ledger: inputs.toolkit.ledger.snapshot(),
   };
   return { findings, usage, rounds: round, toolCalls: executedToolCalls, complete, audit };
 

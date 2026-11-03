@@ -25,14 +25,14 @@ import { createSqliteReviewJobStore } from "./sqlite-store.js";
 
 // ---- 测试语料 ----
 
-/** 执行请求基准值（submit 时刻已解析形态：diff 已是文本、repoPath 已 realpath） */
+/** 执行请求基准值（submit 时刻已解析形态：diff 已是文本、repoPath 已 realpath；
+ * v3 起请求面无 configId——内核恒 E 派生） */
 function storedRequest(overrides: Partial<ReviewRunRequest> = {}): ReviewRunRequest {
   return {
     caseId: "VUL4J-1",
     repoPath: "/tmp/repo-snapshot",
     diff: "--- a\n+++ b\n@@ -1 +1 @@\n-x\n+y\n",
     issueDescription: "",
-    configId: "E",
     ...overrides,
   };
 }
@@ -136,7 +136,6 @@ function describeStoreContract(name: string, makeStore: () => ReviewJobStore): v
         repoPath: "D:\\snapshots\\repo-42",
         diff: "diff --git a/x b/x\n+payload\n",
         issueDescription: "议题描述（含 unicode 与 \"引号\"）",
-        configId: "C",
         modelId: "custom-model-id",
       });
       store.saveJob(storedJob({ request }));

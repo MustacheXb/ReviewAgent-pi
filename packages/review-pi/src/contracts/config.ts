@@ -1,34 +1,20 @@
-// 实验配置矩阵（测量常量面：configId 语义与 DSH 线 / 冻结判定链共享）。
-// P1a 全链仅驱动 config B（零工具 + 确定性预取）；矩阵全量平移以保持
-// configId 语义完整（RunRecord 消费方按此分组）。
+// 配置合同（测量常量面）。
+//
+// #32 / ADR-0014（E-only 生产化）：内核配置矩阵 A–D 已根除——直驱六阶段循环
+// （A/B）、确定性预取（B）、全仓注入（C）随研究装置退役，内核只剩工具驱动
+// agentLoop + Context Ledger 的生产形态。值域随之塌缩：
+// - ConfigId = "E"（生产写面：v3 起服务端/CLI 派生恒 E，配置不是用户输入）；
+// - HistoricalConfigId = A–E（读面：历史 RunRecord / 处置库仍可载 A–D 记录，
+//   回溯锚字段名不变——identity 键序纪律见 experiment/run-record.ts）。
 
-export type ConfigId = "A" | "B" | "C" | "D" | "E";
+/** 配置 id（生产值域：E 单值——驱动配置由内核派生，不再是调用方输入） */
+export type ConfigId = "E";
 
-/**
- * v3 起唯一在产的配置（#32 / ADR-0014 §10：协议无配置选择面——submit 不带
- * configId、CLI 无旗标；本常量是服务端派生单源：service / 幂等指纹 / CLI
- * 直驱内核的 configId 全部由它取值，RunRecord / 审计 / disposition 恒 E）。
- */
+/** 生产配置 id（单源常量；与 v3 协议派生、CLI/rpc 装配共用） */
 export const CONFIG_E = "E" as const satisfies ConfigId;
 
-export interface ReviewConfig {
-  readonly configId: ConfigId;
-  /** A/B = false（零工具）；C/D/E = true */
-  readonly toolsEnabled: boolean;
-  /** B = true：固定管线确定性预取（Diff → Symbol → Reference → Call Chain） */
-  readonly prefetch: boolean;
-  /** C = true：全仓注入 */
-  readonly fullRepo: boolean;
-  /** D/E = true：Zone A 稳定前缀纪律 */
-  readonly stablePrefix: boolean;
-  /** E = true：Context Ledger + Append-only */
-  readonly ledger: boolean;
-}
+/** 历史配置 id（读面值域：A–E 矩阵时期的 RunRecord / 处置条目仍可读） */
+export type HistoricalConfigId = "A" | "B" | "C" | "D" | "E";
 
-export const CONFIGS: Readonly<Record<ConfigId, ReviewConfig>> = {
-  A: { configId: "A", toolsEnabled: false, prefetch: false, fullRepo: false, stablePrefix: false, ledger: false },
-  B: { configId: "B", toolsEnabled: false, prefetch: true, fullRepo: false, stablePrefix: false, ledger: false },
-  C: { configId: "C", toolsEnabled: true, prefetch: false, fullRepo: true, stablePrefix: false, ledger: false },
-  D: { configId: "D", toolsEnabled: true, prefetch: false, fullRepo: false, stablePrefix: true, ledger: false },
-  E: { configId: "E", toolsEnabled: true, prefetch: false, fullRepo: false, stablePrefix: true, ledger: true },
-};
+/** 历史值域注册表（读取侧校验单源：disposition validatedConfigId 消费） */
+export const HISTORICAL_CONFIG_IDS: readonly HistoricalConfigId[] = ["A", "B", "C", "D", "E"];

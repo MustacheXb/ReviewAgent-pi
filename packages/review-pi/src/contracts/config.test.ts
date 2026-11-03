@@ -1,23 +1,16 @@
 import { expect, test } from "vitest";
-import { CONFIGS } from "./config.js";
+import { CONFIG_E, HISTORICAL_CONFIG_IDS } from "./config.js";
 
-// 实验配置矩阵（测量常量面：configId 语义与 DSH 线 / 判定链一致）。
-// P1a 全链走 config B（零工具 + 确定性预取）。
+// 配置合同（测量常量面）：#32 / ADR-0014 后值域塌缩为 E 单值（写面），
+// 历史值域 A–E 只活在读取面（RunRecord / 处置库回溯锚）。
 
-test("config B：零工具、确定性预取、无全仓/稳定前缀/ledger", () => {
-  expect(CONFIGS.B).toEqual({
-    configId: "B",
-    toolsEnabled: false,
-    prefetch: true,
-    fullRepo: false,
-    stablePrefix: false,
-    ledger: false,
-  });
+test("生产值域：ConfigId 塌缩为 E 单值，CONFIG_E 为单源常量", () => {
+  expect(CONFIG_E).toBe("E");
 });
 
-test("配置矩阵 A-E 完整且 configId 与键一致", () => {
-  expect(Object.keys(CONFIGS)).toEqual(["A", "B", "C", "D", "E"]);
-  for (const [key, config] of Object.entries(CONFIGS)) {
-    expect(config.configId, key).toBe(key);
-  }
+test("历史值域：A–E 全集在场（读取面校验集，含 E 收尾），无重复", () => {
+  expect(HISTORICAL_CONFIG_IDS).toEqual(["A", "B", "C", "D", "E"]);
+  expect(new Set(HISTORICAL_CONFIG_IDS).size).toBe(HISTORICAL_CONFIG_IDS.length);
+  // 生产值必须是历史值域的成员（写入的记录永远可被读取面接受）
+  expect(HISTORICAL_CONFIG_IDS).toContain(CONFIG_E);
 });

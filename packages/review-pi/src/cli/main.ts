@@ -104,9 +104,8 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
     apiKey: endpoint.apiKey,
     baseUrl: endpoint.baseUrl,
     modelId: args.model,
-    // v3 派生（#32 / ADR-0014 §10）：CLI 直驱内核也走 CONFIG_E 单源——
-    // 与 service / 幂等指纹同款恒 E，stdout 的 configId 字段值不再来自用户面
-    configId: CONFIG_E,
+    // v3 派生（#32 / ADR-0014 §10）：配置不是 CLI 输入——内核单源派生恒 E
+    //（runReview 内 CONFIG_E；stdout 的 configId 字段值同源）。
     fetch: globalThis.fetch,
     runsRoot,
     experimentId: CLI_EXPERIMENT_ID,
@@ -145,7 +144,9 @@ async function runReviewCommand(args: ReviewCliArgs): Promise<number> {
   await writeStdout(
     renderReviewOutcome({
       caseId: record.caseId,
-      configId: record.configId,
+      // 呈现面 configId 与审计同源恒 E（ReviewOutcome 的 Pick 锚定在
+      // AuditFileContent 上，本 run 的记录写面恒 E）
+      configId: CONFIG_E,
       runId,
       truncated: record.baseline.audit.truncated,
       rounds: record.baseline.rounds,

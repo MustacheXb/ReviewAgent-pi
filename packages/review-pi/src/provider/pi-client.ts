@@ -1,4 +1,4 @@
-import type { AssistantMessage, Context, FetchFunction, Model, TextContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model, TextContent } from "@earendil-works/pi-ai";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import type { ToolSchema, WireMessage } from "../contracts/llm.js";
 
@@ -15,7 +15,10 @@ import type { ToolSchema, WireMessage } from "../contracts/llm.js";
  * 锁档纪律（DSH 线 ADR-0002，逐项有测试）：
  * - effort 单档锁定：harness/审计标签恒 "default"，线上恒
  *   thinking {type:"enabled"} + reasoning_effort "high"；
- * - 请求不携带采样参数；config B 无工具（tools 不出场）。
+ * - 请求不携带采样参数。
+ * 历史注：直驱回合驱动器（runReviewTurn，A/B 直驱路径的传输缝）已随研究
+ * 装置根除（#32 / ADR-0014）；本模块保留共享面——模型解析（reviewModelOf）、
+ * wire 捕获投影（captureWire）、assistant 文本抽取（assistantText）。
  */
 
 /** 钉住的评审模型（评测口径：单模型 deepseek-v4-flash） */
@@ -33,66 +36,6 @@ export interface WireCapture {
   readonly tools: readonly ToolSchema[];
   /** JSON.stringify(payload) 原文（= 发往 provider 的请求体，可原样重放） */
   readonly wireBody: string;
-}
-
-export interface ReviewTurnInput {
-  readonly context: Context;
-  readonly apiKey: string;
-  /**
-   * 网关 base URL 覆盖（#4）：经 model.baseUrl 展开缝注入（openai-completions
-   * 以 model.baseUrl 为 SDK baseURL），vendored pi 源码零改动。缺省官方
-   * api.deepseek.com；企业网关（REVIEWER_URL）需自带 /v1——SDK 只追加
-   * /chat/completions。
-   */
-  readonly baseUrl?: string;
-  /**
-   * 模型 id 覆盖（#45 自由 id 语义）：任意非空 id 均可发。序列化画像：
-   * id 命中 deepseek 目录 → 该 id 自身画像；目录外 id → 钉住的评审模型
-   * 画像作模板（见 reviewModelOf）。缺省钉住的评审模型。
-   */
-  readonly modelId?: string;
-  /** 传输层注入；缺省线上 global fetch（离线测试恒注入 fake 适配器） */
-  readonly fetch?: FetchFunction;
-  /**
-   * 取消信号（#23 S2 缝）：透传 pi-ai ProviderRequestOptions.signal——
-   * 真 fetch 路径在传输层中断请求（pi-ai 把中止折算为 stopReason
-   * "aborted" 的消息，不 reject）；缺省不进 provider 选项（缺席省键，
-   * 请求字节面零变化——signal 不参与序列化）。
-   */
-  readonly signal?: AbortSignal;
-}
-
-export interface ReviewTurnOutcome {
-  readonly message: AssistantMessage;
-  readonly wire: WireCapture;
-}
-
-const WIRE_ROLES: readonly string[] = ["system", "user", "assistant", "tool"];
-
-export async function runReviewTurn(input: ReviewTurnInput): Promise<ReviewTurnOutcome> {
-  const model = reviewModelOf(input.modelId, input.baseUrl);
-  let wire: WireCapture | undefined;
-  const stream = deepseekProvider().stream(model, input.context, {
-    apiKey: input.apiKey,
-    ...(input.fetch !== undefined ? { fetch: input.fetch } : {}),
-    ...(input.signal !== undefined ? { signal: input.signal } : {}),
-    reasoningEffort: LOCKED_REASONING_EFFORT,
-    onPayload: (payload) => {
-      wire = captureWire(payload);
-    },
-  });
-  const message = await stream.result();
-  // pi-ai 对 provider 错误不 reject：resolve 出 stopReason "error" 的 AssistantMessage，
-  // 缝必须显式拦截（错误永不静默成一次"成功"回合）。
-  if (message.stopReason === "error") {
-    throw new Error(
-      `review turn failed: ${message.errorMessage ?? "provider returned an error stop reason"}`,
-    );
-  }
-  if (wire === undefined) {
-    throw new Error("pi-ai did not reach the onPayload serialization point (wire capture missing)");
-  }
-  return { message, wire };
 }
 
 /** assistant 回复纯文本（content text 块按 "\n" 连接；与 DSH joinTextBlocks 同口径） */
@@ -131,7 +74,7 @@ export function reviewModelOf(
 }
 
 /** 校验并投影 onPayload payload（边界校验 fail fast；扩展字段透传不裁剪）。
- * agentLoop 路径（#6 P3a）复用同一投影作为审计 requests[] 条目来源。 */
+ * agentLoop 路径复用同一投影作为审计 requests[] 条目来源。 */
 export function captureWire(payload: unknown): WireCapture {
   if (typeof payload !== "object" || payload === null) {
     throw new Error("onPayload payload is not an object");
@@ -154,6 +97,8 @@ export function captureWire(payload: unknown): WireCapture {
   };
 }
 
+const WIRE_ROLES: readonly string[] = ["system", "user", "assistant", "tool"];
+
 function wireMessageOf(entry: unknown): WireMessage {
   if (typeof entry !== "object" || entry === null) {
     throw new Error("onPayload messages entry is not an object");
@@ -172,7 +117,7 @@ function wireMessageOf(entry: unknown): WireMessage {
     : (entry as WireMessage);
 }
 
-/** wire function tool → DSH 审计口径 ToolSchema（config B 恒空数组，投影为将来工具配置就位） */
+/** wire function tool → DSH 审计口径 ToolSchema */
 function toolSchemaOf(entry: unknown): ToolSchema {
   if (typeof entry !== "object" || entry === null) {
     throw new Error("onPayload tools entry is not an object");

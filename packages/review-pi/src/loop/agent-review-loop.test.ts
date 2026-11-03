@@ -242,17 +242,21 @@ test("协议完备性：assistant tool_calls 后紧跟覆盖全部 id 的 tool �
 });
 
 test("预算耗尽：第 7+ 次调用获 Error 应答、计数留痕、截断原因单列但不翻转 truncated", async () => {
+  // 预算批用互异区间（get_file 不同 start/end）——账本恒功能态（E 语义：
+  // 同一规范化请求重复调用命中去重返回引用），互异请求才能真实执行满预算
+  const budgetCalls = Array.from({ length: MAX_TOOL_CALLS }, (_, index) => ({
+    id: `call-e${index}`,
+    name: "review_get_file",
+    args: { path: "src/main/java/com/example/Alpha.java", startLine: 1, endLine: 1 + index },
+  }));
   const overflowCalls = [
     { id: "call-o1", name: "review_get_diff" },
     { id: "call-o2", name: "review_get_diff" },
   ];
   const replies: FakeReply[] = [
     textReply(phaseText(0), 0),
-    // 一批 6 个 get_diff：全执行（预算用满）
-    toolReply(
-      Array.from({ length: MAX_TOOL_CALLS }, (_, index) => ({ id: `call-e${index}`, name: "review_get_diff" })),
-      1,
-    ),
+    // 一批 6 个 get_file：全执行（预算用满）
+    toolReply(budgetCalls, 1),
     // 再一批 2 个：全跳过（Error 应答）——t-series 语义：跳过后仍 recall
     toolReply(overflowCalls, 2),
     textReply(phaseText(1), 3),
@@ -269,10 +273,12 @@ test("预算耗尽：第 7+ 次调用获 Error 应答、计数留痕、截断原
   expect(outcome.audit.truncated).toBe(false);
   expect(outcome.audit.truncationReasons).toEqual([TRUNCATION_TOOL_BUDGET]);
 
-  // toolCallLog：6 条执行 + 2 条 Error 跳过（批序）
+  // toolCallLog：6 条执行（真实读取，非预算拒绝）+ 2 条 Error 跳过（批序）
   const log = outcome.audit.toolCallLog;
   expect(log).toHaveLength(MAX_TOOL_CALLS + overflowCalls.length);
-  expect(log.slice(0, MAX_TOOL_CALLS).every((entry) => entry.resultSummary === GET_DIFF_RESULT)).toBe(true);
+  expect(
+    log.slice(0, MAX_TOOL_CALLS).every((entry) => entry.resultSummary !== TOOL_BUDGET_EXHAUSTED_SUMMARY),
+  ).toBe(true);
   expect(log.slice(MAX_TOOL_CALLS)).toEqual([
     { name: "review.get_diff", argumentsJson: "{}", resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY },
     { name: "review.get_diff", argumentsJson: "{}", resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY },

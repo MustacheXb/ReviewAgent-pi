@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -13,7 +13,9 @@ import {
 } from "./run-record.js";
 
 // RunRecord 投影（测量常量面）：与根仓 run-store 产出的 DSH 记录同构
-// （三级键序以 t-series 记录为地面真源），冻结 analyze 脚本原样消费。
+// （三级键序冻结面由本文件字面列表单源锁定；t-series runs/ 对照随研究线
+// 退役，#32 / ADR-0014）。configId 夹具取历史值域 B——buildRunRecord 是
+// 读/写交界（写面调用恒传 E，读取面须兼容 A–D 旧记录）。
 // 落盘路径：<runsRoot>/<experimentId>/runs/vul4j/<caseId>/<configId>/rep-<N>.json。
 
 const COMPLETED_AT = new Date("2026-09-14T18:09:20.100Z");
@@ -26,9 +28,6 @@ const AUDIT: RunAudit = {
   cacheBreaks: [],
   truncated: false,
   truncationReasons: [],
-  prefetch: [
-    { layer: "zone-b", budgetChars: 16000, contentChars: 100, truncated: false, totalEntries: 1, shownEntries: 1 },
-  ],
 };
 
 const RUN_RESULT: RunResult = {
@@ -91,7 +90,6 @@ describe("toAuditLight", () => {
       "rejections",
       "truncated",
       "truncationReasons",
-      "prefetch",
     ]);
 
     const withBreaks = toAuditLight({
@@ -182,27 +180,11 @@ describe("runRecordPath / writeRunRecord", () => {
     const text = readFileSync(filePath, "utf8");
     expect(text).toBe(`${JSON.stringify(record, null, 2)}\n`);
     const parsed = JSON.parse(text);
-    // 冻结消费方（collectExecRecords / isRunRecordShape）的硬性要求
+    // 冻结消费方（migration-gate 记录读取）的硬性要求
     expect(typeof parsed.completedAt).toBe("string");
     expect(Number.isNaN(Date.parse(parsed.completedAt))).toBe(false);
     expect(typeof parsed.baseline.usage.inputTokens).toBe("number");
     expect(typeof parsed.baseline.usage.outputTokens).toBe("number");
     expect(Array.isArray(parsed.baseline.findings)).toBe(true);
-  });
-});
-
-/** 真实 t-series 记录（DSH 线地面真源；本机 runs/ 在场时才断言） */
-const REAL_RECORD = path.resolve(
-  import.meta.dirname,
-  "../../../../runs/phase2-dsh-t1/runs/vul4j/VUL4J-1/B/rep-1.json",
-);
-
-describe("与 DSH 线 RunRecord 同构（地面真源键序对照）", () => {
-  test.skipIf(!existsSync(REAL_RECORD))("三级键序与 t-series 记录逐键一致", () => {
-    const real = JSON.parse(readFileSync(REAL_RECORD, "utf8"));
-    const record = recordFixture();
-    expect(Object.keys(record)).toEqual(Object.keys(real));
-    expect(Object.keys(record.baseline)).toEqual(Object.keys(real.baseline));
-    expect(Object.keys(record.baseline.audit)).toEqual(Object.keys(real.baseline.audit));
   });
 });

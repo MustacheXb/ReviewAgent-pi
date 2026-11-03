@@ -4,11 +4,9 @@ import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
-import type { PrefetchLayerRecord } from "../contracts/prefetch.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
-  FullRepoRecord,
   MrBoundaryRecord,
   PhaseRecord,
   RunAudit,
@@ -20,6 +18,8 @@ import type {
 // 逐键一致（t-series 审计为地面真源，src/audit/audit-writer.test.ts 断言）。
 // requests[] = onPayload 序列化点捕获（WireRequest：model/effort/messages/
 // tools/wireBody），承载全部请求的可重放字节。
+// 历史 B/C 尾键（prefetch / fullRepo）已随 A–D 机制根除（#32 / ADR-0014）：
+// 历史审计文件照旧可读（JSON 自描述），新审计不再产生这两个键。
 
 /**
  * 审计文件内容 = RunAudit + usage + findings + run 元数据。
@@ -47,16 +47,12 @@ export interface AuditFileContent {
   readonly cacheBreaks: readonly CacheBreakRecord[];
   readonly requests: readonly WireRequest[];
   readonly toolCallLog: readonly ToolCallRecord[];
-  /** config B 预取注入层记账（非预取配置缺省） */
-  readonly prefetch?: readonly PrefetchLayerRecord[];
-  /** config C 全仓注入记账（非 C 配置缺省；DSH 真源键序在 toolCallLog 尾段） */
-  readonly fullRepo?: FullRepoRecord;
-  /** config E Context Ledger 快照（非 E 配置缺省；DSH 真源键序在 toolCallLog 尾段） */
+  /** Context Ledger 快照（恒投影；DSH 真源键序在 toolCallLog 尾段） */
   readonly ledger?: readonly LedgerEntry[];
   /**
    * MR 边界护栏降级留痕（#12：度量值 + 降级决策；界内缺省省键）。
    * 键序纪律：pi 线新增可选尾键，只加在 AuditFileContent 尾部
-   * （同 prefetch/fullRepo/ledger 先例）。
+   * （同 ledger 先例）。
    */
   readonly mrBoundary?: MrBoundaryRecord;
 }
@@ -81,8 +77,6 @@ export function buildAuditFileContent(args: {
   readonly usage: LlmUsage;
   readonly findings: readonly Finding[];
   readonly audit: RunAudit;
-  readonly prefetch?: readonly PrefetchLayerRecord[];
-  readonly fullRepo?: FullRepoRecord;
   readonly ledger?: readonly LedgerEntry[];
   readonly mrBoundary?: MrBoundaryRecord;
 }): AuditFileContent {
@@ -106,8 +100,6 @@ export function buildAuditFileContent(args: {
     cacheBreaks: args.audit.cacheBreaks,
     requests: args.audit.requests,
     toolCallLog: args.audit.toolCallLog,
-    ...(args.prefetch !== undefined ? { prefetch: args.prefetch } : {}),
-    ...(args.fullRepo !== undefined ? { fullRepo: args.fullRepo } : {}),
     ...(args.ledger !== undefined ? { ledger: args.ledger } : {}),
     ...(args.mrBoundary !== undefined ? { mrBoundary: args.mrBoundary } : {}),
   };

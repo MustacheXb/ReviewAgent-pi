@@ -14,7 +14,6 @@
  */
 
 import type { FetchFunction } from "@earendil-works/pi-ai";
-import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { LlmUsage } from "../contracts/llm.js";
 import type { ReviewerEndpoint } from "../provider/reviewer-endpoint.js";
@@ -27,7 +26,6 @@ export interface ReviewRunRequest {
   readonly diff: string;
   /** 内核面必填 string；service 层对省略补齐空串（spec §5） */
   readonly issueDescription: string;
-  readonly configId: ConfigId;
   readonly modelId?: string;
 }
 
@@ -184,7 +182,6 @@ export class KernelReviewRunExecutor implements ReviewRunExecutor {
         repoPath: request.repoPath,
         diff: request.diff,
         issueDescription: request.issueDescription,
-        configId: request.configId,
         ...(request.modelId !== undefined ? { modelId: request.modelId } : {}),
         apiKey: this.endpoint.apiKey,
         baseUrl: this.endpoint.baseUrl,

@@ -14,8 +14,8 @@ const ANCHOR: Pick<
   "caseId" | "configId" | "runId" | "truncated" | "rounds" | "toolCalls" | "findings"
 > = {
   caseId: "VUL4J-1",
-  configId: "B",
-  runId: "20260920T000000-000Z-B-VUL4J-1",
+  configId: "E",
+  runId: "20260920T000000-000Z-E-VUL4J-1",
   truncated: false,
   rounds: 1,
   toolCalls: 0,
@@ -29,8 +29,8 @@ test("renderReviewOutcome：ok 包络 + 字段集 + 2 空格缩进 + 尾随换�
       {
         ok: true,
         caseId: "VUL4J-1",
-        configId: "B",
-        runId: "20260920T000000-000Z-B-VUL4J-1",
+        configId: "E",
+        runId: "20260920T000000-000Z-E-VUL4J-1",
         truncated: false,
         rounds: 1,
         toolCalls: 0,
@@ -54,7 +54,7 @@ test("renderReviewOutcome：truncated=true 形态（截断路径退出码 0，JS
   const findings: readonly Finding[] = [];
   const text = renderReviewOutcome({
     caseId: "CASE-9",
-    configId: "B",
+    configId: "E",
     runId: "run-9",
     truncated: true,
     rounds: 5,

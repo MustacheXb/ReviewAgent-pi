@@ -1,10 +1,9 @@
-// run 级留痕契约（测量常量面：审计投影的形状与 DSH 线一致，
-// 冻结 analyze 脚本据此消费 pi RunRecord）。随模块落地逐步补齐。
+// run 级留痕契约（测量常量面：审计投影的形状与 DSH 线 ADR 冻结记录一致，
+// 历史记录读面据此保持可读）。随模块落地逐步补齐。
 
 import type { Finding } from "./finding.js";
 import type { LedgerEntry } from "./ledger.js";
 import type { LlmUsage, ToolSchema, WireMessage } from "./llm.js";
-import type { PrefetchLayerRecord } from "./prefetch.js";
 
 /** 六阶段名（固定顺序；phaseLog 留痕用） */
 export type ReviewPhase =
@@ -23,7 +22,7 @@ export interface PhaseRecord {
   readonly note?: string;
 }
 
-/** 一次工具调用的留痕（config B 零工具，恒空数组；契约先行） */
+/** 一次工具调用的留痕（零工具 run 恒空数组；契约先行） */
 export interface ToolCallRecord {
   readonly name: string;
   readonly argumentsJson: string;
@@ -75,15 +74,6 @@ export interface WireRequest {
   readonly wireBody: string;
 }
 
-/** config C 全仓注入的留痕（预算守卫：截断必留痕） */
-export interface FullRepoRecord {
-  readonly budgetChars: number;
-  readonly contentChars: number;
-  readonly truncated: boolean;
-  readonly totalFiles: number;
-  readonly shownFiles: number;
-}
-
 /** MR 边界护栏的降级原因（#12：前两类 = 度量完成但超界；末类 = 结构不可度量） */
 export type MrBoundaryReason = "too-many-files" | "diff-too-large" | "boundary-unmeasurable";
 
@@ -107,10 +97,7 @@ export interface RunAudit {
   readonly cacheBreaks: readonly CacheBreakRecord[];
   readonly truncated: boolean;
   readonly truncationReasons: readonly string[];
-  readonly prefetch?: readonly PrefetchLayerRecord[];
-  /** config C 全仓注入记账（非 C 配置缺省） */
-  readonly fullRepo?: FullRepoRecord;
-  /** config E Context Ledger 快照（非 E 配置缺省） */
+  /** Context Ledger 快照（E 恒投影——含零工具调用的空数组形态） */
   readonly ledger?: readonly LedgerEntry[];
 }
 
@@ -123,9 +110,9 @@ export interface ReviewRunProgress {
   /** 当前进入的六阶段名 */
   readonly phase: ReviewPhase;
   readonly round: number;
-  /** 边界时点累计工具调用数（A/B 直驱恒 0） */
+  /** 边界时点累计工具调用数 */
   readonly toolCalls: number;
-  /** 边界时点累计 usage（可选键——A/B 直驱路径未必有工具轮次口径） */
+  /** 边界时点累计 usage（可选键） */
   readonly usage?: LlmUsage;
 }
 

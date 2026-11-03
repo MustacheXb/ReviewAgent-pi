@@ -17,7 +17,7 @@ import { reserveFreePort } from "../testing/free-port.js";
 //
 // 不打真网关：子进程注入不可达回环 REVIEWER_URL（CI 零网络纪律）——本测
 // 只证「server 形态进了产物 + 进程面活着 + 鉴权/信封面正确」，检视执行链
-// 的真跑冒烟在 smoke-gateway-config-* 另有档。
+// 的真跑冒烟在 pack-three-forms.e2e.ts（#31 三形态）另有档。
 //
 // skipIf 守卫：CI 无 build:reviewagent 步骤（产物缺席时整档 skip——本地
 // `pnpm build:reviewagent` 后可复跑；bundle 即 pack 内容物，tarball 无增量面）。

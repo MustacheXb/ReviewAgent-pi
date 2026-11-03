@@ -2,7 +2,6 @@ import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, expect, test } from "vitest";
 
-import type { ConfigId } from "../contracts/config.js";
 import { createTempDirRegistry } from "../testing/temp-dir.js";
 import { ReviewAbortedError } from "../run/review-run.js";
 import { ReviewExecutionError } from "./executor.js";
@@ -118,7 +117,6 @@ function request(caseId: string): ReviewRunRequest {
     repoPath: "unused-by-fake-entry",
     diff: "--- a\n+++ b\n",
     issueDescription: "",
-    configId: "A" as ConfigId,
   };
 }
 

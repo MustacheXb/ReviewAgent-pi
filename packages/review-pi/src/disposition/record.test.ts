@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import type { ConfigId } from "../contracts/config.js";
+import type { HistoricalConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { RunAudit, RunResult } from "../contracts/run.js";
 import { buildRunRecord, runRecordPath, type RunRecord } from "../experiment/run-record.js";
@@ -47,8 +47,9 @@ function finding(id: string, severity: "P1" | "P2"): Finding {
   };
 }
 
-/** 真 RunRecord 夹具（经 buildRunRecord 全链组装——契约对齐不是手拼 JSON） */
-function runRecordFixture(configId: ConfigId = "E"): RunRecord {
+/** 真 RunRecord 夹具（经 buildRunRecord 全链组装——契约对齐不是手拼 JSON）。
+ * 值域取历史面 A–E（#32 / ADR-0014：写面恒 E，读取面兼容 A–D 旧记录）。 */
+function runRecordFixture(configId: HistoricalConfigId = "E"): RunRecord {
   const result: RunResult = {
     caseId: "VUL4J-1",
     configId,
@@ -111,7 +112,7 @@ describe("readRunRecordRef", () => {
     expect(ref).toEqual(refFixture());
   });
 
-  test("config 无关：B 形态 run record 同样可读（无配置耦合）", async () => {
+  test("读取面兼容历史值域：B 形态 run record 同样可读（E-only 生产化前的旧记录仍可处置）", async () => {
     const ref = await readRunRecordRef(writeFixture(tempDir(), runRecordFixture("B")));
     expect(ref.configId).toBe("B");
   });

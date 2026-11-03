@@ -295,7 +295,9 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
     jobId: source.jobId,
     status: source.status,
     caseId: source.request.caseId,
-    configId: source.request.configId,
+    // v3 派生（#32 / ADR-0014 §10）：view 的 configId 与内核同源恒 E
+    //（请求面已无 configId 字段，服务端单源派生）
+    configId: CONFIG_E,
     submittedAt: source.submittedAt,
     // progress 仅存在于 running/cancelling（spec §6.1）——终态快照不带执行中间态
     ...(source.progress !== undefined && (source.status === "running" || source.status === "cancelling")
@@ -594,8 +596,8 @@ export function createReviewService(options: ReviewServiceOptions): ReviewServic
         repoPath,
         diff: diffText,
         issueDescription: request.issueDescription ?? "",
-        // v3 派生（#32 / ADR-0014 §10）：submit 无 configId，服务端恒 E
-        configId: CONFIG_E,
+        // v3 派生（#32 / ADR-0014 §10）：submit 无 configId，内核恒派生 E
+        //（view 面与幂等指纹同源）
         ...(request.modelId !== undefined ? { modelId: request.modelId } : {}),
       },
       submittedSeq: allocated.seq,

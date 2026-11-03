@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { CONFIGS, type ConfigId } from "../contracts/config.js";
+import { HISTORICAL_CONFIG_IDS, type HistoricalConfigId } from "../contracts/config.js";
 import type { ExperimentSource } from "../experiment/run-record.js";
 
 /**
@@ -22,8 +22,10 @@ import type { ExperimentSource } from "../experiment/run-record.js";
  * 投影）——真 RunRecord 天然满足，record.test.ts 用 buildRunRecord 夹具
  * 全链路锁定这一对齐。本模块 config 无关（2026-10-19 决策评论）：任意
  * configId 的 run record 都能处置；KPI 产生面用生产入口 E 的产出是使用
- * 约定，不是模块耦合。本文件同时承载处置模块的共享字段校验器（store.ts
- * 的条目校验复用——单源，不复制枚举/边界口径）。
+ * 约定，不是模块耦合。configId 值域为历史 A–E（读取面兼容 #32 /
+ * ADR-0014：E-only 生产化前的 A–D 记录仍可处置）。本文件同时承载处置
+ * 模块的共享字段校验器（store.ts 的条目校验复用——单源，不复制枚举/
+ * 边界口径）。
  */
 
 /** 处置三值：接受 / 拒绝 / 误报（票面原文顺序） */
@@ -40,7 +42,7 @@ export const DISPOSITION_DECISIONS: readonly DispositionDecision[] = [
 export interface RunRecordRef {
   readonly source: ExperimentSource;
   readonly caseId: string;
-  readonly configId: ConfigId;
+  readonly configId: HistoricalConfigId;
   readonly rep: number;
   readonly model: string;
   readonly baseline: { readonly findings: readonly { readonly id: string }[] };
@@ -50,7 +52,7 @@ export interface RunRecordRef {
 export interface DispositionRecord {
   readonly source: ExperimentSource;
   readonly caseId: string;
-  readonly configId: ConfigId;
+  readonly configId: HistoricalConfigId;
   readonly rep: number;
   readonly model: string;
   readonly findingId: string;
@@ -78,15 +80,17 @@ export function validatedSource(source: unknown, where: string): ExperimentSourc
   return source;
 }
 
-/** configId ∈ CONFIGS 注册表（A–E 矩阵真源） */
-export function validatedConfigId(configId: unknown, where: string): ConfigId {
-  if (typeof configId !== "string" || !(configId in CONFIGS)) {
+/** configId ∈ 历史值域 A–E（显式集合——E-only 生产化后读取面仍接受 A–D 记录，#32 / ADR-0014） */
+export function validatedConfigId(configId: unknown, where: string): HistoricalConfigId {
+  if (
+    typeof configId !== "string" ||
+    !HISTORICAL_CONFIG_IDS.includes(configId as HistoricalConfigId)
+  ) {
     throw new Error(
       `${where}: field "configId" must be one of A, B, C, D, E (got ${JSON.stringify(configId)})`,
     );
   }
-  // in CONFIGS 已收窄运行时值；字面量联合需显式断言（TS 不做 in 收窄）
-  return configId as ConfigId;
+  return configId as HistoricalConfigId;
 }
 
 /** rep：>= 1 的整数（运行编号从 1 起） */

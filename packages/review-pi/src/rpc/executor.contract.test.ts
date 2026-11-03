@@ -252,11 +252,11 @@ function contractSuite(variant: string, factory: ContractExecutorFactory): void 
     const fixture = factory({ stub, runsRoot: tempRunsRoot("rpc-contract-success-") });
     try {
       const summary = await fixture.executor.execute(
-        { ...BASE_REQUEST, configId: "D" },
+        { ...BASE_REQUEST },
         { jobId: "job-contract-1", signal: new AbortController().signal },
       );
 
-      // 摘要口径（config D：1 轮、1 次工具调用、零 usage、未截断）
+      // 摘要口径（E：1 轮、1 次工具调用、零 usage、未截断）
       expect(summary.runId).not.toBe("");
       expect(summary.findings).toEqual([]);
       expect(summary.rounds).toBe(1);
@@ -284,10 +284,10 @@ function contractSuite(variant: string, factory: ContractExecutorFactory): void 
       const audit = JSON.parse(readFileSync(summary.auditPath, "utf8")) as { readonly runId: string };
       expect(audit.runId).toBe(summary.runId);
       expect(summary.recordPath).toBe(
-        path.join(fixture.runsRoot, "reviewagent-rpc", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
+        path.join(fixture.runsRoot, "reviewagent-rpc", "runs", "vul4j", "VUL4J-1", "E", "rep-1.json"),
       );
       expect(summary.auditPath).toContain(
-        path.join(fixture.runsRoot, "reviewagent-rpc", "audit", "vul4j", "VUL4J-1", "D", "rep-1", "audit"),
+        path.join(fixture.runsRoot, "reviewagent-rpc", "audit", "vul4j", "VUL4J-1", "E", "rep-1", "audit"),
       );
 
       expectSentinelDiscipline(fixture);
@@ -306,14 +306,14 @@ function contractSuite(variant: string, factory: ContractExecutorFactory): void 
     });
     try {
       const summary = await fixture.executor.execute(
-        { ...BASE_REQUEST, configId: "D" },
+        { ...BASE_REQUEST },
         { jobId, signal: new AbortController().signal },
       );
       expect(summary.recordPath).toBe(
-        path.join(fixture.runsRoot, jobId, "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
+        path.join(fixture.runsRoot, jobId, "runs", "vul4j", "VUL4J-1", "E", "rep-1.json"),
       );
       expect(summary.auditPath).toContain(
-        path.join(fixture.runsRoot, jobId, "audit", "vul4j", "VUL4J-1", "D", "rep-1", "audit"),
+        path.join(fixture.runsRoot, jobId, "audit", "vul4j", "VUL4J-1", "E", "rep-1", "audit"),
       );
       expectSentinelDiscipline(fixture);
     } finally {
@@ -328,7 +328,7 @@ function contractSuite(variant: string, factory: ContractExecutorFactory): void 
       let caught: unknown;
       try {
         await fixture.executor.execute(
-          { ...BASE_REQUEST, configId: "A" },
+          { ...BASE_REQUEST },
           { jobId: "job-contract-error-1", signal: new AbortController().signal },
         );
       } catch (error) {
@@ -359,7 +359,7 @@ function contractSuite(variant: string, factory: ContractExecutorFactory): void 
     try {
       const controller = new AbortController();
       const executing = fixture.executor.execute(
-        { ...BASE_REQUEST, configId: "A" },
+        { ...BASE_REQUEST },
         { jobId: "job-contract-abort-1", signal: controller.signal },
       );
       // 等第 1 个请求真到达网关（此刻必已 running——取消落在运行中途）
@@ -382,7 +382,7 @@ function contractSuite(variant: string, factory: ContractExecutorFactory): void 
     try {
       const progress: ReviewRunProgress[] = [];
       await fixture.executor.execute(
-        { ...BASE_REQUEST, configId: "A" },
+        { ...BASE_REQUEST },
         {
           jobId: "job-contract-progress-1",
           signal: new AbortController().signal,

@@ -23,10 +23,13 @@ import { ReviewAbortedError, runReview } from "./review-run.js";
 // 新增缝的外部行为——零存量测试修改纪律下独立成文件。
 // 共享最小语料/临时目录助手见 testing/seam-fixtures.ts（与 rpc 真适配器
 // 测试共用；黄金字节语料仍在 testing/vul4j1-script.ts，两者分工见其头注）。
+//
+// E 是唯一内核形态（#32 / ADR-0014）：A/B 直驱路径测试已随机制根除，
+// 缝测试全部收敛到 agent 循环路径（signal 经 agent.abort() 止步）。
 
-// ---- signal 缝：A/B 直驱路径（#23）----
+// ---- signal 缝（#23）----
 
-test("signal：A/B 边界中止——phase-2 边界 abort → ReviewAbortedError，零落盘", async () => {
+test("signal：phase 边界中止——onProgress 观察器内 abort → ReviewAbortedError，零落盘", async () => {
   const controller = new AbortController();
   const script = fakeFetch(sixPhaseNoToolCorpus());
   const runsRoot = tempRunsRoot("review-pi-seams-");
@@ -38,7 +41,6 @@ test("signal：A/B 边界中止——phase-2 边界 abort → ReviewAbortedError
       diff: SAMPLE_DIFF,
       issueDescription: "Issue description under review.",
       apiKey: "offline-test",
-      configId: "A",
       fetch: script.fetch,
       runsRoot,
       experimentId: "phase2-smoke",
@@ -58,43 +60,6 @@ test("signal：A/B 边界中止——phase-2 边界 abort → ReviewAbortedError
   expectEmptyTree(runsRoot);
 });
 
-test("signal：A/B 请求进行中中止——回复已到、signal 已断 → 下一边界止步，零落盘", async () => {
-  const controller = new AbortController();
-  const script = fakeFetch(sixPhaseNoToolCorpus());
-  const runsRoot = tempRunsRoot("review-pi-seams-");
-
-  // 回复返回后才 abort：模拟中止发生在请求进行中（fake 适配器不感知 signal，
-  // 内核必须在回合边界自行止步，不依赖传输层取消）
-  let calls = 0;
-  const abortingFetch: FetchFunction = async (input, init) => {
-    calls += 1;
-    const response = await script.fetch(input, init);
-    if (calls >= 2) {
-      controller.abort();
-    }
-    return response;
-  };
-
-  await expect(
-    runReview({
-      caseId: "VUL4J-1",
-      repoPath: repoFixturePath("sample"),
-      diff: SAMPLE_DIFF,
-      issueDescription: "Issue description under review.",
-      apiKey: "offline-test",
-      configId: "A",
-      fetch: abortingFetch,
-      runsRoot,
-      experimentId: "phase2-smoke",
-      rep: 1,
-      signal: controller.signal,
-    }),
-  ).rejects.toBeInstanceOf(ReviewAbortedError);
-
-  expect(calls).toBeLessThan(6);
-  expectEmptyTree(runsRoot);
-});
-
 test("signal：调用前已中止——立即 ReviewAbortedError，零请求零落盘", async () => {
   const controller = new AbortController();
   controller.abort();
@@ -108,7 +73,6 @@ test("signal：调用前已中止——立即 ReviewAbortedError，零请求零�
       diff: SAMPLE_DIFF,
       issueDescription: "Issue description under review.",
       apiKey: "offline-test",
-      configId: "A",
       fetch: script.fetch,
       runsRoot,
       experimentId: "phase2-smoke",
@@ -121,9 +85,7 @@ test("signal：调用前已中止——立即 ReviewAbortedError，零请求零�
   expectEmptyTree(runsRoot);
 });
 
-// ---- signal 缝：C/D/E agent 路径（#23）----
-
-test("signal：C/D/E 请求进行中中止——agent.abort() → ReviewAbortedError，零落盘", async () => {
+test("signal：请求进行中中止——agent.abort() → ReviewAbortedError，零落盘", async () => {
   const controller = new AbortController();
   const script = fakeFetch(configDToolCorpus());
   const runsRoot = tempRunsRoot("review-pi-seams-");
@@ -147,7 +109,6 @@ test("signal：C/D/E 请求进行中中止——agent.abort() → ReviewAbortedE
       diff: SAMPLE_DIFF,
       issueDescription: "Issue description under review.",
       apiKey: "offline-test",
-      configId: "D",
       fetch: abortingFetch,
       runsRoot,
       experimentId: "phase2-smoke",
@@ -160,7 +121,7 @@ test("signal：C/D/E 请求进行中中止——agent.abort() → ReviewAbortedE
   expectEmptyTree(runsRoot);
 }, 120_000);
 
-// ---- onProgress 缝：A/B 直驱路径（#23）----
+// ---- onProgress 缝（#23）----
 
 /** 每回复非零 usage 档（累计口径可断言；input = prompt − cacheRead = 10） */
 const PER_REPLY_USAGE = { promptTokens: 10, completionTokens: 2, cacheReadTokens: 0 } as const;
@@ -181,7 +142,7 @@ function twoRoundNoToolCorpus(): FakeReply[] {
   ];
 }
 
-test("onProgress：A/B phase/round 边界事件——六阶段序、round 推进、累计 usage、toolCalls 恒 0", async () => {
+test("onProgress：phase/round 边界事件（零工具档）——六阶段序、round 推进、累计 usage、toolCalls 恒 0", async () => {
   const events: unknown[] = [];
   const script = fakeFetch(twoRoundNoToolCorpus());
   const runsRoot = tempRunsRoot("review-pi-seams-");
@@ -192,7 +153,6 @@ test("onProgress：A/B phase/round 边界事件——六阶段序、round 推进
     diff: SAMPLE_DIFF,
     issueDescription: "Issue description under review.",
     apiKey: "offline-test",
-    configId: "A",
     fetch: script.fetch,
     runsRoot,
     experimentId: "phase2-smoke",
@@ -230,7 +190,6 @@ test("onProgress + signal 未中止：纯观测——wire 逐字节同无缝基�
     diff: SAMPLE_DIFF,
     issueDescription: "Issue description under review.",
     apiKey: "offline-test",
-    configId: "A",
     fetch: baselineScript.fetch,
     runsRoot: baselineRoot,
     experimentId: "phase2-smoke",
@@ -248,7 +207,6 @@ test("onProgress + signal 未中止：纯观测——wire 逐字节同无缝基�
     diff: SAMPLE_DIFF,
     issueDescription: "Issue description under review.",
     apiKey: "offline-test",
-    configId: "A",
     fetch: observedScript.fetch,
     runsRoot: observedRoot,
     experimentId: "phase2-smoke",
@@ -303,7 +261,7 @@ function twoRoundToolCorpus(): FakeReply[] {
   ];
 }
 
-test("onProgress：C/D/E phase/round 边界事件——六阶段序、round 推进、累计 toolCalls/usage", async () => {
+test("onProgress：工具轮 phase/round 边界事件——六阶段序、round 推进、累计 toolCalls/usage", async () => {
   const events: unknown[] = [];
   const script = fakeFetch(twoRoundToolCorpus());
   const runsRoot = tempRunsRoot("review-pi-seams-");
@@ -314,7 +272,6 @@ test("onProgress：C/D/E phase/round 边界事件——六阶段序、round 推�
     diff: SAMPLE_DIFF,
     issueDescription: "Issue description under review.",
     apiKey: "offline-test",
-    configId: "D",
     fetch: script.fetch,
     runsRoot,
     experimentId: "phase2-smoke",

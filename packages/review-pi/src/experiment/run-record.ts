@@ -1,24 +1,26 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ConfigId } from "../contracts/config.js";
+import type { HistoricalConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
-import type { PrefetchLayerRecord } from "../contracts/prefetch.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
-  FullRepoRecord,
   PhaseRecord,
   RunAudit,
   RunResult,
   ToolCallRecord,
 } from "../contracts/run.js";
 
-// RunRecord 投影（测量常量面）：与根仓 run-store 产出的 DSH 记录同构
-// （三级键序以 t-series 记录为地面真源，src/experiment/run-record.test.ts 断言），
-// 冻结 analyze 脚本原样消费。落盘路径：
+// RunRecord 投影（测量常量面）：与 DSH 记录同构（三级键序以 t-series 记录
+// 为地面真源，src/experiment/run-record.test.ts 断言），历史记录读取面
+// 据此保持可读。落盘路径：
 // <runsRoot>/<experimentId>/runs/vul4j/<caseId>/<configId>/rep-<N>.json。
+//
+// configId 值域：读面为历史 A–E（#32 / ADR-0014 E-only 生产化前落盘的
+// A–D 记录仍是合法读取对象——回溯锚字段名不变）；写面恒 "E"（内核单源
+// 派生 CONFIG_E，run/review-run.ts）。
 //
 // 请求字节不重复落盘：审计文件（auditPath）承载全部请求的可重放字节，
 // 本记录保留指标与判定链所需的最小审计面（toolCallLog / phaseLog / rejections 等）。
@@ -38,10 +40,7 @@ export interface AuditLight {
   readonly cacheBreaks?: readonly CacheBreakRecord[];
   readonly truncated: boolean;
   readonly truncationReasons: readonly string[];
-  readonly prefetch?: readonly PrefetchLayerRecord[];
-  /** config C：全仓注入记账（budget/截断留痕；DSH C 真源同位键） */
-  readonly fullRepo?: FullRepoRecord;
-  /** config E：Context Ledger 快照（恒投影——零工具调用为空数组；C/D 键省略） */
+  /** Context Ledger 快照（恒投影——零工具调用为空数组） */
   readonly ledger?: readonly LedgerEntry[];
 }
 
@@ -64,7 +63,8 @@ export interface RunSnapshot {
 export interface RunRecord {
   readonly source: ExperimentSource;
   readonly caseId: string;
-  readonly configId: ConfigId;
+  /** 历史值域 A–E（读面兼容）；新写恒 "E"（内核派生） */
+  readonly configId: HistoricalConfigId;
   readonly rep: number;
   readonly model: string;
   readonly verifier: VerifierMode;
@@ -100,8 +100,6 @@ export function toAuditLight(audit: RunAudit): AuditLight {
       : {}),
     truncated: audit.truncated,
     truncationReasons: audit.truncationReasons,
-    ...(audit.prefetch !== undefined ? { prefetch: audit.prefetch } : {}),
-    ...(audit.fullRepo !== undefined ? { fullRepo: audit.fullRepo } : {}),
     ...(audit.ledger !== undefined ? { ledger: audit.ledger } : {}),
   };
 }
@@ -110,7 +108,7 @@ export function toAuditLight(audit: RunAudit): AuditLight {
 export function buildRunRecord(args: {
   readonly source: ExperimentSource;
   readonly caseId: string;
-  readonly configId: ConfigId;
+  readonly configId: HistoricalConfigId;
   readonly rep: number;
   readonly model: string;
   readonly completedAt: Date;

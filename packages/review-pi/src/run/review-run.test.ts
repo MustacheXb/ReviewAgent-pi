@@ -6,31 +6,17 @@ import { PHASE_INSTRUCTIONS } from "../loop/phases.js";
 import { fakeFetch, type FakeReply } from "../provider/fake-fetch.js";
 import { goldenFixture } from "../testing/golden.js";
 import { repoFixturePath } from "../testing/repos.js";
-import { VUL4J_1_ISSUE, VUL4J_1_SNAPSHOT, vul4j1Corpus } from "../testing/vul4j1-script.js";
+import { vul4j1Corpus } from "../testing/vul4j1-script.js";
 import { SYSTEM_PROMPT } from "../zonea/system-prompt.js";
 import { runReview } from "./review-run.js";
 
-// 单案全链 E2E（离线 fake 适配器形态；#3 P1a 起真源，#4 起真跑同缝）：
-// 组装（Zone A/B/C + 预取）→ pi-ai 序列化 → fake 适配器 → findings 解析 →
-// 候选拦截 → 审计投影（AuditFileContent + RunRecord）。
-//
-// 黄金真源：t-series 审计（DSH 线 VUL4J-1/B/rep-1）——
-// 回复 1-5 原文、req0 wireBody、findings/rejections/phaseLog/prefetch 记账
-// （脚本 fixture 见 ../testing/vul4j1-script.ts）。
+// 单案全链 E2E（离线 fake 适配器形态）：E 工具驱动 agentLoop → pi-ai 序列化
+// → fake 适配器 → findings 解析 → 候选拦截 → 审计投影（AuditFileContent +
+// RunRecord）。E 是唯一内核形态（#32 / ADR-0014：A–D 直驱/预取/全仓注入
+// 已根除；历史 t-series 黄金对照随研究线退役，回复脚本 fixture 见
+// ../testing/vul4j1-script.ts，供网关透传测试复用）。
 //
 // 全链只观测 RunRecord / 审计文件的外部行为（不窥探内核内部状态）。
-
-const EXPECTED = JSON.parse(goldenFixture("expected-baseline-vul4j-1-b.json")) as {
-  findings: unknown[];
-  rejections: unknown[];
-  phaseLog: unknown[];
-  prefetch: unknown[];
-};
-const REQ0 = JSON.parse(goldenFixture("wire-req0-vul4j-1.json")) as {
-  model: string;
-  messages: { role: string; content: string }[];
-  [extra: string]: unknown;
-};
 
 const tempDirs: string[] = [];
 
@@ -45,310 +31,6 @@ afterAll(() => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
-
-test.skipIf(!existsSync(VUL4J_1_SNAPSHOT))(
-  "全链离线：VUL4J-1 × config B 与 t-series 审计同构，零网络",
-  async () => {
-    // 零网络纪律：globalThis.fetch 换成抛错探针，全链仍可跑通
-    const originalFetch = globalThis.fetch;
-    const networkProbe = vi.fn(() => {
-      throw new Error("network access is disabled in offline tests");
-    });
-    globalThis.fetch = networkProbe as unknown as typeof globalThis.fetch;
-
-    const script = fakeFetch(vul4j1Corpus());
-    const runsRoot = tempRunsRoot();
-    let firstAudit: Record<string, unknown>;
-    try {
-      const { record, recordPath, auditPath } = await runReview({
-        caseId: "VUL4J-1",
-        repoPath: VUL4J_1_SNAPSHOT,
-        diff: goldenFixture("vul4j-1.diff"),
-        issueDescription: VUL4J_1_ISSUE,
-        apiKey: "offline-test",
-        configId: "B",
-        fetch: script.fetch,
-        runsRoot,
-        experimentId: "phase2-smoke",
-        rep: 1,
-      });
-
-      // fake 适配器恰好消耗六条脚本（六阶段各一请求，零工具）
-      expect(script.requests).toHaveLength(6);
-
-      // 落盘布局与 DSH 线一致
-      expect(recordPath).toBe(
-        path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "B", "rep-1.json"),
-      );
-      expect(path.dirname(auditPath)).toBe(
-        path.join(runsRoot, "phase2-smoke", "audit", "vul4j", "VUL4J-1", "B", "rep-1", "audit"),
-      );
-
-      // RunRecord 与 t-series 记录同构（findings / 拦截 / phaseLog / 预取记账 / usage 聚合）
-      expect(record.source).toBe("vul4j");
-      expect(record.model).toBe("deepseek-v4-flash");
-      expect(record.verifier).toBe("off");
-      expect(Number.isNaN(Date.parse(record.completedAt))).toBe(false);
-      expect(record.effective).toBeNull();
-      expect(record.verifierPass).toBeNull();
-      expect(record.baseline.findings).toEqual(EXPECTED.findings);
-      expect(record.baseline.audit.rejections).toEqual(EXPECTED.rejections);
-      expect(record.baseline.audit.phaseLog).toEqual(EXPECTED.phaseLog);
-      expect(record.baseline.audit.prefetch).toEqual(EXPECTED.prefetch);
-      expect(record.baseline.usage).toEqual({
-        inputTokens: 9579,
-        outputTokens: 14484,
-        cacheReadTokens: 24064,
-      });
-      expect(record.baseline.rounds).toBe(1);
-      expect(record.baseline.toolCalls).toBe(0);
-      expect(record.baseline.audit.truncated).toBe(false);
-      expect(record.baseline.audit.truncationReasons).toEqual([]);
-      expect(record.baseline.auditPath).toBe(auditPath);
-
-      // 审计文件：requests[].wireBody + 元数据
-      firstAudit = JSON.parse(readFileSync(auditPath, "utf8")) as Record<string, unknown>;
-      expect(firstAudit["rounds"]).toBe(1);
-      expect(firstAudit["usage"]).toEqual({
-        inputTokens: 9579,
-        outputTokens: 14484,
-        cacheReadTokens: 24064,
-      });
-      expect(firstAudit["truncated"]).toBe(false);
-      expect(firstAudit["effort"]).toBe("default");
-      const requests = firstAudit["requests"] as {
-        wireBody: string;
-        messages: { role: string; content: string; reasoning_content?: string }[];
-      }[];
-      expect(requests).toHaveLength(6);
-
-      // req0 序列化语义面与 t-series 一致（Zone A/B/C 组装 + pi-ai 序列化同构）。
-      // 内核身份差异（审计如实记录、P2 字节门再议）：DSH 非流式（stream: false）；
-      // pi 内核 openai-completions 恒流式（stream: true + stream_options.include_usage）。
-      const wire0 = JSON.parse(requests[0].wireBody) as Record<string, unknown>;
-      expect(wire0["model"]).toBe(REQ0.model);
-      expect(wire0["messages"]).toEqual(REQ0.messages);
-      expect(wire0["thinking"]).toEqual(REQ0.thinking);
-      expect(wire0["reasoning_effort"]).toBe(REQ0.reasoning_effort);
-      expect(wire0["stream"]).toBe(true);
-      expect(wire0["stream_options"]).toEqual({ include_usage: true });
-      expect("max_tokens" in wire0).toBe(false);
-      expect("tools" in wire0).toBe(false);
-
-      // append-only（compaction 显式禁用）：每请求 = 上一请求 + assistant 回复 + 下一阶段指令
-      expect(requests[0].messages).toHaveLength(7);
-      const replies = [
-        goldenFixture("reply-1-vul4j-1.txt"),
-        goldenFixture("reply-2-vul4j-1.txt"),
-        goldenFixture("reply-3-vul4j-1.txt"),
-        goldenFixture("reply-4-vul4j-1.txt"),
-        goldenFixture("reply-5-vul4j-1.txt"),
-      ];
-      for (let index = 1; index < requests.length; index++) {
-        expect(requests[index].messages.slice(0, -2)).toEqual(requests[index - 1].messages);
-        expect(requests[index].messages.at(-2)).toEqual({
-          role: "assistant",
-          content: replies[index - 1],
-          reasoning_content: "",
-        });
-        expect(requests[index].messages.at(-1)).toEqual({
-          role: "user",
-          content: PHASE_INSTRUCTIONS[index],
-        });
-      }
-
-      // Zone A：恒为首位 system，且与 t-series 逐字节一致
-      for (const request of requests) {
-        expect(request.messages[0]).toEqual(REQ0.messages[0]);
-      }
-      expect(REQ0.messages[0]).toEqual({ role: "system", content: SYSTEM_PROMPT });
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-    expect(networkProbe).not.toHaveBeenCalled();
-
-    // Zone A 跨 MR 字节稳定：另一案（不同 caseId / 仓库 / diff / issue）全链重跑，
-    // system 逐字节不变（systemPrompt 与 MR 无关；用样本小仓库控制耗时）
-    const betaDiff = [
-      "diff --git a/src/main/java/com/example/Beta.java b/src/main/java/com/example/Beta.java",
-      "--- a/src/main/java/com/example/Beta.java",
-      "+++ b/src/main/java/com/example/Beta.java",
-      "@@ -5,4 +5,4 @@",
-      " context",
-      "+changed",
-    ].join("\n");
-    const secondScript = fakeFetch(vul4j1Corpus());
-    const { auditPath: secondAuditPath } = await runReview({
-      caseId: "SAMPLE-2",
-      repoPath: repoFixturePath("sample"),
-      diff: betaDiff,
-      issueDescription: "Another MR under review.",
-      apiKey: "offline-test",
-      configId: "B",
-      fetch: secondScript.fetch,
-      runsRoot: tempRunsRoot(),
-      experimentId: "phase2-smoke",
-      rep: 1,
-    });
-    const secondAudit = JSON.parse(readFileSync(secondAuditPath, "utf8")) as {
-      requests: { messages: { role: string; content: string }[] }[];
-    };
-    const firstRequests = firstAudit["requests"] as { messages: { role: string; content: string }[] }[];
-    expect(secondAudit.requests[0].messages[0]).toEqual(firstRequests[0].messages[0]);
-    expect(secondAudit.requests[0].messages[0]).toEqual({ role: "system", content: SYSTEM_PROMPT });
-  },
-  480_000,
-);
-
-// ---- config 矩阵扩展(#5 P2 字节门):config A 驱动 + 预取注入缝 ----
-
-test("config A:零预取组装——req0 = Zone A + MR + Phase-1 三条(与 DSH A 真源同构)", async () => {
-  const script = fakeFetch(vul4j1Corpus());
-  const runsRoot = tempRunsRoot();
-  const { record, recordPath, auditPath, runId } = await runReview({
-    caseId: "VUL4J-1",
-    // config A 零预取零工具,不读仓库——路径不存在也必须跑通
-    //(守护 A 路径不偷偷构建预取)
-    repoPath: path.join(runsRoot, "no-such-repo"),
-    diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
-    apiKey: "offline-test",
-    fetch: script.fetch,
-    runsRoot,
-    experimentId: "phase2-smoke",
-    rep: 1,
-    configId: "A",
-  });
-
-  // runId 透出（#7 CLI stdout 契约）：毫秒时间戳 + 配置 + 用例,与审计文件名同源
-  expect(runId).toMatch(/^\d{8}T\d{6}\.\d{3}-A-VUL4J-1$/);
-  expect(path.basename(auditPath)).toBe(`${runId}.json`);
-
-  // 六阶段各一请求(零工具);落盘布局切到 A 段
-  expect(script.requests).toHaveLength(6);
-  expect(recordPath).toBe(
-    path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "A", "rep-1.json"),
-  );
-  expect(record.configId).toBe("A");
-  // config A 审计与记录不携带预取记账(DSH A 真源同构:键省略而非空数组)
-  expect(record.baseline.audit.prefetch).toBeUndefined();
-
-  const audit = JSON.parse(readFileSync(auditPath, "utf8")) as {
-    configId: string;
-    requests: { wireBody: string }[];
-  };
-  expect(audit.configId).toBe("A");
-  const req0 = JSON.parse(audit.requests[0].wireBody) as {
-    messages: { role: string; content: string }[];
-  };
-  // 三条:Zone A(system)+ MR user + Phase-1 指令 user(独立成条,DSH A 真源形态)
-  expect(req0.messages.map((message) => message.role)).toEqual(["system", "user", "user"]);
-  expect(req0.messages[0]).toEqual({ role: "system", content: SYSTEM_PROMPT });
-  expect(req0.messages[1].content).toContain("Merge request under review.");
-  expect(req0.messages[1].content).toContain("Case ID: VUL4J-1");
-  expect(req0.messages[1].content).toContain(goldenFixture("vul4j-1.diff"));
-  expect(req0.messages[2]).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[0] });
-
-  // append-only 不变量在 A 下同样成立(每请求 = 上一请求 + 回复 + 下一阶段指令)
-  const requests = audit.requests.map(
-    (request) => JSON.parse(request.wireBody).messages as { role: string; content: string }[],
-  );
-  for (let index = 1; index < requests.length; index++) {
-    expect(requests[index].slice(0, -2)).toEqual(requests[index - 1]);
-    expect(requests[index].at(-1)).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[index] });
-  }
-}, 120_000);
-
-test("config B:注入预取(门缓存缝)——注入物直达 Zone B 位与审计记账", async () => {
-  const sentinel = {
-    zoneBMessage: { role: "user" as const, content: "SENTINEL-ZONE-B" },
-    layerMessages: [
-      { role: "user" as const, content: "SENTINEL-LAYER-1" },
-      { role: "user" as const, content: "SENTINEL-LAYER-2" },
-    ],
-    records: [
-      { layer: "zone-b" as const, budgetChars: 100, contentChars: 15, truncated: false, totalEntries: 1, shownEntries: 1 },
-      { layer: "symbol" as const, budgetChars: 100, contentChars: 16, truncated: false, totalEntries: 1, shownEntries: 1 },
-    ],
-  };
-  const script = fakeFetch(vul4j1Corpus());
-  const runsRoot = tempRunsRoot();
-  const { record, auditPath } = await runReview({
-    caseId: "VUL4J-1",
-    repoPath: VUL4J_1_SNAPSHOT,
-    diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
-    apiKey: "offline-test",
-    fetch: script.fetch,
-    runsRoot,
-    experimentId: "phase2-smoke",
-    rep: 1,
-    configId: "B",
-    prefetch: sentinel,
-  });
-
-  // 注入物原样落位:req0 = system, ZoneB, MR, 层×2, Phase-1(不跑真预取管线)
-  const audit = JSON.parse(readFileSync(auditPath, "utf8")) as {
-    requests: { wireBody: string }[];
-  };
-  const req0 = JSON.parse(audit.requests[0].wireBody) as {
-    messages: { role: string; content: string }[];
-  };
-  expect(req0.messages.map((message) => message.role)).toEqual([
-    "system",
-    "user",
-    "user",
-    "user",
-    "user",
-    "user",
-  ]);
-  expect(req0.messages[1]).toEqual({ role: "user", content: "SENTINEL-ZONE-B" });
-  expect(req0.messages[2].content).toContain("Merge request under review.");
-  expect(req0.messages[3]).toEqual({ role: "user", content: "SENTINEL-LAYER-1" });
-  expect(req0.messages[4]).toEqual({ role: "user", content: "SENTINEL-LAYER-2" });
-  expect(req0.messages[5]).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[0] });
-  expect(record.baseline.audit.prefetch).toEqual(sentinel.records);
-}, 120_000);
-
-test("config 门面:A + 预取注入 → 抛;C/D/E + 预取注入 → 抛(矛盾输入)", async () => {
-  const base = {
-    caseId: "VUL4J-1",
-    repoPath: repoFixturePath("sample"),
-    diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
-    apiKey: "offline-test",
-    fetch: fakeFetch([]).fetch,
-    runsRoot: tempRunsRoot(),
-    experimentId: "phase2-smoke",
-    rep: 1,
-  };
-  await expect(
-    runReview({
-      ...base,
-      configId: "A",
-      prefetch: {
-        zoneBMessage: { role: "user", content: "x" },
-        layerMessages: [],
-        records: [],
-      },
-    }),
-  ).rejects.toThrow(/config A .*prefetch/);
-  for (const configId of ["C", "D", "E"] as const) {
-    await expect(
-      runReview({
-        ...base,
-        configId,
-        prefetch: {
-          zoneBMessage: { role: "user", content: "x" },
-          layerMessages: [],
-          records: [],
-        },
-      }),
-    ).rejects.toThrow(/config [CDE] .*prefetch/);
-  }
-});
-
-// ---- config C/D/E（#6 P3a）：工具驱动 agentLoop 集成（离线 fake 全链） ----
 
 /** fake 脚本零 usage（usage 只进记账,零值即「脚本不带 usage 语义」） */
 const ZERO = { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0 } as const;
@@ -397,39 +79,48 @@ const DOTTED_TOOL_NAMES = [
   "review.search_history",
 ];
 
-test("config D:工具驱动全链——req0 = ZoneA+MR+Phase-1 + 七工具面,零工具调用 complete", async () => {
+test("E 工具驱动全链:配置内核单源派生恒 E,req0 = ZoneA+MR+Phase-1 + 七工具面,零工具调用 complete", async () => {
   const script = fakeFetch(sixPhaseNoToolCorpus());
   const runsRoot = tempRunsRoot();
-  const { record, recordPath, auditPath } = await runReview({
+  const { record, recordPath, auditPath, runId } = await runReview({
     caseId: "VUL4J-1",
     repoPath: repoFixturePath("sample"),
     diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
+    issueDescription: "The MR under review may contain a vulnerability.",
     apiKey: "offline-test",
     fetch: script.fetch,
     runsRoot,
     experimentId: "phase2-smoke",
     rep: 1,
-    configId: "D",
   });
 
-  // 六相位各一请求(零工具);落盘布局切到 D 段
-  expect(script.requests).toHaveLength(6);
+  // E 派生（v3 起）：输入无 configId,记录与落盘布局恒切 E 段
+  expect(record.configId).toBe("E");
   expect(recordPath).toBe(
-    path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json"),
+    path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "E", "rep-1.json"),
   );
-  expect(record.configId).toBe("D");
+  expect(path.dirname(auditPath)).toBe(
+    path.join(runsRoot, "phase2-smoke", "audit", "vul4j", "VUL4J-1", "E", "rep-1", "audit"),
+  );
+
+  // runId 透出（CLI stdout 契约）：毫秒时间戳 + 配置 + 用例,与审计文件名同源
+  expect(runId).toMatch(/^\d{8}T\d{6}\.\d{3}-E-VUL4J-1$/);
+  expect(path.basename(auditPath)).toBe(`${runId}.json`);
+
+  // 六相位各一请求(零工具);零值 usage 聚合
+  expect(script.requests).toHaveLength(6);
   expect(record.baseline.rounds).toBe(1);
   expect(record.baseline.toolCalls).toBe(0);
   expect(record.baseline.audit.truncated).toBe(false);
   expect(record.baseline.audit.truncationReasons).toEqual([]);
   expect(record.baseline.usage).toEqual({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 });
-  // D 无 fullRepo / ledger 记账(键省略,DSH D 真源同构)
-  expect(record.baseline.audit.fullRepo).toBeUndefined();
-  expect(record.baseline.audit.ledger).toBeUndefined();
-
-  // req0:三条消息(同 A 形态) + 工具面(wire 下划线名;tool_choice 缺席为 pi 方言)
+  // E 恒投影 ledger 键(零工具调用 → 空数组):RunRecord 与审计文件同源
+  expect(record.baseline.audit.ledger).toEqual([]);
   const audit = readAudit(auditPath);
+  expect(audit.configId).toBe("E");
+  expect(audit.ledger).toEqual([]);
+
+  // req0:三条消息(system + MR + Phase-1) + 工具面(wire 下划线名;tool_choice 缺席为 pi 方言)
   const req0 = JSON.parse(audit.requests[0].wireBody) as {
     messages: { role: string; content: string }[];
     tools?: { function: { name: string } }[];
@@ -441,9 +132,17 @@ test("config D:工具驱动全链——req0 = ZoneA+MR+Phase-1 + 七工具面,�
   expect(req0.messages[2]).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[0] });
   expect(req0.tools?.map((tool) => tool.function.name)).toEqual(WIRE_TOOL_NAMES);
   expect("tool_choice" in req0).toBe(false);
+  // 锁档纪律（DSH 线 ADR-0002，原 runReviewTurn 缝测试承接到全链）：
+  // thinking enabled + reasoning_effort "high"；不传 max_tokens；pi 内核
+  // openai-completions 恒流式（stream + stream_options.include_usage）
+  expect(req0.thinking).toEqual({ type: "enabled" });
+  expect(req0.reasoning_effort).toBe("high");
+  expect("max_tokens" in req0).toBe(false);
+  expect(req0.stream).toBe(true);
+  expect(req0.stream_options).toEqual({ include_usage: true });
   // 审计投影 tools = 点分名(DSH 审计口径)
   expect(audit.requests[0].tools?.map((tool) => tool.name)).toEqual(DOTTED_TOOL_NAMES);
-  // append-only:每请求 = 上一请求 + assistant 回复 + 下一相位指令
+  // append-only(compaction 显式禁用):每请求 = 上一请求 + assistant 回复 + 下一相位指令
   const requests = audit.requests.map(
     (request) => JSON.parse(request.wireBody).messages as { role: string; content: string }[],
   );
@@ -453,104 +152,105 @@ test("config D:工具驱动全链——req0 = ZoneA+MR+Phase-1 + 七工具面,�
   }
 }, 120_000);
 
-test("config C:全仓注入——req0 四条(MR + fullRepo),fullRepo 记账进审计与 RunRecord", async () => {
-  const script = fakeFetch(sixPhaseNoToolCorpus());
-  const runsRoot = tempRunsRoot();
-  const { record, auditPath } = await runReview({
+test("零网络纪律:globalThis.fetch 探针不被触碰(fetch 全程注入,离线全链零网络)", async () => {
+  const originalFetch = globalThis.fetch;
+  const networkProbe = vi.fn(() => {
+    throw new Error("network access is disabled in offline tests");
+  });
+  globalThis.fetch = networkProbe as unknown as typeof globalThis.fetch;
+  try {
+    const script = fakeFetch(sixPhaseNoToolCorpus());
+    const { record } = await runReview({
+      caseId: "VUL4J-1",
+      repoPath: repoFixturePath("sample"),
+      diff: goldenFixture("vul4j-1.diff"),
+      issueDescription: "Offline MR under review.",
+      apiKey: "offline-test",
+      fetch: script.fetch,
+      runsRoot: tempRunsRoot(),
+      experimentId: "phase2-smoke",
+      rep: 1,
+    });
+    expect(record.baseline.audit.truncated).toBe(false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  expect(networkProbe).not.toHaveBeenCalled();
+}, 120_000);
+
+test("Zone A 跨 MR 字节稳定:另一案(不同 caseId/仓库/diff/issue)全链重跑,system 逐字节不变", async () => {
+  // systemPrompt 与 MR 无关;用样本小仓库控制耗时
+  const betaDiff = [
+    "diff --git a/src/main/java/com/example/Beta.java b/src/main/java/com/example/Beta.java",
+    "--- a/src/main/java/com/example/Beta.java",
+    "+++ b/src/main/java/com/example/Beta.java",
+    "@@ -5,4 +5,4 @@",
+    " context",
+    "+changed",
+  ].join("\n");
+  const firstScript = fakeFetch(sixPhaseNoToolCorpus());
+  const first = await runReview({
     caseId: "VUL4J-1",
     repoPath: repoFixturePath("sample"),
     diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
+    issueDescription: "First MR under review.",
     apiKey: "offline-test",
-    fetch: script.fetch,
-    runsRoot,
+    fetch: firstScript.fetch,
+    runsRoot: tempRunsRoot(),
     experimentId: "phase2-smoke",
     rep: 1,
-    configId: "C",
   });
-
-  // req0:四条 = system + MR + fullRepo + Phase-1(DSH C 真源消息序)
-  const audit = readAudit(auditPath);
-  const req0 = JSON.parse(audit.requests[0].wireBody) as {
-    messages: { role: string; content: string }[];
-    tools?: { function: { name: string } }[];
-  };
-  expect(req0.messages).toHaveLength(4);
-  expect(req0.messages[0]).toEqual({ role: "system", content: SYSTEM_PROMPT });
-  expect(req0.messages[1].content).toContain("Merge request under review.");
-  expect(req0.messages[2].content).toContain("Full repository context (config C).");
-  expect(req0.messages[2].content).toContain("## File: src/main/java/com/example/Alpha.java");
-  expect(req0.messages[3]).toEqual({ role: "user", content: PHASE_INSTRUCTIONS[0] });
-  expect(req0.tools?.map((tool) => tool.function.name)).toEqual(WIRE_TOOL_NAMES);
-
-  // fullRepo 记账:审计文件与 RunRecord 同源(sample fixture 3 Java 文件不截断)
-  const fullRepo = record.baseline.audit.fullRepo as unknown as Record<string, unknown>;
-  expect(fullRepo).toEqual({
-    budgetChars: 80_000,
-    contentChars: fullRepo["contentChars"],
-    truncated: false,
-    totalFiles: 3,
-    shownFiles: 3,
-  });
-  expect(audit.fullRepo).toEqual(fullRepo);
-  // C 无 ledger 键
-  expect(record.baseline.audit.ledger).toBeUndefined();
-}, 120_000);
-
-test("config E:ledger 审计键恒投影(零工具 → 空数组),RunRecord 与审计同源", async () => {
-  const script = fakeFetch(sixPhaseNoToolCorpus());
-  const runsRoot = tempRunsRoot();
-  const { record, auditPath } = await runReview({
-    caseId: "VUL4J-1",
+  const secondScript = fakeFetch(sixPhaseNoToolCorpus());
+  const second = await runReview({
+    caseId: "SAMPLE-2",
     repoPath: repoFixturePath("sample"),
-    diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
+    diff: betaDiff,
+    issueDescription: "Another MR under review.",
     apiKey: "offline-test",
-    fetch: script.fetch,
-    runsRoot,
+    fetch: secondScript.fetch,
+    runsRoot: tempRunsRoot(),
     experimentId: "phase2-smoke",
     rep: 1,
-    configId: "E",
   });
-  expect(record.configId).toBe("E");
-  // E 恒投影 ledger 键(零工具调用 → 空数组;DSH E 真源恒有该键)
-  expect(record.baseline.audit.ledger).toEqual([]);
-  const audit = readAudit(auditPath);
-  expect(audit.ledger).toEqual([]);
-  // E 无 fullRepo 键
-  expect(record.baseline.audit.fullRepo).toBeUndefined();
+  const firstSystem = readAudit(first.auditPath).requests.map(
+    (request) => JSON.parse(request.wireBody).messages as { role: string; content: string }[],
+  )[0][0];
+  const secondSystem = readAudit(second.auditPath).requests.map(
+    (request) => JSON.parse(request.wireBody).messages as { role: string; content: string }[],
+  )[0][0];
+  expect(secondSystem).toEqual(firstSystem);
+  expect(secondSystem).toEqual({ role: "system", content: SYSTEM_PROMPT });
 }, 120_000);
 
-test("persistRecord=false（#8 runner 执行缝）：记录不落盘、recordPath 空串；审计照常落盘", async () => {
+test("persistRecord=false(#8 runner 执行缝):记录不落盘、recordPath 空串;审计照常落盘", async () => {
   const script = fakeFetch(sixPhaseNoToolCorpus());
   const runsRoot = tempRunsRoot();
   const { record, recordPath, auditPath } = await runReview({
     caseId: "VUL4J-1",
     repoPath: repoFixturePath("sample"),
     diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
+    issueDescription: "Runner-owned record MR under review.",
     apiKey: "offline-test",
     fetch: script.fetch,
     runsRoot,
     experimentId: "phase2-smoke",
     rep: 1,
-    configId: "D",
     persistRecord: false,
   });
 
   // 记录不落盘：runner 是记录唯一写者（执行缝纪律）；recordPath 空串 = 未持久化
   expect(recordPath).toBe("");
   expect(
-    existsSync(path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "D", "rep-1.json")),
+    existsSync(path.join(runsRoot, "phase2-smoke", "runs", "vul4j", "VUL4J-1", "E", "rep-1.json")),
   ).toBe(false);
 
   // 审计照常落盘（重放字节是内核职责）；内存 record 完整返回（auditPath 同源）
   expect(existsSync(auditPath)).toBe(true);
-  expect(record.configId).toBe("D");
+  expect(record.configId).toBe("E");
   expect(record.baseline.auditPath).toBe(auditPath);
 }, 120_000);
 
-test("config D:工具轮——review.get_diff 执行记账 + recall 请求(工具结果进上下文)", async () => {
+test("工具轮:review.get_diff 执行记账 + recall 请求(工具结果进上下文)", async () => {
   const diff = goldenFixture("vul4j-1.diff");
   const script = fakeFetch([
     { text: "ok", usage: ZERO },
@@ -570,13 +270,12 @@ test("config D:工具轮——review.get_diff 执行记账 + recall 请求(工�
     caseId: "VUL4J-1",
     repoPath: repoFixturePath("sample"),
     diff,
-    issueDescription: VUL4J_1_ISSUE,
+    issueDescription: "Tool turn MR under review.",
     apiKey: "offline-test",
     fetch: script.fetch,
     runsRoot,
     experimentId: "phase2-smoke",
     rep: 1,
-    configId: "D",
   });
 
   // 7 请求:六相位 + 1 次工具 recall;工具记账 1 条(真 toolkit 执行 get_diff)
@@ -588,6 +287,10 @@ test("config D:工具轮——review.get_diff 执行记账 + recall 请求(工�
       argumentsJson: "{}",
       resultSummary: ["MR unified diff:", ...diff.split("\n")].join("\n"),
     },
+  ]);
+  // 工具调用恒进 Context Ledger(读取成功后登记;E 功能态账本)
+  expect(record.baseline.audit.ledger).toEqual([
+    { id: "ctx#001", kind: "evidence", description: "review.get_diff" },
   ]);
 
   // recall 请求 = 上一请求 + assistant(伴随文本 + tool_calls) + tool 应答
@@ -634,13 +337,12 @@ test("截断路径:phase-6 恒 complete:false → MAX_ROUNDS 上界,正常返回
     caseId: "VUL4J-1",
     repoPath: repoFixturePath("sample"),
     diff: goldenFixture("vul4j-1.diff"),
-    issueDescription: VUL4J_1_ISSUE,
+    issueDescription: "Truncation path MR under review.",
     apiKey: "offline-test",
     fetch: script.fetch,
     runsRoot,
     experimentId: "phase2-smoke",
     rep: 1,
-    configId: "D",
   });
 
   // 5 轮 × 6 相位各一请求;runReview 正常返回(不抛——防御性路径退出码 0)
@@ -658,8 +360,8 @@ test("截断路径:phase-6 恒 complete:false → MAX_ROUNDS 上界,正常返回
 
 // ---- 网关注入透传（#4）：baseUrl/modelId 贯穿传输层与审计/RunRecord ----
 
-test.skipIf(!existsSync(repoFixturePath("sample")))(
-  "网关注入透传：baseUrl/modelId 贯穿请求 URL、wireBody 与审计/RunRecord model 字段",
+test(
+  "网关注入透传:baseUrl/modelId 贯穿请求 URL、wireBody 与审计/RunRecord model 字段",
   async () => {
     const GATEWAY_URL = "https://gw.example.com/v1";
     const script = fakeFetch(vul4j1Corpus());
@@ -674,7 +376,6 @@ test.skipIf(!existsSync(repoFixturePath("sample")))(
       ].join("\n"),
       issueDescription: "Gateway passthrough MR under review.",
       apiKey: "sentinel-key",
-      configId: "B",
       baseUrl: GATEWAY_URL,
       modelId: "custom-gateway-model",
       fetch: script.fetch,
@@ -690,7 +391,6 @@ test.skipIf(!existsSync(repoFixturePath("sample")))(
     }
 
     // 审计与 RunRecord 只含 model（实际请求的 id），不含 baseUrl/key
-    //（baseUrl 属冒烟 REPORT 口径，DSH-isomorphic 审计 20 键不含它）
     expect(record.model).toBe("custom-gateway-model");
     const audit = JSON.parse(readFileSync(auditPath, "utf8")) as {
       model: string;

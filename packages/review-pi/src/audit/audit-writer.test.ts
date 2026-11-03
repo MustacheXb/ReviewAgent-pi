@@ -1,13 +1,16 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import type { RunAudit } from "../contracts/run.js";
+import { CONFIG_E } from "../contracts/config.js";
 import { buildAuditFileContent, buildRunId, writeAuditFile, type AuditFileContent } from "./audit-writer.js";
 
 // 审计投影（测量常量面）：AuditFileContent 字段集与键序与 DSH 线审计文件
-// 逐键一致（t-series 审计为地面真源），requests[] = onPayload 序列化点捕获
-// （model/effort/messages/tools/wireBody）。
+// 逐键一致（E 主相位序列为真源口径），requests[] = onPayload 序列化点捕获
+// （model/effort/messages/tools/wireBody）。历史 B/C 尾键（prefetch /
+// fullRepo）已随研究装置根除（#32 / ADR-0014）——键序冻结面由本文件的
+// 字面 AUDIT_KEYS 列表单源锁定（t-series runs/ 对照随研究线退役）。
 
 const STARTED = new Date("2026-09-14T18:08:46.922Z");
 const FINISHED = new Date("2026-09-14T18:09:20.100Z");
@@ -22,8 +25,8 @@ const EMPTY_AUDIT: RunAudit = {
   truncationReasons: [],
 };
 
-/** 与 DSH 审计文件相同的 20 键序（prefetch 在场时） */
-const AUDIT_KEYS_WITH_PREFETCH = [
+/** 键序冻结面（E 审计文件的完整键序；ledger / mrBoundary 为条件尾键） */
+const AUDIT_KEYS = [
   "runId",
   "caseId",
   "configId",
@@ -43,7 +46,6 @@ const AUDIT_KEYS_WITH_PREFETCH = [
   "cacheBreaks",
   "requests",
   "toolCallLog",
-  "prefetch",
 ] as const;
 
 const tempDirs: string[] = [];
@@ -60,13 +62,11 @@ function tempDir(): string {
   return dir;
 }
 
-function contentFixture(overrides?: {
-  readonly prefetch?: readonly { readonly layer: "symbol"; readonly budgetChars: number; readonly contentChars: number; readonly truncated: boolean; readonly totalEntries: number; readonly shownEntries: number }[];
-}): AuditFileContent {
+function contentFixture(): AuditFileContent {
   return buildAuditFileContent({
-    runId: "20260914T180846.922-B-VUL4J-1",
+    runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
     caseId: "VUL4J-1",
-    configId: "B",
+    configId: CONFIG_E,
     model: "deepseek-v4-flash",
     effort: "default",
     startedAt: STARTED,
@@ -76,44 +76,26 @@ function contentFixture(overrides?: {
     usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
     findings: [],
     audit: EMPTY_AUDIT,
-    ...(overrides?.prefetch !== undefined ? { prefetch: overrides.prefetch } : {}),
   });
 }
 
 describe("buildRunId", () => {
   test("毫秒时间戳 + 配置 + 用例，文件名安全", () => {
-    expect(buildRunId(STARTED, "B", "VUL4J-1")).toBe("20260914T180846.922-B-VUL4J-1");
+    expect(buildRunId(STARTED, CONFIG_E, "VUL4J-1")).toBe("20260914T180846.922-E-VUL4J-1");
   });
 
   test("用例 id 中的文件名不安全字符替换为下划线", () => {
-    expect(buildRunId(STARTED, "B", "VUL4J/1 x")).toBe("20260914T180846.922-B-VUL4J_1_x");
+    expect(buildRunId(STARTED, CONFIG_E, "VUL4J/1 x")).toBe("20260914T180846.922-E-VUL4J_1_x");
   });
 });
 
 describe("buildAuditFileContent", () => {
-  test("字段集与键序与 DSH 审计文件一致（含 prefetch 扩展字段）", () => {
-    const content = contentFixture({
-      prefetch: [
-        {
-          layer: "symbol",
-          budgetChars: 8000,
-          contentChars: 100,
-          truncated: false,
-          totalEntries: 2,
-          shownEntries: 2,
-        },
-      ],
-    });
-    expect(Object.keys(content)).toEqual([...AUDIT_KEYS_WITH_PREFETCH]);
-  });
-
-  test("非预取配置不携带 prefetch 键", () => {
+  test("字段集与键序冻结（E 审计文件完整键序）", () => {
     const content = contentFixture();
-    expect(Object.keys(content)).toEqual([...AUDIT_KEYS_WITH_PREFETCH].filter((key) => key !== "prefetch"));
-    expect("prefetch" in content).toBe(false);
+    expect(Object.keys(content)).toEqual([...AUDIT_KEYS]);
   });
 
-  test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序恒在尾部（prefetch/fullRepo/ledger 之后）", () => {
+  test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序恒在尾部（ledger 之后）", () => {
     // 界内（不传 mrBoundary）：键缺席——护栏零介入的投影面证明
     const bare = contentFixture();
     expect("mrBoundary" in bare).toBe(false);
@@ -121,9 +103,9 @@ describe("buildAuditFileContent", () => {
 
     // 降级（传入 mrBoundary）：度量值与决策留痕，尾键扩展不扰动冻结前缀
     const degraded = buildAuditFileContent({
-      runId: "20260914T180846.922-B-VUL4J-1",
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
       caseId: "VUL4J-1",
-      configId: "B",
+      configId: CONFIG_E,
       model: "deepseek-v4-flash",
       effort: "default",
       startedAt: STARTED,
@@ -137,7 +119,7 @@ describe("buildAuditFileContent", () => {
       mrBoundary: { files: 11, changedLines: 22, degraded: true, reason: "too-many-files" },
     });
     const keys = Object.keys(degraded);
-    expect(keys.slice(0, -1)).toEqual([...AUDIT_KEYS_WITH_PREFETCH.filter((key) => key !== "prefetch"), "ledger"]);
+    expect(keys.slice(0, -1)).toEqual([...AUDIT_KEYS, "ledger"]);
     expect(keys.at(-1)).toBe("mrBoundary");
     expect(degraded.mrBoundary).toEqual({
       files: 11,
@@ -166,56 +148,5 @@ describe("writeAuditFile", () => {
     const text = readFileSync(filePath, "utf8");
     expect(text).toBe(`${JSON.stringify(content, null, 2)}\n`);
     expect(JSON.parse(text)).toEqual(content);
-  });
-});
-
-/** 真实 t-series 审计文件（DSH 线地面真源；本机 runs/ 在场时才断言） */
-const REAL_AUDIT_DIR = path.resolve(
-  import.meta.dirname,
-  "../../../../runs/phase2-dsh-t1/audit/vul4j/VUL4J-1/B/rep-1/audit",
-);
-
-describe("与 DSH 线审计文件同构（地面真源键序对照）", () => {
-  test.skipIf(!existsSync(REAL_AUDIT_DIR))("键序与 t-series 审计逐键一致", () => {
-    const fileName = readdirSync(REAL_AUDIT_DIR).find((name) => name.endsWith(".json"));
-    expect(fileName).toBeDefined();
-    const real = JSON.parse(readFileSync(path.join(REAL_AUDIT_DIR, fileName as string), "utf8"));
-    const content = buildAuditFileContent({
-      runId: "20260914T180846.922-B-VUL4J-1",
-      caseId: "VUL4J-1",
-      configId: "B",
-      model: "deepseek-v4-flash",
-      effort: "default",
-      startedAt: STARTED,
-      finishedAt: FINISHED,
-      rounds: 1,
-      toolCalls: 0,
-      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
-      findings: [],
-      audit: {
-        ...EMPTY_AUDIT,
-        requests: [
-          {
-            model: "deepseek-v4-flash",
-            effort: "default",
-            messages: [{ role: "system", content: "A" }],
-            tools: [],
-            wireBody: "{}",
-          },
-        ],
-      },
-      prefetch: [
-        {
-          layer: "symbol",
-          budgetChars: 8000,
-          contentChars: 100,
-          truncated: false,
-          totalEntries: 2,
-          shownEntries: 2,
-        },
-      ],
-    });
-    expect(Object.keys(content)).toEqual(Object.keys(real));
-    expect(Object.keys(content.requests[0] ?? {})).toEqual(Object.keys(real.requests[0]));
   });
 });

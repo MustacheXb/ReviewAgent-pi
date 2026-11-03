@@ -3,26 +3,27 @@
 # - suites：全量回归——root + review-llm 两包 typecheck + 测试（root 测试携带
 #   golden bytes 等字节纪律断言）。
 # - DSH 内核（packages/review-dsh）已随「从 0 基于 pi 内核」方向移除（ADR-0009）；
-#   其确定性纪律门（discipline-gate）将由 pi 内核线 P2 票以「对照 DSH 审计真源」
-#   的形式重建（见《Pi 内核从零实现方案》）。
-# - review-llm（#41 起的 LLM 接入共享包；判定链仪器）进 suites：其 prepare 在
-#   pnpm install 时构建 dist（onlyBuiltDependencies 放行），编译路径运行时依赖该产物。
-# - review-pi（#3 起的 pi 内核线 Review Runtime）进 suites：typecheck 走包内
-#   tsconfig（pi-ai 源码以 pi 基线 strict 级别进入程序），测试经 vitest source
-#   条件按 TS 源解析——两步均不依赖 pi dist。与 pi 四包同约定：无 prepare、
-#   dist 构建显式执行（前置 pnpm build:pi）。#7 起 dist 前置构建进 CI：
-#   进程级烟测（src/cli/bin.process.test.ts）spawn 真 bin（bin/review-pi.js →
-#   dist/cli/main.js），在位检查 + mtime 判鲜门要求全部运行时产物腿在位且新鲜
-#   （测试内自愈构建兜底同源判鲜，正常路径 CI 先建好即 no-op）。
-#   注意：两条重型验收证明（全链 E2E 与冻结 analyze 消费）skipIf 守卫
-#   gitignored 本机数据（.cache 数据集快照 / runs 记录），CI 上自动跳过、
-#   只跑快速子集——CI 绿不等于这两条验收通过，全量证明以本地实跑为准。
-# - P2 字节纪律门（#5，review-pi test:gate）：A/B 请求体 vs DSH 审计真源
-#   （t-series requests[].wireBody）逐字节对照，计算差异 = 登记差异强制相等。
-#   CI 上跑常开子集（比较器单测在默认套件 + 黄金真源正/负对照 control 档）；
-#   t{1..5} 全量对照依赖 gitignored runs/ 真源与 .cache 快照，CI 空转——
-#   全量证明以本地实跑为准（同上约定）。
-# - 真实 API 的指标对齐门（#29）走本地脚本按需执行，不进 CI。
+#   其确定性纪律门曾在 pi 线以「对照 DSH 审计真源」形式重建（#5 P2
+#   bytegate），并已随研究线退役（#32 / ADR-0014，E-only 生产化）——CI 不再
+#   设对照门步骤。
+# - review-llm（#41 起的 LLM 接入共享缝：resolver / profile / reviewer）进
+#   suites：其 prepare 在 pnpm install 时构建 dist（onlyBuiltDependencies 放行），
+#   编译路径运行时依赖该产物。
+# - review-pi（#3 起的 pi 内核线 Review Runtime；#32 起唯一生产内核）进 suites：
+#   typecheck 走包内 tsconfig（pi-ai 源码以 pi 基线 strict 级别进入程序），
+#   测试经 vitest source 条件按 TS 源解析——两步均不依赖 pi dist。与 pi 四包
+#   同约定：无 prepare、dist 构建显式执行（前置 pnpm build:pi）。#7 起 dist
+#   前置构建进 CI：进程级烟测（src/cli/bin.process.test.ts）spawn 真 bin
+#   （bin/review-pi.js → dist/cli/main.js），在位检查 + mtime 判鲜门要求全部
+#   运行时产物腿在位且新鲜（测试内自愈构建兜底同源判鲜，正常路径 CI 先建好
+#   即 no-op）。
+#   注意：E 全链证明已随 #32 去守卫常开（合成 fixture 驱动，CI 上真跑）；
+#   仍在 skipIf 守卫的面——真实 E 产物闭环（disposition/e-artifact，gitignored
+#   runs/ 快照，CI 上自动跳过）。CI 绿不等于该面验收通过，全量证明以本地
+#   实跑为准。
+# - 真跑冒烟与真网关探针不进 CI（零网络纪律）：src/e2e/**/*.e2e.ts 独立入口
+#   （pack 三形态 / server pack 冒烟，本地 test:e2e 复跑）；真网关 smoke 双探针
+#   （review-pi smoke 子命令）与根 migration-gate 走本地按需执行。
 
 name: CI
 

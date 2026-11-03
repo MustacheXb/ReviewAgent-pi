@@ -29,7 +29,7 @@ import path from "node:path";
 
 import type { DatabaseSync } from "node:sqlite";
 
-import type { ConfigId } from "../contracts/config.js";
+import { CONFIG_E } from "../contracts/config.js";
 import type { ReviewJobStatus } from "./protocol.js";
 import type { ReviewJobEvent } from "./service.js";
 import { formatJobId, type AllocatedJobId, type ReviewJobStore, type StoredReviewJob } from "./store.js";
@@ -123,7 +123,9 @@ interface JobRow {
   readonly issue_text: string;
 }
 
-/** 行 → StoredReviewJob（缺席省键纪律：SQL null 不进对象） */
+/** 行 → StoredReviewJob（缺席省键纪律：SQL null 不进对象）。
+ * config_id 列保留写入（schema 冻结；v3 起恒写 CONFIG_E 单源常量）但不再
+ * 进 request 投影——请求面已无 configId 字段（#32 / ADR-0014）。 */
 function toStoredJob(row: JobRow): StoredReviewJob {
   return {
     jobId: row.job_id,
@@ -134,7 +136,6 @@ function toStoredJob(row: JobRow): StoredReviewJob {
       repoPath: row.repo_path,
       diff: row.diff_text,
       issueDescription: row.issue_text,
-      configId: row.config_id as ConfigId,
       ...(row.model_id !== null ? { modelId: row.model_id } : {}),
     },
     submittedAt: row.submitted_at,
@@ -226,7 +227,8 @@ export function createSqliteReviewJobStore(options: SqliteJobStoreOptions): Revi
       job.status,
       job.request.caseId,
       job.request.repoPath,
-      job.request.configId,
+      // v3 起 config_id 恒写 CONFIG_E（schema 冻结保留列；请求面无此字段）
+      CONFIG_E,
       job.request.modelId ?? null,
       storeBlob(job.request.diff),
       storeBlob(job.request.issueDescription),

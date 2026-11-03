@@ -2,14 +2,14 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { createContextLedger, createInertContextLedger } from "./ledger.js";
+import { createContextLedger } from "./ledger.js";
 import { DEFAULT_TOOL_RESULT_BUDGET_CHARS } from "./result-budget.js";
 import { buildReviewToolkit } from "./toolkit.js";
 import { repoFixturePath } from "../testing/repos.js";
 
 // 七工具执行器行为测试（#6 P3a）：sample 合成仓库上验证输出形态、入参校验、
-// 预算截断、Ledger 去重与只读纪律。VUL4J-1 真源字节对齐另见
-// toolkit-vul4j1.test.ts（skipIf 快照守卫）。
+// 预算截断、Ledger 去重与只读纪律。账本恒为功能态（#32 / ADR-0014：
+// inert 模式随 C/D 研究配置根除，E 审计恒投影 ledger 键）。
 
 const SAMPLE = repoFixturePath("sample");
 const SAMPLE_DIFF = [
@@ -21,14 +21,13 @@ const SAMPLE_DIFF = [
   "+changed",
 ].join("\n");
 
-function toolkit(overrides?: { ledgerMode?: "enabled" | "inert"; diff?: string; resultBudgetChars?: number }) {
+function toolkit(overrides?: { diff?: string; resultBudgetChars?: number }) {
   return buildReviewToolkit({
     repoPath: SAMPLE,
     diff: overrides?.diff ?? SAMPLE_DIFF,
     ...(overrides?.resultBudgetChars !== undefined
       ? { resultBudgetChars: overrides.resultBudgetChars }
       : {}),
-    ...(overrides?.ledgerMode !== undefined ? { ledgerMode: overrides.ledgerMode } : {}),
   });
 }
 
@@ -214,7 +213,7 @@ test("预算：默认 8000 字符；超预算行边界截断并留痕", async ()
 });
 
 test("Ledger 功能态：精确重复命中引用、不同请求不命中、失败不登记", async () => {
-  const tk = toolkit({ ledgerMode: "enabled" });
+  const tk = toolkit();
   const args = { path: "src/main/java/com/example/Alpha.java", startLine: 11, endLine: 13 };
   const first = await tk.executeTool("review.get_file", args);
   expect(first).toContain("Lines 11-13 of 18");
@@ -259,7 +258,7 @@ test("Ledger 功能态：精确重复命中引用、不同请求不命中、失�
 });
 
 test("Ledger 功能态：整读（file）与区间读（range）分属不同登记；get_diff 登记为 evidence", async () => {
-  const tk = toolkit({ ledgerMode: "enabled" });
+  const tk = toolkit();
   await tk.executeTool("review.get_file", { path: "src/main/java/com/example/Alpha.java" });
   await tk.executeTool("review.get_diff", {});
   await expect(tk.executeTool("review.get_diff", {})).resolves.toBe(
@@ -268,17 +267,9 @@ test("Ledger 功能态：整读（file）与区间读（range）分属不同登�
   expect(tk.ledger.snapshot().map((entry) => entry.kind)).toEqual(["file", "evidence"]);
 });
 
-test("Ledger 惰性态：永不命中、快照恒空（C/D 行为零变化）", async () => {
-  const tk = toolkit({ ledgerMode: "inert" });
-  const args = { path: "src/main/java/com/example/Alpha.java" };
-  const first = await tk.executeTool("review.get_file", args);
-  const second = await tk.executeTool("review.get_file", args);
-  expect(second).toBe(first);
-  expect(tk.ledger.snapshot()).toEqual([]);
-  // 独立账本原语同口径
-  const inert = createInertContextLedger();
-  expect(inert.referenceIfLoaded("file", "x")).toBeUndefined();
+test("Ledger 原语：未登记不命中；register 后命中引用格式（去重单源）", async () => {
   const functional = createContextLedger();
+  expect(functional.referenceIfLoaded("file", "x")).toBeUndefined();
   functional.register("file", "x");
   expect(functional.referenceIfLoaded("file", "x")).toBe("Already loaded: ctx#001 (x)");
 });
@@ -322,7 +313,7 @@ test("只读纪律：七工具全调用后仓库内容哈希不变", async () =>
   }
 
   const before = snapshotDirHash(SAMPLE);
-  const tk = toolkit({ ledgerMode: "enabled" });
+  const tk = toolkit();
   // 每个工具真实执行一轮（含搜索类与 diff）
   await tk.executeTool("review.get_diff", {});
   await tk.executeTool("review.get_symbol", { symbol: "Alpha" });

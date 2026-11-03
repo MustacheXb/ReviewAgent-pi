@@ -96,7 +96,6 @@ test("白名单本身锁定端口面（清单漂移要有意识决策——防�
     "tools",
     "finding",
     "codeintel",
-    "bytegate",
     "experiment",
     "disposition",
     "audit",
