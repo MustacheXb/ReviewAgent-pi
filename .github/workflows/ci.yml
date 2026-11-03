@@ -28,7 +28,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [demo/config-matrix] # ADR-0014：Demo 线自带触发面（push 到 main 读 main 自己的 ci.yml）
   pull_request:
 
 jobs:
