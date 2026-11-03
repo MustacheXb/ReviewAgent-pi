@@ -3,13 +3,14 @@
  *
  *   进程内回环 stub 网关（脚本化 SSE——与包内 fake 适配器同渲染器 sseBody）
  *   → spawn `review-pi server`（真 node:http 长驻，REVIEWER_URL 指向 stub）
- *   → typed ReviewHttpClient 跑通 capabilities → submit（config B，真检视执行）
+ *   → typed ReviewHttpClient 跑通 capabilities → submit（真检视执行；协议 v3
+ *     无 configId——配置服务端恒 E 派生，请求面只带 case/repo/diff）
  *   → SSE 订阅（seq 单调推进）→ 断线重连（Last-Event-ID 续传，不重不丢）
  *   → cancel（queued 直取终态）→ get（result 只回 artifact 逻辑引用）
  *   → artifact 下载（audit/record 内容读回）→ scope 负例（artifact:read 分开
  *   授权）→ SIGTERM 优雅退出。
  *
- * 检视执行面：stub 网关回放 config B 六相位脚本（phase-5 出唯一候选 F100、
+ * 检视执行面：stub 网关回放一轮零工具的六相位脚本（phase-5 出唯一候选 F100、
  * phase-6 裁决通过 + complete）——job 以 succeeded 落定、真产物落盘，artifact
  * 下载端点有真内容可服务；不打真网关，key 只经 env 注入子进程，绝不落盘回显。
  * stub 带 pause/resume 门：submit 后暂停，让「queued cancel」与「SSE 断线重连」
@@ -196,7 +197,7 @@ function startStubGateway(replies: readonly FakeReply[]): Promise<StubGateway> {
   });
 }
 
-/** config B 六相位脚本（一轮零工具完成）：phase-5 出唯一候选 F100，phase-6 裁决通过 + complete。
+/** 六相位脚本（一轮零工具完成）：phase-5 出唯一候选 F100，phase-6 裁决通过 + complete。
  * 注意 finding 文案必须纯英文——内核裁决后有 NON_ENGLISH 拒收门（demo 实证）。 */
 function demoCorpus(): FakeReply[] {
   const ZERO = { promptTokens: 0, completionTokens: 0, cacheReadTokens: 0 } as const;
@@ -344,7 +345,7 @@ async function main(): Promise<void> {
       `[demo]   limits: maxDiffBytes=${info.limits.maxDiffBytes} maxBodyBytes=${String(info.limits.maxBodyBytes)} artifactRetentionDays=${String(info.limits.artifactRetentionDays)}（--artifact-retention-days 7 旗标透传）`,
     );
 
-    // 5. 暂停 stub → submit（config B——job 将卡在首个相位，为断线重连与
+    // 5. 暂停 stub → submit（job 将卡在首个相位，为断线重连与
     //    queued cancel 两段演示创造确定性窗口）
     stub.pause();
     const request = {
@@ -352,7 +353,6 @@ async function main(): Promise<void> {
       repoPath: repoDir,
       diff: { kind: "file" as const, path: diffFile },
       issueDescription: "demo: 演示 SSE 进度流 + artifact 下载全链路（stub 网关）",
-      configId: "B" as const,
       clientRequestId: "demo-client-req-1",
     };
     const submitted = await withDeadline(client.submit(request), "submit");
@@ -384,7 +384,6 @@ async function main(): Promise<void> {
         repoPath: repoDir,
         diff: { kind: "file", path: diffFile },
         issueDescription: "demo: queued cancel 面",
-        configId: "B",
       }),
       "submit（cancel 演示）",
     );
