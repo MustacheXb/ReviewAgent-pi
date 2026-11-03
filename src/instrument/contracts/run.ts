@@ -76,7 +76,7 @@ export type CacheBreakReason =
   /** 消息序列中段分歧（重排 / 中段插入 / 改写：破坏 append-only 前缀纪律） */
   | "CONTEXT_REORDERED";
 
-/** 分歧命中的 Zone 分区（CONTEXT.md 术语：A = Stable Prefix；B/C = 消息序列中段） */
+/** 分歧命中的 Zone 分区（GLOSSARY.md 术语：A = Stable Prefix；B/C = 消息序列中段） */
 export type CacheBreakZone = "MODEL" | "A" | "B/C";
 
 /** 一对相邻请求的前缀分歧留痕（requests[i-1] vs requests[i]） */

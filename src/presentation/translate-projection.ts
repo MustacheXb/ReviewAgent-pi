@@ -7,7 +7,7 @@ import { TERMINOLOGY, TERMINOLOGY_VERSION, type TerminologyEntry } from "./termi
  * Zone A 提示词 / 请求字节 / golden bytes / S 级结论有效域全部不动），中文呈现
  * 经本投影实现——把英文检视产物投影为目标呈现语言的呈现文档。
  *
- * 核内/核外边界（CONTEXT.md）：语言是呈现配置不是检视行为——翻译投影属核外
+ * 核内/核外边界（GLOSSARY.md）：语言是呈现配置不是检视行为——翻译投影属核外
  * 工具链（消费端关注点），内核零改动、语言参数化缝根本不存在（实验 plan 与
  * 内核执行缝均无语言键，回归断言见
  * tests/presentation/no-language-in-plan-or-kernel.test.ts）。

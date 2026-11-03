@@ -4,14 +4,14 @@ import { TERMINOLOGY, TERMINOLOGY_VERSION } from "../../src/presentation/termino
 /**
  * 术语表单源测试（#13 / ADR-0010）：v1 最小集的不变量——版本号（进投影留痕）、
  * 条目形状（en/zh 非空）、en 侧无重复（引擎参考上下文的查表单源性）、骨架条目
- * 在场（CONTEXT.md Language 节域词的回归锚：Finding→检视结论、Evidence→证据、
+ * 在场（GLOSSARY.md Language 节域词的回归锚：Finding→检视结论、Evidence→证据、
  * severity 档位说明——票面指定的 v1 最小集形态）。
  *
  * 术语表是翻译引擎的参考上下文（非硬替换器，ADR-0010 Considered Options）；
  * 域词口径变更时递增 TERMINOLOGY_VERSION（投影留痕可追溯代际）。
  */
 
-describe("terminology — 单源术语表（v1 最小集，CONTEXT.md Language 节域词）", () => {
+describe("terminology — 单源术语表（v1 最小集，GLOSSARY.md Language 节域词）", () => {
   it("版本号为正整数（投影留痕携带；域词口径变更时递增）", () => {
     expect(Number.isInteger(TERMINOLOGY_VERSION)).toBe(true);
     expect(TERMINOLOGY_VERSION).toBeGreaterThanOrEqual(1);

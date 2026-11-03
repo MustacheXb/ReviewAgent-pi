@@ -49,7 +49,7 @@ export interface ModelUpgradeClassification {
 
 /**
  * flash→pro 同族升级判定（纯函数，单测锁定口径）：
- * - 家族按 id 前缀判定（首个 "-" 前的段，小写归一）——CONTEXT.md 异构条目
+ * - 家族按 id 前缀判定（首个 "-" 前的段，小写归一）——GLOSSARY.md 异构条目
  *   「家族按 id 前缀判定」同款思路；review-llm providerFamilyOf 的
  *   /^deepseek-/、/^glm-/ 前缀 pattern 是同一口径的已知家族子集；
  * - 档位按 "-" 分段后的精确段匹配（"pro" 段在场即 pro 档，pro 先查——

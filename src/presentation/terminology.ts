@@ -1,17 +1,17 @@
 /**
  * 呈现面术语表（#13，ADR-0010「英文产出 + 核外翻译投影」的域词单源）：
- * 把检视英文产物中的域词锚定到本项目规范中文（CONTEXT.md Language 节词表），
+ * 把检视英文产物中的域词锚定到本项目规范中文（GLOSSARY.md Language 节词表），
  * 供注入的翻译引擎参考——**不是硬替换器**（翻译由引擎裁量，术语表只锚域词
  * 口径；硬替换会破坏叙事与语法，取舍见 ADR-0010 Considered Options）。
  *
  * 单源纪律：条目与版本号只在本模块定义；TERMINOLOGY_VERSION 随投影留痕落档
  * （消费端可追溯某份中文呈现用的是哪代术语口径），域词口径变更时递增版本号。
- * v1 最小集取 CONTEXT.md Language 节的呈现相关域词（Finding / Evidence /
+ * v1 最小集取 GLOSSARY.md Language 节的呈现相关域词（Finding / Evidence /
  * severity 档位说明等）；真引擎（LLM/网关）由消费端装配——本票范围外，
  * 本模块零网络零密钥。
  */
 
-/** 术语表版本（v1 = CONTEXT.md Language 节呈现域词最小集） */
+/** 术语表版本（v1 = GLOSSARY.md Language 节呈现域词最小集） */
 export const TERMINOLOGY_VERSION = 1;
 
 export interface TerminologyEntry {

@@ -6,7 +6,7 @@ import type { DispositionRecord } from "./record.js";
  * 口径（票面）：直接从处置记录集算出，不依赖锚相对结论——生产 KPI 与
  * 评测判级解耦。acceptance = accepted / total；只有 accept 算接受（reject
  * 与 false-positive 都不是）；total=0 → acceptanceRate = null（N/A ≠ 0，
- * 对齐仓内指标纪律「空集不冒充 0」，同 CONTEXT.md 分口径条目语义）。
+ * 对齐仓内指标纪律「空集不冒充 0」，同 GLOSSARY.md 分口径条目语义）。
  *
  * 读取视图 latest-wins：同一 finding 重复处置 = 追加新记录（store 只追加），
  * 聚合取每个 finding 的最新处置。finding 身份 = 回溯锚全组（source/caseId/

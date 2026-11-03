@@ -43,7 +43,7 @@ scripts/                实验 / 门 / 分析 / 物化脚本入口（tsc 即编�
 data/                   数据集清单与 MR 物化（vul4j / defects4j / msb-java / clean-mr）
 runs/                   实验产物（不入库；*/REPORT.md 作为结论文档例外入库）
 docs/                   ADR / 设计方案 / 评测方案 / 报告 / 计划书 / agent 协作约定
-CONTEXT.md              领域词汇表（术语唯一权威，单一上下文）
+GLOSSARY.md              领域词汇表（术语唯一权威，单一上下文）
 reference_project/      外部参考项目（不入库，见下节）
 ```
 
@@ -235,7 +235,7 @@ cd reference_project/pi  && git checkout 6671c604   # 其余同理
 
 | 文档 | 内容 |
 |---|---|
-| [`CONTEXT.md`](CONTEXT.md) | 领域词汇表（Minimal Sufficient Context / Zone A–C / Finding 等术语唯一权威） |
+| [`GLOSSARY.md`](GLOSSARY.md) | 领域词汇表（Minimal Sufficient Context / Zone A–C / Finding 等术语唯一权威） |
 | [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0013（POC1 独立 harness / 模型钉扎 / 零构建静态代码情报 / S 级判据 / DSH 迁移姿态 / DSH 内核形态 / 对齐门协议 v2 / 被测模型可换 + 指标按 provider 能力分口径 / 从 0 基于 pi 内核重写 / CLI 中文呈现投影 / 生产入口切流 config E / stdio JSONL 长驻模式 / HTTP server 线统一契约与拓扑 B） |
 | [`docs/design/`](docs/design/) | 总体架构设计方案 / Pi 内核从零实现方案 / Pi 内核定制基线方案 / VUL4J 评测方案与数据复制指南 / DSH 偏差清单 |
 | [`docs/report/`](docs/report/) | POC1 实现报告 / DSH 迁移实现报告 / DSH 指标对齐门报告（含噪声底）/ Phase 2 主数据分析报告 / Phase 2 pi-S1 五配置对照报告（advisory）/ 兄弟项目调查报告 |
