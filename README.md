@@ -1,8 +1,10 @@
-# ReviewAgent-pi
+# ReviewAgent-pi（Demo 线）
 
 低 Token、高质量代码检视 Agent：用**最小充分上下文**（Minimal Sufficient Context）与**缓存稳定循环**（Cache-Stable Review Loop），以 20~30% 的 Token 成本获得接近全量上下文的检视质量。终点是落地到企业内部代码托管平台的 MR 检视。内核基座：pi 代码仓 fork（ADR-0009）。
 
 本仓是 ReviewAgent 项目的 **pi 内核线**，同时是一个 AI4SE 研究项目：以 VUL4J 单缺陷 MR 为基准，对五种上下文策略配置做受控实验（真实网关、三侧数据、四层判定链），论文主数据与分析报告见 [`docs/report/`](docs/report/)。
+
+> **本分支定位（ADR-0014）**：**Demo 线** `demo/config-matrix`——A–E 配置矩阵受控实验、判定链与历史复现入口（协议 v2：submit 面 `configId` 配置选择仍在），冻结基线 = 标签 `demo-config-matrix-baseline-2026-11-03`。生产主线为 **E-only** 形态（固定 Config E、协议 v3 无配置选择、产品包 `reviewagent`），经 `production/e-only` 收口占据 `main`；两线独立演进不互合，跨线共享修复走 cherry-pick 单提交通道（ADR-0014 §7），历史报告与复现资产以本分支为唯一持有处。
 
 > **姊妹仓（DSH 内核线）**：兄弟仓 [`MustacheXb/ReviewAgent`](https://github.com/MustacheXb/ReviewAgent) 承载 DeepSeek Harness（DSH）内核线，其架构结论（Config B 生产形态、Minimal Sufficient Context、缓存稳定循环）由 Phase 2 三侧 450 单元数据支撑——但该结论绑定特定内核。本仓以 pi 内核（`pi-agent-core + pi-ai`）从 0 重写 Review Runtime，在完全相同的评测集与冻结判定链上跑独立对照，回答**「架构有效」还是「内核有效」的内核无关性问题**。
 >
