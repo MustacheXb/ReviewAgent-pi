@@ -12,7 +12,7 @@
 - `tsconfig.base.json`（仓库根，被上述包的 `tsconfig.build.json` 以 `../../tsconfig.base.json` 引用）
 
 **上游锚定**：commit `6671c604766b3670ed95f405aa7856835d0ca702`（2026-09-16，发布版 v0.85.1 之后 11 天的 main 修复）。
-裁剪、workspace 接线与构建脚本改动的完整记录见源仓 Demo 线（分支 `demo/config-matrix`，冻结基线标签
+裁剪、workspace 接线与构建脚本改动的完整记录见 Demo 线（分支 `demo/config-matrix`，冻结基线标签
 `demo-config-matrix-baseline-2026-11-03`）的 `docs/design/Pi 内核定制基线方案.md`；与上游的同步以
 `git diff` 对照上游锚定为基线操作。
 
