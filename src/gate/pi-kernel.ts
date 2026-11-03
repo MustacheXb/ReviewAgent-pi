@@ -4,27 +4,28 @@ import type { RunResult } from "../instrument/contracts/run.js";
 import type { ReviewKernel, UnitReviewRequest } from "./review-kernel.js";
 
 /**
- * pi 内核适配器（#8 P4a 执行缝的 pi 侧）：把 root 的 UnitReviewRequest 装配为
- * review-pi 的 ReviewRunInput，再把 pi RunRecord 映射回 root RunResult。
+ * pi 内核适配器（#8 P4a 执行缝的 pi 侧；#32 缝随评测装置删除落位 src/gate）：
+ * 把根仓的 UnitReviewRequest 装配为 review-pi 的 ReviewRunInput，再把 pi
+ * RunRecord 映射回根仓 RunResult。
  *
  * 装配纪律：
- * - persistRecord: false——runner 是记录唯一写者（防双写与孤儿文件）；
- * - model/config 经请求参数逐单元切 preset（内核无关性对照的变量面入口）；
+ * - persistRecord: false——调用侧是记录唯一写者（防双写与孤儿文件）；
+ * - model/config 经请求参数逐单元传入（历史内核无关性对照的变量面入口；
+ *   生产恒 configId "E"，由 migration-gate 单源派生）；
  * - experimentRoot 拆 runsRoot + experimentId（pi 落盘布局同构）；
  * - source 守卫：pi 记录的 source 硬编码 "vul4j"（pi 内核线只评 vul4j），
- *   他源单元 fail fast——不写半截产物，失败由 runner 留痕隔离。
+ *   他源单元 fail fast——不写半截产物，失败由调用方留痕隔离。
  *
  * 映射纪律（pi record.baseline → root RunResult）：
- * - requests 恒 []：重放字节以审计文件（auditPath）为真源，
- *   root run-store 的 recordToRunResult 同先例；
+ * - requests 恒 []：重放字节以审计文件（auditPath）为真源；
  * - cacheBreaks 缺省补 []（root RunAudit 必填、pi AuditLight 空时省键）；
  * - model 取 pi 记录的 model（内核实际请求的模型 id——口径诚实护栏的
- *   对账基准，与 plan.model 不符时由 runner 拒绝落盘）。
+ *   对账基准，与目标模型不符时由调用方拒绝落盘）。
  *
  * 模块纪律：本模块是 root 程序闭包中唯一 import pi 内核执行入口（runReview）
- * 的位置，且只被 CLI 与测试消费（runner 只依赖 review-kernel.ts 接口模块；
- * cli.ts 另经包入口 import resolveReviewerEndpoint——纯网关配置解析，非内核
- * 执行）——analyze / alignment-gate 等冻结仪器脚本的闭包永不触及 pi 内核。
+ * 的位置，且只被 scripts/run-migration-gate.ts 装配与测试消费（门逻辑只依赖
+ * review-kernel.ts 接口模块）——历史评测消费者（runner / cli / analyze /
+ * alignment-gate）已随研究装置删除（#32 / ADR-0014）。
  */
 
 export interface PiKernelDeps {

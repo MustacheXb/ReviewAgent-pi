@@ -9,7 +9,7 @@ import {
 } from "../../src/gate/migration-gate.js";
 import type { MRCase } from "../../src/instrument/contracts/mr-case.js";
 import type { RunResult } from "../../src/instrument/contracts/run.js";
-import type { ReviewKernel, UnitReviewRequest } from "../../src/experiment/review-kernel.js";
+import type { ReviewKernel, UnitReviewRequest } from "../../src/gate/review-kernel.js";
 
 /**
  * 模型迁移门单测（#14，生产化四必做之三）：纯注入零 pi 依赖——fake 探针 +

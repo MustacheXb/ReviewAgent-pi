@@ -12,14 +12,15 @@ export default defineConfig({
     // 满套件并行（forks 池按核数起 worker）下，重型集成用例——仓库快照扫描 /
     // tree-sitter 建索引 / 全流程 runReview / CLI 子进程——单用例与夹具在磁盘
     // 争用下可远超 vitest 默认 5s/10s（#29 曾按文件放宽到 60s，高负载下仍可超）。
-    // 统一放宽到 120s 有界值；真实 API 的 e2e 另见 vitest.config.e2e.ts（30 分钟）。
+    // 统一放宽到 120s 有界值（研究 e2e 档已随评测装置删除，#32；阈值保留——
+    // 剩余套件在满载机器上仍可能慢起）。
     testTimeout: 120_000,
     hookTimeout: 120_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
-      // 产品代码覆盖率（src/）：scripts/ 为进程入口壳（experiment / reference /
-      // 数据准备），由 e2e 与手工流程触达，不计入常规门
+      // 产品代码覆盖率（src/）：scripts/ 为进程入口壳（migration-gate / demo
+      // 装配），由手工流程触达，不计入常规门
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.test.ts"],
       // 零网络常规门的最低覆盖线（全局；当前基线 86.9% lines）

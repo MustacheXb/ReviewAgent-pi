@@ -46,7 +46,7 @@ import {
   runSmokeProbes,
   type ReviewerEndpoint,
 } from "review-pi";
-import { piKernel } from "../src/experiment/pi-kernel.js";
+import { piKernel } from "../src/gate/pi-kernel.js";
 import { runMigrationGate } from "../src/gate/migration-gate.js";
 import type { MigrationGateDeps, MigrationGateResult } from "../src/gate/migration-gate.js";
 import { errorMessage, flagFail, flagOk, parseCliArgs } from "../src/instrument/cli-args.js";

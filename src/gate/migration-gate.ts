@@ -1,8 +1,7 @@
 import type { ConfigId } from "../instrument/contracts/config.js";
 import type { MRCase } from "../instrument/contracts/mr-case.js";
 import type { RunResult } from "../instrument/contracts/run.js";
-import type { ExperimentSource } from "../experiment/plan.js";
-import type { ReviewKernel, UnitReviewRequest } from "../experiment/review-kernel.js";
+import type { ExperimentSource, ReviewKernel, UnitReviewRequest } from "./review-kernel.js";
 
 /**
  * 模型迁移门（#14，生产化四必做之三）：换模型 / 换网关前的安全自证编排器——
