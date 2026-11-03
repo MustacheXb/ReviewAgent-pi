@@ -1,6 +1,6 @@
 {
   "name": "review-pi",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "pi 内核线 Review Runtime（#3）：controller / Zone 组装 / 解析 / 审计投影，内核变量面从 0 重写（ADR-0009）",

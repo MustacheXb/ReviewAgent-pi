@@ -1,9 +1,9 @@
 {
   "name": "review-agent-pi",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "pi 内核 Review Agent 对照实验仓（与 DSH 兄弟仓 MustacheXb/ReviewAgent 同评测集、同判定链对照；spec #1）",
+  "description": "pi 内核 ReviewAgent 生产仓：E-only 检视运行时与 reviewagent 产品包（研究对照线冻结在 demo/config-matrix，ADR-0014）",
   "engines": {
     "node": ">=22"
   },

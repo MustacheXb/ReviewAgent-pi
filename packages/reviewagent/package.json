@@ -1,6 +1,6 @@
 {
   "name": "reviewagent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "ReviewAgent 自包含 CLI 与 stdio 长驻包（vendored pi 运行时内联，不发布 @earendil-works/pi-* 依赖）",
