@@ -1,8 +1,8 @@
 # 参考项目：外部克隆的仓库（deepseek-harness / pi），不属于本项目源码
 reference_project/
 
-# API key 本机注入（推荐名 REVIEWER_API_KEY / JUDGE_API_KEY，旧名
-# DEEPSEEK_API_KEY / OPENAI_API_KEY 兼容；绝不入库）
+# API key 本机注入（推荐名 REVIEWER_API_KEY，旧名 DEEPSEEK_API_KEY 兼容；
+# 绝不入库）
 .env.local
 .env
 
@@ -25,11 +25,9 @@ coverage/
 # pi 内核包工具产物（packages/ai generate-model-catalog 输出目标 ../../.artifacts/）
 .artifacts/
 
-# 检视运行审计痕迹（runReview 默认落盘目录；数据/记录不入库，
-# 但目录本身保持可扫描——评测报告 REPORT.md 作为结论文档例外入库）
+# 检视运行审计痕迹（runReview 默认落盘目录；数据/记录一律不入库——
+# #32 / ADR-0014：结论文档例外随研究线退役，全量报告在 Demo 线）
 runs/**
-!runs/**/
-!runs/**/REPORT.md
 
 # review-pi CLI 缺省输出目录（#7 --out 缺省 review-pi-output；审计与运行记录不入库）
 review-pi-output/
@@ -40,10 +38,7 @@ reviewagent-output/
 # 会话草稿（to-tickets / grilling 工作稿，不入库）
 .scratch/
 
-# clean MR 采集 API 快照缓存（断点续采用；清单与 diff 为交付物，正常入库）
-data/clean-mr/.cache/
-
-# 脚本编译临时目录（T02/T09 采集脚本的 tsc outDir）
+# 脚本编译临时目录（tsc 即编即跑的 outDir）
 .tmp-gen/
 .tmp-gen-host/
 
