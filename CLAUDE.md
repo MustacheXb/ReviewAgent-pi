@@ -8,6 +8,8 @@ Guidance for Claude Code when working in this repository.
 
 **跨仓 ADR 限定语纪律**：两仓 ADR 各自独立编号（本仓 0001–0009 为 pi 线序列）。引用 DSH 兄弟仓的决策必须写全限定语「DSH 线 ADR-XXXX」；裸写「ADR-XXXX」一律指本仓 ADR。双 0009 尤其如此（本仓 0009 = pi 内核从 0 重写；DSH 线 0009 = 大 MR 切分）。
 
+**跨分支 ADR 限定语纪律（ADR-0014）**：本仓自冻结基线（`demo-config-matrix-baseline-2026-11-03`）起双线分叉——生产线（`production/e-only`，收口后为 `main`）与 `demo/config-matrix` 共同继承 ADR-0001–0014，此后各自独立编号（0015 起同号不同文）。本分支为 **主线**：裸写「ADR-XXXX」一律指主线序列；跨线引用必须写全限定语「Demo 线 ADR-XXXX」。协议版本同理分叉：主线 v3（无配置选择）、Demo 线 v2（A–E 配置矩阵）。
+
 ## Agent skills
 
 ### Issue tracker

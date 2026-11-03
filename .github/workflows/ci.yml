@@ -28,7 +28,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, production/e-only] # ADR-0014：迁移期直推过 CI；收口重命名回 main 后 [main] 生效
   pull_request:
 
 jobs:
