@@ -14,8 +14,8 @@
  * - piKernel（ReviewKernel 执行缝的 pi 侧——真跑经缝完成，脚本不 import
  *   runReview）；
  * - 单案输入：data/vul4j/smoke-cases.json 的 VUL4J-38（root 侧自备 fixture
- *   路径，tests/e2e/pi-seam-matrix.e2e.ts 同款装载；快照缺失 fail fast 提示
- *   pnpm materialize:vul4j）。
+ *   路径；快照缺失 fail fast 并给出 fix-commit tarball 的手工取得指引——
+ *   评测数据物化脚本已随研究装置删除（#32 / ADR-0014））。
  *
  * 基线模型镜像：review-pi REVIEW_MODEL_ID 未进包公开导出面（index.ts 只导出
  * 内核入口/记录类型/网关解析/双探针），此处镜像 "deepseek-v4-flash"（flash 档）
@@ -230,9 +230,16 @@ async function main(argv: readonly string[]): Promise<number> {
     return 2;
   }
   if (!existsSync(mrCase.repoPath)) {
-    console.error(
-      `[migration-gate] repository snapshot missing (${mrCase.repoPath}) — run pnpm materialize:vul4j`,
-    );
+    console.error(`[migration-gate] repository snapshot missing (${mrCase.repoPath}).`);
+    const repoSlug = mrCase.extensions?.repoSlug;
+    const fixSha = mrCase.extensions?.fixSha;
+    if (repoSlug !== undefined && fixSha !== undefined) {
+      console.error(
+        `[migration-gate] obtain it once (the dataset materializer was removed with the research apparatus, #32): ` +
+          `download the fix-commit tarball https://github.com/${repoSlug}/archive/${fixSha}.tar.gz and extract it ` +
+          `to that path — the inverse-patch method reviews the tree at the fix commit (base = 修复后版本).`,
+      );
+    }
     return 2;
   }
 
