@@ -1,5 +1,8 @@
 /**
- * CLI 参数解析共享骨架（experiment / reference 双 CLI 去重）。
+ * CLI 参数解析共享骨架（experiment / reference 双 CLI 去重产物——两消费
+ * CLI 已随研究线退役，#32 / ADR-0014；现存唯一值级消费者是
+ * scripts/run-migration-gate.ts，框架行为由 tests/instrument/cli-args.test.ts
+ * 直接锁定）。
  *
  * 表驱动：布尔 flag 表 + 值参数表 + 收尾装配；取值形式统一支持
  * --flag value 与 --flag=value；裸 --（end-of-options）跳过；

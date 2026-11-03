@@ -5,7 +5,9 @@ import type { ExperimentSource, ReviewKernel, UnitReviewRequest } from "./review
 
 /**
  * 模型迁移门（#14，生产化四必做之三）：换模型 / 换网关前的安全自证编排器——
- * 《Config B 生产化方案》§3.3 迁移 runbook 的机器化。
+ * 《Config B 生产化方案》§3.3 迁移 runbook 的机器化（方案文档已随研究侧
+ * 文档退役——见 Demo 线 `demo/config-matrix` / 冻结标签
+ * `demo-config-matrix-baseline-2026-11-03`）。
  *
  * 三段串行，前步红即停并给人话诊断（归因 + 下一步动作，文案英文——对齐
  * gateway-probe.ts 诊断风格）：
@@ -19,7 +21,8 @@ import type { ExperimentSource, ReviewKernel, UnitReviewRequest } from "./review
  *         归因诊断——最小探针请求覆盖不到的面。
  *
  * 冒烟口径（2026-10-19 决策评论修订，B → E）：生产入口 config E 真跑
- * （依据 #11 P5b 对照报告 eb81397：E 为 pi 内核生产入口选型，B recall
+ * （依据 #11 P5b 对照报告 eb81397——报告已随研究线退役，见 Demo 线冻结
+ * 基线：E 为 pi 内核生产入口选型，B recall
  * 五配置垫底不宜作入口冒烟）。票面的 A 分层连通冒烟（最廉价连通探针）
  * 未实现：双探针已覆盖廉价连通自证（探针 2 一次最小 completion 验证
  * 鉴权 + 模型 id + 请求体 + 回显），A 单轮（~25.8k token/单元）属重复

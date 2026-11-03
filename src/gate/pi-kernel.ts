@@ -11,7 +11,8 @@ import type { ReviewKernel, UnitReviewRequest } from "./review-kernel.js";
  * 装配纪律：
  * - persistRecord: false——调用侧是记录唯一写者（防双写与孤儿文件）；
  * - model/config 经请求参数逐单元传入（历史内核无关性对照的变量面入口；
- *   生产恒 configId "E"，由 migration-gate 单源派生）；
+ *   v3 起内核配置由 runReview 单源派生恒 E——root 侧 unit.configId 只是
+ *   审计词汇对齐（migration-gate 恒 "E"），不是内核输入）；
  * - experimentRoot 拆 runsRoot + experimentId（pi 落盘布局同构）；
  * - source 守卫：pi 记录的 source 硬编码 "vul4j"（pi 内核线只评 vul4j），
  *   他源单元 fail fast——不写半截产物，失败由调用方留痕隔离。

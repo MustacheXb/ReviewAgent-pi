@@ -11,7 +11,8 @@
  *
  * #27 v2（ADR-0013）：submit 参数切统一 `ReviewRequest`（validateReviewRequest
  * 单源校验）；`CallContext` 贯穿 service 全方法（stdio 面合成 local principal，
- * requestId 逐请求生成）；capabilities `protocolVersion` 2 + `features` 按形态
+ * requestId 逐请求生成）；capabilities `protocolVersion` 3（#32 / ADR-0015
+ * 协议 v3：无配置选择——submit 携带 configId 即 -32019）+ `features` 按形态
  * 声明差异（stdio：sse/artifactDownload/idempotency=false、listFilters=
  * ["status"]、defaultRepo="cwd"）；--repo-root/allowlist 装配移除换 --cwd
  * （repoPath 缺省值，缺席省键 = service 回退 process.cwd()）。
