@@ -160,3 +160,10 @@ git worktree add ../ReviewAgent-pi-production production/e-only
 - **正**：默认分支单义（生产唯一真源）；研究复现链冻结在 `demo/config-matrix`（同 SHA 分支 + 冻结标签双保险）；协议契约代数单义（v3）；两线 CI / 发布 / 文档各自演进互不拖累；收口验收有唯一载体（issue #32 清单）。
 - **负/风险**：跨分支同号 ADR（0015 起）须限定语引用，漏写即歧义（缓解：两分支 CLAUDE.md 纪律）；生产修复同步 Demo 是人工判断（缓解：§7 判据 + 提交信息留痕）；v3 断开 v2 客户端——主线与 Demo 线 server 不互通（预期态）；单人仓 PR-only 是节奏变化（摩擦实测后再议放宽）。
 - **中性**：迁移期 main 零提交占位；`production/e-only` 收口后经重命名成为 `main`（分支历史连续，不 squash）；伞 issue #32 承载执行与验收全程。
+
+## 补记（2026-11-04）：设计文档回填 main
+
+应用户要求，`docs/design/` 设计文档全量回填 `main`（#34：19 份自 `demo/config-matrix@40eb92a` 字节平移 + 《ReviewAgent-pi 分支策略》底稿自会话转录恢复，共 20 份）。§8 文档归属口径据此调整：
+
+- **设计文档**：由「demo 单侧持有」调整为**双线各持一份**——`main` 侧定位为工程参考副本（回填时点快照，不承诺逐修订跟进），后续跨线同步走 §7 cherry-pick 单提交通道。恢复件来源如实留痕：底稿从未入过 git（原以未跟踪状态随 production worktree 退役删除），恢复自会话转录 Read 快照（233 行完整、其后零 Edit）。
+- **研究报告（`docs/report/`）与复现资产**：仍以 demo 为唯一持有处，「历史报告不复制成两份（避免口径漂移）」纪律不变。
