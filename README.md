@@ -110,7 +110,7 @@ packages/reviewagent/                  自包含产品包（reviewagent CLI；�
 packages/review-llm/                   LLM 接入共享缝（resolver / profile / reviewer）
 src/{gate,instrument,presentation}/    根面：模型迁移门 / 仪器契约 / 中文呈现投影
 scripts/                               迁移门与 demo 脚本入口（tsc 即编即跑，产物落 .tmp-gen/）
-docs/                                  ADR（0001–0015）/ agent 协作约定
+docs/                                  ADR（0001–0015）/ 设计方案（docs/design，#34 回填）/ agent 协作约定
 GLOSSARY.md                            领域词汇表（术语唯一权威）
 ```
 
@@ -147,7 +147,7 @@ CI（push / PR，零网络）：pi 四包 + review-llm + review-pi dist 前置�
 - **内核选型**：Review Runtime 在 pi 内核上从 0 重写（ADR-0009），与 DSH 内核线兄弟仓在同一评测集上做内核无关性对照。
 - **配置选择根除**：E-only 生产化（#32 / ADR-0014 / ADR-0015）删除 A–D 研究设施与协议 v2 的 `configId` 选择面。
 
-A–E 矩阵、判定链、Phase 2 数据与复现入口**不在本分支**——完整研究线见 Demo 线 [`demo/config-matrix`]（冻结基线标签 `demo-config-matrix-baseline-2026-11-03`）：Demo README、全量 GLOSSARY、评测方案与主数据报告均在彼处，本分支不复制（口径不漂移）。生产修复与 Demo 的同步规则见 ADR-0014 §7（cherry-pick 单提交通道，不整分支互合）。
+A–E 矩阵、判定链、Phase 2 数据与复现入口**不在本分支**——完整研究线见 Demo 线 [`demo/config-matrix`]（冻结基线标签 `demo-config-matrix-baseline-2026-11-03`）：Demo README、全量 GLOSSARY 与主数据报告均在彼处，本分支不复制（口径不漂移）。**例外**：`docs/design/` 设计文档双线各持一份（#34 回填，ADR-0014 补记）——本分支持有回填时点的工程参考副本（19 份平移 + 分支策略底稿恢复件）。生产修复与 Demo 的同步规则见 ADR-0014 §7（cherry-pick 单提交通道，不整分支互合）。
 
 ## 文档地图
 
@@ -155,6 +155,7 @@ A–E 矩阵、判定链、Phase 2 数据与复现入口**不在本分支**—�
 |---|---|
 | [`GLOSSARY.md`](GLOSSARY.md) | 领域词汇表（活代码词汇唯一权威；研究词条已修剪，全量见 Demo 线） |
 | [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0015（POC1 harness / 模型钉扎 / 零构建代码情报 / S 级判据 / DSH 迁移与内核形态 / 对齐门 v2 / 模型可换 / pi 内核从 0 重写 / 检视语言钉英文 / 切流 config E / stdio 长驻 / HTTP server 线 / 分支策略 / **协议 v3**） |
+| [`docs/design/`](docs/design/) | 设计方案 20 份——内核 / 架构 / 评测 / 生产形态 / 网关接入（#34 自 Demo 线回填的工程参考副本 + 分支策略底稿恢复件，ADR-0014 补记） |
 | [`docs/agents/`](docs/agents/) | agent 协作约定（issue tracker / triage labels / domain docs） |
 
 ## 协作约定
