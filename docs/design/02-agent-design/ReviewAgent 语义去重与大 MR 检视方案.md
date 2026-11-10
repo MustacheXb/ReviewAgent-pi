@@ -31,7 +31,7 @@
 
 ### 2.1 大 MR 当前只做降级标注
 
-[`mr-boundary-guard.ts`](../../packages/review-pi/src/run/mr-boundary-guard.ts) 以 10 文件、2,000 变更行为验证域边界。超界或不可度量时：
+[`mr-boundary-guard.ts`](../../../packages/review-pi/src/run/mr-boundary-guard.ts) 以 10 文件、2,000 变更行为验证域边界。超界或不可度量时：
 
 - `RunResult.domainWarning` 留痕；
 - 审计文件尾键 `mrBoundary` 留痕；
@@ -41,7 +41,7 @@
 
 ### 2.2 当前去重只处理重复 ID
 
-[`candidate-gate.ts`](../../packages/review-pi/src/gate/candidate-gate.ts) 的拦截链为：
+[`candidate-gate.ts`](../../../packages/review-pi/src/gate/candidate-gate.ts) 的拦截链为：
 
 ```text
 SCHEMA_INVALID
@@ -60,7 +60,7 @@ SCHEMA_INVALID
 
 ### 2.3 Finding 证据为自由文本
 
-当前 [`Finding`](../../packages/review-pi/src/contracts/finding.ts) 的证据为 `string[]`，没有：
+当前 [`Finding`](../../../packages/review-pi/src/contracts/finding.ts) 的证据为 `string[]`，没有：
 
 - 文件与行号范围的结构化引用；
 - enclosing symbol；
@@ -80,7 +80,7 @@ SCHEMA_INVALID
 
 ### 2.5 现有 Diff 解析不足以生成子 Diff
 
-[`diff-analysis.ts`](../../packages/review-pi/src/zoneb/diff-analysis.ts) 当前提取文件路径和 hunk 头，但不保留：
+[`diff-analysis.ts`](../../../packages/review-pi/src/zoneb/diff-analysis.ts) 当前提取文件路径和 hunk 头，但不保留：
 
 - 原始文件头；
 - hunk 正文；

@@ -173,4 +173,4 @@ pnpm experiment -- --id <experiment-id> \
 
 ---
 
-*相关文档：`docs/design/基于 DeepSeek Harness 的 Review Agent 总体架构设计方案.md`（总体架构）、`docs/adr/`（关键决策）、`CONTEXT.md`（领域上下文）。*
+*相关文档：`docs/design/01-architecture/基于 DeepSeek Harness 的 Review Agent 总体架构设计方案.md`（总体架构）、`docs/adr/`（关键决策）、`CONTEXT.md`（领域上下文）。*

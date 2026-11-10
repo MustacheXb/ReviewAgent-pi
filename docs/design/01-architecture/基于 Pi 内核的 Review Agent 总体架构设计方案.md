@@ -1,7 +1,7 @@
 # 基于 Pi 内核的 Review Agent 总体架构设计方案
 
-> **修订记录（v1.0，2026-09-18）**：本文是 ReviewAgent 的**spec 真源**，接替《[基于 DeepSeek Harness 的 Review Agent 总体架构设计方案](基于 DeepSeek Harness 的 Review Agent 总体架构设计方案.md)》（v2.1，已完成 DSH 线历史使命）——其内核无关内容（实验纪律、评测方法论、S/A/B 判级、五源数据集、缓存冷/热协议、零构建代码智能）由本文承接，DSH 内核专属内容随内核移除转为历史记录（[ADR-0009](../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)）。
-> 本文的内核实现基线是《[Pi 内核从零实现方案](Pi 内核从零实现方案.md)》（Review Runtime 在 pi fork 上从 0 重写，P0–P5 路线）；pi 能力事实以本仓 fork 源码核实为准（《[Pi 内核演化缝盘点](Pi 内核演化缝盘点.md)》）。讨论输入《[基于pi 的 ReviewAgent总体架构设计方案文档讨论](基于pi 的 ReviewAgent总体架构设计方案文档讨论.md)》（v1.0）的有效内容与四项拍板已折入本文；与其相悖处以本文为准。
+> **修订记录（v1.0，2026-09-18）**：本文是 ReviewAgent 的**spec 真源**，接替《[基于 DeepSeek Harness 的 Review Agent 总体架构设计方案](基于 DeepSeek Harness 的 Review Agent 总体架构设计方案.md)》（v2.1，已完成 DSH 线历史使命）——其内核无关内容（实验纪律、评测方法论、S/A/B 判级、五源数据集、缓存冷/热协议、零构建代码智能）由本文承接，DSH 内核专属内容随内核移除转为历史记录（[ADR-0009](../../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)）。
+> 本文的内核实现基线是《[Pi 内核从零实现方案](../03-kernel/Pi 内核从零实现方案.md)》（Review Runtime 在 pi fork 上从 0 重写，P0–P5 路线）；pi 能力事实以本仓 fork 源码核实为准（《[Pi 内核演化缝盘点](../03-kernel/Pi 内核演化缝盘点.md)》）。讨论输入《[基于pi 的 ReviewAgent总体架构设计方案文档讨论](基于pi 的 ReviewAgent总体架构设计方案文档讨论.md)》（v1.0）的有效内容与四项拍板已折入本文；与其相悖处以本文为准。
 > **四项拍板（2026-09-18）**：① Claude Code 列入主对照列（注明模型不同源，§9.4）；② 单实验锁定单模型 + 单 effort 档位（§9.5）；③ 预算口径统一 `max_output` = 1K（§3.4）；④ 代码智能 Java 单语言先行、语言适配留 seam（§4.5）。
 >
 > **一句话结论**：以 `pi-agent-core + pi-ai` 为运行底座、自研 Review Runtime（Config B 生产形态：零工具 + 确定性预取、单轮）；测量常量面（提示词 / 上下文组装 / 判定链 / 指标 / 数据集）byte / 行为一致地平移冻结，内核变量面（Agent 状态 / 工具协议 / wire 序列化 / 会话投影）在 pi 原语上从 0 重写——Phase 2 实测 B 形态以全仓配置 7% 的 token 取得最高精度（0.7835）与稳定最高 F1（0.5763），本方案是该结论的生产化与重写落地路线。
@@ -70,7 +70,7 @@ Agent Efficiency（轮次/工具效率）
 
 > **高质量 / 低 Token / 高 Cache / 低延迟**
 
-这四个维度不是并列偏好，而是**同一命题的四个面**：Minimal Sufficient Context 同时决定质量（看得对）与 token（看得少）；确定性预取同时决定缓存命中（顺序稳定）与精度（Phase 2 实测 B 的 cacheHit 0.8114 与 precision 0.7835 同源于固定管线，[Phase 2 主数据分析报告](../report/Phase 2 主数据分析报告.md) §7）；单轮零工具决定轮次效率（实测多轮无质量增益，§1.5）。
+这四个维度不是并列偏好，而是**同一命题的四个面**：Minimal Sufficient Context 同时决定质量（看得对）与 token（看得少）；确定性预取同时决定缓存命中（顺序稳定）与精度（Phase 2 实测 B 的 cacheHit 0.8114 与 precision 0.7835 同源于固定管线，[Phase 2 主数据分析报告](../../report/Phase 2 主数据分析报告.md) §7）；单轮零工具决定轮次效率（实测多轮无质量增益，§1.5）。
 
 ### 1.3 为什么选择 Pi
 
@@ -82,7 +82,7 @@ pi-agent-core  → Agent Loop、Tool Calling、State、Events
 pi-coding-agent→ 完整 Coding Agent CLI（Session/SDK/Compaction/TUI/RPC）
 ```
 
-本项目的消费形态（[《Pi 内核定制基线方案》](Pi 内核定制基线方案.md)，2026-09-17 拍板）：**全源码 vendor fork，只保留四个包**——`pi-ai`、`pi-agent-core`（独立、无 coding-agent 依赖）、`chord`（服务组合运行时）、`pi-telemetry`（契约层），锚定上游 `6671c604`（v0.85.1 之后 11 天），约 5.6 万行，构建链全绿。coding-agent / tui / protocol / client / server 与检视内核无关，**不 vendor**——连“复用 Session/SDK 再关掉一堆 Coding 功能”的路径也不走（§2.3）。
+本项目的消费形态（[《Pi 内核定制基线方案》](../03-kernel/Pi 内核定制基线方案.md)，2026-09-17 拍板）：**全源码 vendor fork，只保留四个包**——`pi-ai`、`pi-agent-core`（独立、无 coding-agent 依赖）、`chord`（服务组合运行时）、`pi-telemetry`（契约层），锚定上游 `6671c604`（v0.85.1 之后 11 天），约 5.6 万行，构建链全绿。coding-agent / tui / protocol / client / server 与检视内核无关，**不 vendor**——连“复用 Session/SDK 再关掉一堆 Coding 功能”的路径也不走（§2.3）。
 
 因此 ReviewAgent 的姿态是：
 
@@ -104,7 +104,7 @@ Benchmark 驱动         （每个架构组件的价值须由消融/对照证明
 
 ### 1.5 已确立事实基线
 
-本节是全文档的事实锚点：后续各章的设计决定要么由这些事实支撑，要么显式声明为未验证假设。主源：[Phase 2 主数据分析报告](../report/Phase 2 主数据分析报告.md)（30 案 VUL4J × A–E × 3 reps = 450 单元 × 三侧）、[ADR-0009](../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)、[《Config B 生产化方案》](Config B 生产化方案——差距分析、推荐路线与修改建议.md)。
+本节是全文档的事实锚点：后续各章的设计决定要么由这些事实支撑，要么显式声明为未验证假设。主源：[Phase 2 主数据分析报告](../../report/Phase 2 主数据分析报告.md)（30 案 VUL4J × A–E × 3 reps = 450 单元 × 三侧）、[ADR-0009](../../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)、[《Config B 生产化方案》](../02-agent-design/Config B 生产化方案——差距分析、推荐路线与修改建议.md)。
 
 | # | 事实 / 拍板 | 数据 / 主源 |
 |---|---|---|
@@ -119,7 +119,7 @@ Benchmark 驱动         （每个架构组件的价值须由消融/对照证明
 | F9 | **B 的注意带**：rule 口径召回 rep 间单调衰减（0.1737→0.1495→0.0594），属「上下文重组 × 跨日部署漂移」敏感族（B/C/D 敏感，A/E 稳定）——生产 KPI 须跟踪该衰减带 | Phase 2 §5.3/§5.5 |
 | F10 | **缓存命中机制验证**：B 总口径 cacheHit 0.8114 vs A 0.3678——确定性预取（固定管线顺序）拉高 44 个百分点；热口径 0.8782；C 0.9249 全场最高但属「贵上下文的重复读」而非效率 | Phase 2 §5.1/§5.2/§7 |
 | F11 | **验收协议**：双门（确定性纪律门——字节/审计断言、零网络；指标对齐门——ADR-0007 对称 max σ 带 + 配对检验），内核无关，pi 线第三轮应用 | ADR-0007/0009 |
-| F12 | **DSH 线教训**（→ADR-0009 的动因）：双客户端包袱、内核原生机制（inject/pre-step 等）对检视零贡献、SDK 协议冲突、文档与现实漂移等 12 课 | 《[POC1、Phase1、Phase2 阶段事实与教训摘要](../report/POC1、Phase1、Phase2 阶段事实与教训摘要.md)》§2 |
+| F12 | **DSH 线教训**（→ADR-0009 的动因）：双客户端包袱、内核原生机制（inject/pre-step 等）对检视零贡献、SDK 协议冲突、文档与现实漂移等 12 课 | 《[POC1、Phase1、Phase2 阶段事实与教训摘要](../../report/POC1、Phase1、Phase2 阶段事实与教训摘要.md)》§2 |
 
 ---
 
@@ -206,7 +206,7 @@ Benchmark 驱动         （每个架构组件的价值须由消融/对照证明
 ReviewAgent → 直接基于完整 pi-coding-agent → 关掉一堆 Coding 功能
 ```
 
-这会把写文件 / Edit / Bash / Coding Workflow / TUI / 开发态命令等不必要能力带进 Review Runtime，且引入与检视无关的升级面。fork 的四个包里，`chord` 是服务组合运行时（`FacetHost` 装配 + 复制状态）、`telemetry` 是契约层——二者当前无核内消费者，保留是为未来分布式/遥测需求预留的底座（[《Pi 内核演化缝盘点》](Pi 内核演化缝盘点.md) S7/S8）。
+这会把写文件 / Edit / Bash / Coding Workflow / TUI / 开发态命令等不必要能力带进 Review Runtime，且引入与检视无关的升级面。fork 的四个包里，`chord` 是服务组合运行时（`FacetHost` 装配 + 复制状态）、`telemetry` 是契约层——二者当前无核内消费者，保留是为未来分布式/遥测需求预留的底座（[《Pi 内核演化缝盘点》](../03-kernel/Pi 内核演化缝盘点.md) S7/S8）。
 
 ### 2.4 测量常量面与内核变量面
 
@@ -223,12 +223,12 @@ ReviewAgent → 直接基于完整 pi-coding-agent → 关掉一堆 Coding 功�
 | 数据集（30 案 VUL4J + 物化仓） | |
 
 - 「从 0」作用于右列：用 pi 原语重写为 `packages/review-pi`（约 6k 行内核 + 1k 集成）。
-- 左列是**测量契约**：A/B 配置下要求请求字节一致（与 DSH 审计 `requests[].wireBody` 逐字节对照，§9.10）；判定链与指标要求行为一致（仪器冻结平移，约 10k 行，[《Pi 内核从零实现方案》](Pi 内核从零实现方案.md) §3）。
+- 左列是**测量契约**：A/B 配置下要求请求字节一致（与 DSH 审计 `requests[].wireBody` 逐字节对照，§9.10）；判定链与指标要求行为一致（仪器冻结平移，约 10k 行，[《Pi 内核从零实现方案》](../03-kernel/Pi 内核从零实现方案.md) §3）。
 - 术语定义见 `CONTEXT.md`（测量常量面 / 内核变量面）。
 
 ### 2.5 内核定制边界：分层默认 + 显式越缝判据
 
-核内在 fork 上**能改哪里、不能改哪里**，事实底座是《[Pi 内核演化缝盘点](Pi 内核演化缝盘点.md)》（全部条目 file:line 复核）。结论摘要：
+核内在 fork 上**能改哪里、不能改哪里**，事实底座是《[Pi 内核演化缝盘点](../03-kernel/Pi 内核演化缝盘点.md)》（全部条目 file:line 复核）。结论摘要：
 
 **既有缝足以支撑核内全部运行时形态**——
 
@@ -515,7 +515,7 @@ Ledger（已加载上下文登记账：文件/区间/符号/证据，重复请�
 
 ### 5.5 Compaction
 
-- **B 形态**：单轮请求，无 compaction 需求；pi 线显式 `compaction: {enabled: false}` 保字节纪律（[《Pi 内核从零实现方案》](Pi 内核从零实现方案.md) §4）。
+- **B 形态**：单轮请求，无 compaction 需求；pi 线显式 `compaction: {enabled: false}` 保字节纪律（[《Pi 内核从零实现方案》](../03-kernel/Pi 内核从零实现方案.md) §4）。
 - **C/D/E 多轮面（未来项）**：Review-specific Compaction——只保留变更符号 / 关键上下文 / Evidence / 已验证与已否决 Finding / 开放问题；且 compaction 不得破坏 Stable Prefix：
 
 ```text
@@ -726,7 +726,7 @@ review-agent review --base $BASE_SHA --head $HEAD_SHA --format json
 Review Job → Review Worker → ReviewAgent
 ```
 
-CLI 形态对齐原 `review-agent`（pi 侧 `review-pi` CLI，P3 票，[《Pi 内核从零实现方案》](Pi 内核从零实现方案.md) §7）。
+CLI 形态对齐原 `review-agent`（pi 侧 `review-pi` CLI，P3 票，[《Pi 内核从零实现方案》](../03-kernel/Pi 内核从零实现方案.md) §7）。
 
 ### 7.6 输出分级发布
 
@@ -771,7 +771,7 @@ pi 侧实现缝已核实（`steer()` / `followUp()` 队列，缝盘点 S5；无 
 
 ### 8.1 P0–P5 重写路线（内核侧，主线）
 
-[《Pi 内核从零实现方案》](Pi 内核从零实现方案.md) §7 的票面（spec 细节以该文档为准）：
+[《Pi 内核从零实现方案》](../03-kernel/Pi 内核从零实现方案.md) §7 的票面（spec 细节以该文档为准）：
 
 | # | 票 | 内容 | 验收 | 状态 |
 |---|---|---|---|---|
@@ -916,7 +916,7 @@ Cache Efficiency = Cached Input Tokens / Total Input Tokens
 
 ### 9.9 Phase 2 已测结果（判级事实与警示）
 
-主表（main 侧，judge 口径，每配置 90 单元均值；[Phase 2 主数据分析报告](../report/Phase 2 主数据分析报告.md) §5.1）：
+主表（main 侧，judge 口径，每配置 90 单元均值；[Phase 2 主数据分析报告](../../report/Phase 2 主数据分析报告.md) §5.1）：
 
 | config | lineRecall | linePrecision | lineF1 | totalTokens | cacheHit | RIE | CaRC | rounds |
 |---|---|---|---|---|---|---|---|---|

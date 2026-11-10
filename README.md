@@ -179,7 +179,7 @@ cd reference_project/pi && git checkout 6671c604   # 其余同理
 |---|---|
 | [`GLOSSARY.md`](GLOSSARY.md) | 领域词汇表（活代码词汇唯一权威；研究词条已修剪，全量见 Demo 线） |
 | [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0015（POC1 harness / 模型钉扎 / 零构建代码情报 / S 级判据 / DSH 迁移与内核形态 / 对齐门 v2 / 模型可换 / pi 内核从 0 重写 / 检视语言钉英文 / 切流 config E / stdio 长驻 / HTTP server 线 / 分支策略 / **协议 v3**） |
-| [`docs/design/`](docs/design/) | 设计方案 20 份——内核 / 架构 / 评测 / 生产形态 / 网关接入（#34 自 Demo 线回填的工程参考副本 + 分支策略底稿恢复件，ADR-0014 补记） |
+| [`docs/design/`](docs/design/README.md) | 设计方案 22 份——按架构 / Agent 设计 / 内核 / 接入 / 评测 / 项目策略分类（#34 自 Demo 线回填的工程参考副本 + 分支策略底稿恢复件，ADR-0014 补记） |
 | [`docs/agents/`](docs/agents/) | agent 协作约定（issue tracker / triage labels / domain docs） |
 
 ## 协作约定

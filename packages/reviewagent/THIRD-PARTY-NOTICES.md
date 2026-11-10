@@ -13,7 +13,7 @@
 
 **上游锚定**：commit `6671c604766b3670ed95f405aa7856835d0ca702`（2026-09-16，发布版 v0.85.1 之后 11 天的 main 修复）。
 裁剪、workspace 接线与构建脚本改动的完整记录见 Demo 线（分支 `demo/config-matrix`，冻结基线标签
-`demo-config-matrix-baseline-2026-11-03`）的 `docs/design/Pi 内核定制基线方案.md`；与上游的同步以
+`demo-config-matrix-baseline-2026-11-03`）的 `docs/design/03-kernel/Pi 内核定制基线方案.md`；与上游的同步以
 `git diff` 对照上游锚定为基线操作。
 
 **数据文件出处**：`packages/ai/src/providers/data/*.json`（39 个 provider 模型数据，上游

@@ -4,7 +4,7 @@
 > 约 5.6 万行源码）的意义是什么、是否可以不用」。起因：RPC/HTTP server 方案评审时追问
 > 「上游 1.x 会移除 harness，那我们 vendor 这些包的意义何在、似乎可以不用」。
 > 方法：一手材料三方交叉——《[Pi 内核定制基线方案](Pi 内核定制基线方案.md)》（fork 拍板与分歧清单）、
-> [ADR-0009](../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)（对照实验定位）、
+> [ADR-0009](../../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)（对照实验定位）、
 > 《[Pi 内核上游更新影响分析](Pi 内核上游更新影响分析（vendor v0.85.1+11d × upstream v1.3.0）.md)》
 > （使用面盘点 + 1.x 事实）+ 本地参照树（`reference_project/pi`，HEAD `73f8de80b`）逐项核实。
 >
