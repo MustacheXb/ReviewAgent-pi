@@ -47,6 +47,7 @@
 | 文档 | 定位 |
 |---|---|
 | [VUL4J 评测方案与数据复制指南](<./05-evaluation/VUL4J 评测方案与数据复制指南.md>) | 数据集、实验矩阵、判定链与复现方式 |
+| [ReviewAgent Token 优化评测基准方案](<./05-evaluation/ReviewAgent Token 优化评测基准方案——三层对照体系与 Claude Code 外部参照.md>) | L1/L2/L3 三层对照、E 前后配对与 Claude Code 外部参照 |
 
 ## 6. 项目策略
 
