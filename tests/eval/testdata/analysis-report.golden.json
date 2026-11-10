@@ -1,0 +1,270 @@
+{
+  "kind": "run-record-analysis",
+  "schemaVersion": 1,
+  "runs": [
+    {
+      "source": "vul4j",
+      "caseId": "VUL4J-1",
+      "configId": "A",
+      "rep": 1,
+      "model": "deepseek-v4-flash",
+      "completedAt": "2026-09-23T06:52:42.017Z",
+      "cost": {
+        "cachedInputTokens": null,
+        "uncachedInputTokens": 8502,
+        "cacheWriteTokens": null,
+        "outputTokens": 10348,
+        "totalInputTokens": null,
+        "totalTokens": null,
+        "cacheHitRate": null,
+        "toolCostTokens": 0,
+        "carc": 18850
+      },
+      "loop": {
+        "requests": 6,
+        "rounds": 1,
+        "attemptedToolCalls": 0,
+        "executedToolCalls": 0,
+        "truncated": false,
+        "truncationReasons": []
+      },
+      "quality": {
+        "findingCount": 1,
+        "zeroFindings": false,
+        "truth": "provided",
+        "rule": {
+          "recall": 1,
+          "precision": 1,
+          "f1": 1
+        },
+        "judge": {
+          "recall": 1,
+          "precision": 1,
+          "f1": 1
+        }
+      }
+    },
+    {
+      "source": "vul4j",
+      "caseId": "VUL4J-10",
+      "configId": "E",
+      "rep": 2,
+      "model": "deepseek-v4-flash",
+      "completedAt": "2026-09-23T06:52:42.017Z",
+      "cost": {
+        "cachedInputTokens": 600,
+        "uncachedInputTokens": 400,
+        "cacheWriteTokens": 0,
+        "outputTokens": 100,
+        "totalInputTokens": 1000,
+        "totalTokens": 1100,
+        "cacheHitRate": 0.6,
+        "toolCostTokens": 0,
+        "carc": 500
+      },
+      "loop": {
+        "requests": 5,
+        "rounds": 2,
+        "attemptedToolCalls": 3,
+        "executedToolCalls": 2,
+        "truncated": false,
+        "truncationReasons": [
+          "TOOL_BUDGET_EXHAUSTED"
+        ]
+      },
+      "quality": {
+        "findingCount": 2,
+        "zeroFindings": false,
+        "truth": "clean",
+        "rule": null,
+        "judge": null
+      }
+    },
+    {
+      "source": "vul4j",
+      "caseId": "VUL4J-10",
+      "configId": "E",
+      "rep": 3,
+      "model": "deepseek-v4-flash",
+      "completedAt": "2026-09-23T06:52:42.017Z",
+      "cost": {
+        "cachedInputTokens": 600,
+        "uncachedInputTokens": 400,
+        "cacheWriteTokens": 0,
+        "outputTokens": 100,
+        "totalInputTokens": 1000,
+        "totalTokens": 1100,
+        "cacheHitRate": 0.6,
+        "toolCostTokens": 0,
+        "carc": 500
+      },
+      "loop": {
+        "requests": 1,
+        "rounds": 1,
+        "attemptedToolCalls": 0,
+        "executedToolCalls": 0,
+        "truncated": true,
+        "truncationReasons": [
+          "MAX_ROUNDS_REACHED"
+        ]
+      },
+      "quality": {
+        "findingCount": 0,
+        "zeroFindings": true,
+        "truth": "clean",
+        "rule": null,
+        "judge": null
+      }
+    }
+  ],
+  "summary": {
+    "runCount": 3,
+    "caseCount": 2,
+    "cost": {
+      "cachedInputTokens": {
+        "count": 1,
+        "mean": 600,
+        "std": 0
+      },
+      "uncachedInputTokens": {
+        "count": 2,
+        "mean": 4451,
+        "std": 5728.979141173408
+      },
+      "cacheWriteTokens": {
+        "count": 1,
+        "mean": 0,
+        "std": 0
+      },
+      "outputTokens": {
+        "count": 2,
+        "mean": 5224,
+        "std": 7246.430293599739
+      },
+      "totalInputTokens": {
+        "count": 1,
+        "mean": 1000,
+        "std": 0
+      },
+      "totalTokens": {
+        "count": 1,
+        "mean": 1100,
+        "std": 0
+      },
+      "cacheHitRate": {
+        "count": 1,
+        "mean": 0.6,
+        "std": 0
+      },
+      "toolCostTokens": {
+        "count": 2,
+        "mean": 0,
+        "std": 0
+      },
+      "carc": {
+        "count": 2,
+        "mean": 9675,
+        "std": 12975.409434773148
+      }
+    },
+    "loop": {
+      "requests": {
+        "count": 2,
+        "mean": 4.5,
+        "std": 2.1213203435596424
+      },
+      "rounds": {
+        "count": 2,
+        "mean": 1.25,
+        "std": 0.3535533905932738
+      },
+      "attemptedToolCalls": {
+        "count": 2,
+        "mean": 0.75,
+        "std": 1.0606601717798212
+      },
+      "executedToolCalls": {
+        "count": 2,
+        "mean": 0.5,
+        "std": 0.7071067811865476
+      }
+    },
+    "truncation": {
+      "truncatedRuns": 1,
+      "reasons": {
+        "MAX_ROUNDS_REACHED": 1,
+        "TOOL_BUDGET_EXHAUSTED": 1
+      }
+    }
+  },
+  "l1": {
+    "runCount": 3,
+    "caseCount": 2,
+    "rule": {
+      "runs": 1,
+      "recall": {
+        "count": 1,
+        "mean": 1,
+        "std": 0
+      },
+      "precision": {
+        "count": 1,
+        "mean": 1,
+        "std": 0
+      },
+      "f1": {
+        "count": 1,
+        "mean": 1,
+        "std": 0
+      }
+    },
+    "judge": {
+      "runs": 1,
+      "recall": {
+        "count": 1,
+        "mean": 1,
+        "std": 0
+      },
+      "precision": {
+        "count": 1,
+        "mean": 1,
+        "std": 0
+      },
+      "f1": {
+        "count": 1,
+        "mean": 1,
+        "std": 0
+      }
+    },
+    "zeroFinding": {
+      "runs": 3,
+      "zeroRuns": 1,
+      "rate": {
+        "count": 2,
+        "mean": 0.25,
+        "std": 0.3535533905932738
+      }
+    },
+    "negativeControl": {
+      "cases": 1,
+      "runs": 2,
+      "fpPerCase": {
+        "count": 1,
+        "mean": 1,
+        "std": 0
+      }
+    },
+    "evidenceGateRejections": {
+      "SCHEMA_INVALID": 0,
+      "NON_ENGLISH": 0,
+      "NO_EVIDENCE": 1,
+      "VERIFICATION_FAILED": 0,
+      "DUPLICATE_ID": 0
+    },
+    "coverage": {
+      "plannedCases": 3,
+      "executedCases": 2,
+      "ratio": 0.6666666666666666
+    }
+  }
+}

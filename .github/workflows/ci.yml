@@ -1,7 +1,9 @@
 # CI（#28）：零网络回归门。
 #
 # - suites：全量回归——root + review-llm 两包 typecheck + 测试（root 测试携带
-#   golden bytes 等字节纪律断言）。
+#   golden bytes 等字节纪律断言）。#37 起 root test 同时覆盖只读 RunRecord
+#   分析器（src/eval/analysis）与报告 schema golden——纯读、零网络 / 零 LLM，
+#   边界守卫测试确保生产入口不 import 评测面（ADR-0016）。
 # - DSH 内核（packages/review-dsh）已随「从 0 基于 pi 内核」方向移除（ADR-0009）；
 #   其确定性纪律门曾在 pi 线以「对照 DSH 审计真源」形式重建（#5 P2
 #   bytegate），并已随研究线退役（#32 / ADR-0014，E-only 生产化）——CI 不再
