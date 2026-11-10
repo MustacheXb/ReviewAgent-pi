@@ -1,4 +1,5 @@
-# 参考项目：外部克隆的仓库（deepseek-harness / pi），不属于本项目源码
+# 参考项目：外部克隆的仓库（pi / deepseek-harness / open-code-review /
+# prime-agent / whale-pod / opencode），不属于本项目源码
 reference_project/
 
 # API key 本机注入（推荐名 REVIEWER_API_KEY，旧名 DEEPSEEK_API_KEY 兼容；

@@ -137,7 +137,7 @@ CI（push / PR，零网络）：pi 四包 + review-llm + review-pi dist 前置�
 | 源码 / 文档 / 测试金样 | ✅ | |
 | `.env.local` | ❌ | 凭据（key 绝不回显、绝不入库） |
 | `runs/**` / `.cache/` / `.tmp-gen/` | ❌ | 运行产物 / 快照 / 脚本编译产物 |
-| `reference_project/` | ❌ | 外部参考仓（本地 clone，见 Demo 线记录） |
+| `reference_project/` | ❌ | 外部参考仓（本地 clone，见「参考项目」） |
 
 ## 研究背景
 
@@ -148,6 +148,30 @@ CI（push / PR，零网络）：pi 四包 + review-llm + review-pi dist 前置�
 - **配置选择根除**：E-only 生产化（#32 / ADR-0014 / ADR-0015）删除 A–D 研究设施与协议 v2 的 `configId` 选择面。
 
 A–E 矩阵、判定链、Phase 2 数据与复现入口**不在本分支**——完整研究线见 Demo 线 [`demo/config-matrix`]（冻结基线标签 `demo-config-matrix-baseline-2026-11-03`）：Demo README、全量 GLOSSARY 与主数据报告均在彼处，本分支不复制（口径不漂移）。**例外**：`docs/design/` 设计文档双线各持一份（#34 回填，ADR-0014 补记）——本分支持有回填时点的工程参考副本（19 份平移 + 分支策略底稿恢复件）。生产修复与 Demo 的同步规则见 ADR-0014 §7（cherry-pick 单提交通道，不整分支互合）。
+
+## 参考项目（reference_project/，不入库）
+
+协同开发时需要的机制参照源。本地目录已被 gitignore——在新机器上按下表 clone 并 checkout 到锚定 commit 即可复现当时的参照状态：
+
+| 本地目录 | 上游 | 锚定 commit | 参照角色 |
+|---|---|---|---|
+| `pi` | <https://github.com/earendil-works/pi> | `6671c604`（2026-09-16，v0.85.1+11d） | Pi 内核 vendor 源与定制基座：`packages/{ai,agent,chord,telemetry}` 即出自此锚定（fork 接线与分歧清单见《Pi 内核定制基线方案》） |
+| `deepseek-harness` | <https://github.com/deepseek-ai/deepseek-harness> | `5dda764`（2026-09-08，0.1.5-alpha.1） | DSH 线内核机制参照（ADR-0005/0006 的决策依据，已归档）；Phase 2 DSH 对照数据的解读背景 |
+| `open-code-review` | <https://github.com/alibaba/open-code-review> | `82af2fb`（2026-09-02） | 同域开源检视 Agent：产品形态与公开评测对齐对象（AACR-Bench 已支持 reviewer 之一） |
+| `prime-agent` | <https://github.com/PrimeIntellect-ai/prime-agent> | `c718bf3`（2026-08-31） | Agent harness 设计参照（self-improving RLM harness） |
+| `whale-pod` | <https://github.com/Timothyhay/whale-pod> | `d76f522`（2026-08-13） | 轻上下文 + 前缀缓存设计参照：known world + 懒拉取 + 前缀稳定，与本项目 Minimal Sufficient Context / Stable Prefix 命题同源；其实测化 bench 方法论亦为本项目纪律参照 |
+| `opencode` | <https://github.com/anomalyco/opencode> | `98e4b53`（2026-11-10） | 开源终端编码 Agent：agent loop / 工具调度 / provider 适配 / server–SDK 多形态接入的机制参照 |
+
+```bash
+# 恢复参考项目（在仓库根执行）
+git clone https://github.com/earendil-works/pi.git                 reference_project/pi
+git clone https://github.com/deepseek-ai/deepseek-harness.git      reference_project/deepseek-harness
+git clone https://github.com/alibaba/open-code-review.git          reference_project/open-code-review
+git clone https://github.com/PrimeIntellect-ai/prime-agent.git     reference_project/prime-agent
+git clone https://github.com/Timothyhay/whale-pod.git              reference_project/whale-pod
+git clone https://github.com/anomalyco/opencode.git                reference_project/opencode
+cd reference_project/pi && git checkout 6671c604   # 其余同理
+```
 
 ## 文档地图
 
