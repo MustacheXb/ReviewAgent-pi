@@ -110,6 +110,12 @@ async function main(argv: readonly string[]): Promise<number> {
         );
       }
       printL2Gates(result.l2);
+      if (result.noiseFloor !== null) {
+        console.log(
+          `[campaign] noise floor: ${path.join(outDir, "NOISE-FLOOR.md")} ` +
+            `(calibrationRef=${result.noiseFloor.calibrationRef})`,
+        );
+      }
       return 0;
     } catch (error) {
       console.error(`[campaign] ${errorMessage(error)}`);
@@ -207,6 +213,12 @@ function reportRun(result: Awaited<ReturnType<typeof runCampaignCommand>>): numb
   }
   console.log(`[campaign] output: ${result.run.outDir}`);
   printL2Gates(result.run.l2);
+  if (result.run.noiseFloor !== null) {
+    console.log(
+      `[campaign] noise floor: ${path.join(result.run.outDir, "NOISE-FLOOR.md")} ` +
+        `(calibrationRef=${result.run.noiseFloor.calibrationRef})`,
+    );
+  }
   for (const failure of result.run.failures) {
     console.error(
       `[campaign] FAILED ${failure.caseId}/${failure.arm}/rep-${failure.rep} ` +

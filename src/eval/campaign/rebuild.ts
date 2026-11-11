@@ -1,8 +1,13 @@
 import type { Dirent } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { MatchCounts } from "../analysis/contracts.js";
 import type { L2Report } from "../l2/contracts.js";
+import {
+  buildNoiseFloorReport,
+  renderNoiseFloorMarkdown,
+  type NoiseFloorReport,
+} from "../l2/calibration.js";
 import { buildL2Report } from "../l2/report.js";
 import {
   CAMPAIGN_FAILURE_STAGES,
@@ -24,11 +29,14 @@ import {
   campaignEnvironmentPath,
   campaignFailuresPath,
   campaignL2ReportPath,
+  campaignNoiseFloorMarkdownPath,
+  campaignNoiseFloorReportPath,
   campaignPlanPath,
   campaignReportPath,
   readJsonFile,
   readTextFile,
   writeJsonFile,
+  writeTextFile,
 } from "./store.js";
 
 /**
@@ -47,10 +55,11 @@ export interface RebuildCampaignReportOptions {
   readonly outDir: string;
 }
 
-/** `--report-only` 重建产物：分节报告 + L2 配对回归报告 */
+/** `--report-only` 重建产物：分节报告 + L2 配对回归报告 + 噪声底（若校准） */
 export interface CampaignRebuildResult {
   readonly report: CampaignReport;
   readonly l2: L2Report;
+  readonly noiseFloor: NoiseFloorReport | null;
 }
 
 export async function rebuildCampaignReport(
@@ -84,9 +93,26 @@ export async function rebuildCampaignReport(
     plannedUnits: cases.length * plan.reps * plan.arms.length,
     failedUnits: failures.length,
   });
+  const noiseFloor =
+    l2.campaignType === "calibration"
+      ? buildNoiseFloorReport({ l2, environment })
+      : null;
   await writeJsonFile(campaignReportPath(outDir), report);
   await writeJsonFile(campaignL2ReportPath(outDir), l2);
-  return { report, l2 };
+  if (noiseFloor !== null) {
+    await writeJsonFile(campaignNoiseFloorReportPath(outDir), noiseFloor);
+    await writeTextFile(
+      campaignNoiseFloorMarkdownPath(outDir),
+      renderNoiseFloorMarkdown(noiseFloor),
+    );
+  } else {
+    // 防止旧校准产物在正式 campaign 目录里冒充本次结果
+    await Promise.all([
+      rm(campaignNoiseFloorReportPath(outDir), { force: true }),
+      rm(campaignNoiseFloorMarkdownPath(outDir), { force: true }),
+    ]);
+  }
+  return { report, l2, noiseFloor };
 }
 
 async function verifyEnvironment(

@@ -75,10 +75,41 @@ candidate: <commit>
    - 退出码：单元失败 → 1；双 arm 且 baseline/candidate ref 不同、L2 门未
      通过 → 1（硬合并门）；单臂冒烟、空对照校准、`--report-only` → 0。
    - `coverage.ratio = judged / planned`（有 judge 结果的成功评测单元）；
-     judge 失败计入 `coverage.failed` 并在质量门 fail，不静默丢样。
+     judge 失败计入 `coverage.failed` 并在质量门 fail，不静默丢样本。
    - 跨 commit 双 arm：runner 支持按 arm 注入内核（`armKernels`）；真实
      assembly 默认两臂共用当前 checkout 的 pi 内核，因此非空对照的真实跑
      需调用方提供 baseline 运行器，否则只作同代码校准。
+
+   ### 2.1 空对照校准（#42，P1-0）
+
+   校准 = baseline vs baseline（同代码、双 arm、同一 ≤48h 窗口）：
+
+   ```bash
+   CAMPAIGN_REAL=1 pnpm campaign -- \
+     --campaign-id p1-calibration-2026-11-12 \
+     --baseline-ref eval-e-baseline-2026-11-11 \
+     --candidate-ref eval-e-baseline-2026-11-11 \
+     --cases data/vul4j/target-cases.json \
+     --model deepseek-v4-flash --reps 3 --arms baseline,candidate \
+     --calibration [--judge-model glm-5.2]
+   ```
+
+   - `--calibration` 校验 `--baseline-ref == --candidate-ref` 且双臂齐全，
+     并自动把 `environment.json.evaluation.calibrationRef` 写成本 campaign
+     id；`l2-report.json` 的 `campaignType = "calibration"`。
+   - 校准目录额外落 `noise-floor.json` + `NOISE-FLOOR.md`：CARC / uncached /
+     output / attempts / requests 比率、judge Recall / Precision 与零 finding
+     配对差（warm 主口径 + cold 单列）、样本量 / reps / 窗口 / judge / 数据集
+     hash，以及逐阈值「保留 / 调整 / 补样」建议。建议**不自动生效**；阈值
+     变更须按 ADR-0017 §5 以补记固化。
+   - 校准结论 `claimsAllowed` 恒 false：只测噪声底，不判定优化收益。
+   - `--report-only` 会重建 `l2-report.json`、`noise-floor.json` 与
+     `NOISE-FLOOR.md`（字节稳定）；正式 campaign 目录不会残留噪声底文件。
+   - 正式 campaign 引用已完成的校准时写 `--calibration-ref <calibration-id>`；
+     该 id 进入 `l2-report.json.calibrationRef`，`campaignType = "formal"`。
+   - 数据集：`data/vul4j/target-cases.json`（冻结 30 案；与 10 案冒烟集
+     同序，冒烟集 = 前 10 案）。当前数据集无 clean MR 阴性对照，阴性对照
+     阈值在噪声底报告中记 N/A。
 
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s

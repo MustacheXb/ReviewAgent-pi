@@ -15,11 +15,20 @@ import type { RunAnalysis, Stat } from "../analysis/contracts.js";
 /** L2 报告 kind（附录 B.1；与 campaign 报告分文件） */
 export const L2_REPORT_KIND = "l2-token-bench";
 
-/** L2 报告 schema 版本（golden / 形状测试锁定） */
-export const L2_REPORT_SCHEMA_VERSION = 1;
+/** L2 报告 schema 版本（golden / 形状测试锁定；#42 起 2） */
+export const L2_REPORT_SCHEMA_VERSION = 2;
 
 /** L2 报告文件名（campaign 输出目录内） */
 export const L2_REPORT_FILE = "l2-report.json";
+
+/** campaign 类型：空对照校准 vs 正式配对回归（#42） */
+export type L2CampaignType = "calibration" | "formal";
+
+/** 噪声底报告 kind / 文件名（#42；仅空对照校准落盘） */
+export const NOISE_FLOOR_REPORT_KIND = "l2-noise-floor";
+export const NOISE_FLOOR_REPORT_FILE = "noise-floor.json";
+export const NOISE_FLOOR_MARKDOWN_FILE = "NOISE-FLOOR.md";
+export const NOISE_FLOOR_REPORT_SCHEMA_VERSION = 1;
 
 /** 配对统计的单个 run 观测（`RunAnalysis` 的结构子集；真值在 quality.truth） */
 export type L2RunSample = Pick<RunAnalysis, "caseId" | "rep" | "cost" | "loop" | "quality">;
@@ -224,6 +233,13 @@ export interface L2Report {
   readonly kind: typeof L2_REPORT_KIND;
   readonly schemaVersion: typeof L2_REPORT_SCHEMA_VERSION;
   readonly campaignId: string;
+  /** 空对照校准（同 ref 双 arm）vs 正式配对回归（#42） */
+  readonly campaignType: L2CampaignType;
+  /**
+   * 引用的空对照校准 campaign id（#42）：校准自身 = campaignId；
+   * 正式 campaign = 其引用的校准（可空 = 未校准）。
+   */
+  readonly calibrationRef: string | null;
   readonly baseline: { readonly ref: string; readonly model: string };
   readonly candidate: { readonly ref: string; readonly model: string };
   readonly dataset: {
@@ -233,7 +249,21 @@ export interface L2Report {
     readonly hash: string;
   };
   readonly environmentRef: "environment.json";
+  /** 样本量留痕（#42；校准可复算需能读出 case / reps / arms） */
+  readonly sampling: {
+    readonly cases: number;
+    readonly reps: number;
+    readonly arms: number;
+    readonly planned: number;
+  };
   readonly coverage: L2Coverage;
+  /** 两臂全部 run（冷热）的绝对值上界观测（#42 阈值复核输入） */
+  readonly bounds: {
+    readonly maxAttemptedToolCalls: number | null;
+    readonly maxRequests: number | null;
+    readonly maxOutputTokens: number | null;
+    readonly truncatedRuns: number;
+  };
   readonly metrics: {
     readonly baseline: L2ArmMetrics;
     readonly candidate: L2ArmMetrics;

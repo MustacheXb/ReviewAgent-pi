@@ -102,6 +102,7 @@ describe("parseCampaignArgs: run 模式", () => {
       model: MODEL,
       arms: ["baseline", "candidate"],
       outDir: path.join("runs", "eval", "smoke-2026-11-11"),
+      calibrationRef: null,
     });
   });
 
@@ -179,6 +180,59 @@ describe("parseCampaignArgs: --report-only 模式", () => {
     expect(parseError(["--report-only", "--out", "x", "--model", MODEL])).toMatch(
       /--report-only/,
     );
+  });
+});
+
+describe("parseCampaignArgs: 空对照校准（#42）", () => {
+  const CALIBRATION_FLAGS = [
+    "--campaign-id",
+    "p1-calibration-2026-11-11",
+    "--baseline-ref",
+    "eval-e-baseline-2026-11-11",
+    "--candidate-ref",
+    "eval-e-baseline-2026-11-11",
+    "--cases",
+    "data/vul4j/target-cases.json",
+    "--model",
+    MODEL,
+  ];
+
+  it("--calibration 要求同 ref、双 arm，并自动写 calibrationRef = campaign-id", () => {
+    const options = parsed([...CALIBRATION_FLAGS, "--calibration"]);
+    if (options.reportOnly) {
+      throw new Error("expected run options");
+    }
+    expect(options.calibrationRef).toBe("p1-calibration-2026-11-11");
+    expect(options.arms).toEqual(["baseline", "candidate"]);
+  });
+
+  it("--calibration 但 ref 不同 / 单 arm → 拒绝", () => {
+    const differentRef = [...CALIBRATION_FLAGS];
+    differentRef[differentRef.indexOf("--candidate-ref") + 1] = "0123456789abcdef";
+    expect(parseError([...differentRef, "--calibration"])).toMatch(/baseline-ref.*candidate-ref/);
+    expect(parseError([...CALIBRATION_FLAGS, "--arms", "baseline", "--calibration"])).toMatch(
+      /arms/,
+    );
+  });
+
+  it("正式 campaign 可引用 --calibration-ref；与 --calibration 互斥", () => {
+    const options = parsed([...RUN_FLAGS, "--calibration-ref", "cal-1"]);
+    if (options.reportOnly) {
+      throw new Error("expected run options");
+    }
+    expect(options.calibrationRef).toBe("cal-1");
+    expect(parseError([...CALIBRATION_FLAGS, "--calibration", "--calibration-ref", "cal-1"])).toMatch(
+      /mutually exclusive|互相|同时/,
+    );
+  });
+
+  it("--report-only 不接受校准旗标（run-only）", () => {
+    expect(
+      parseError(["--report-only", "--out", "x", "--calibration"]),
+    ).toMatch(/--report-only/);
+    expect(
+      parseError(["--report-only", "--out", "x", "--calibration-ref", "cal-1"]),
+    ).toMatch(/--report-only/);
   });
 });
 

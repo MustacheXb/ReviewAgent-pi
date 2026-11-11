@@ -49,9 +49,12 @@ export function plan(overrides: Partial<CampaignPlan> = {}): CampaignPlan {
   };
 }
 
-export function provenance(model: string): CampaignEnvironmentInput {
+export function provenance(
+  model: string,
+  calibrationRef: string | null = null,
+): CampaignEnvironmentInput {
   return {
-    evaluation: { branch: "eval/bench", calibrationRef: null },
+    evaluation: { branch: "eval/bench", calibrationRef },
     git: { branch: "eval/bench", commit: "deadbeef", tag: null },
     runtime: { node: "v22.0.0", os: "linux", machine: null },
     model: {

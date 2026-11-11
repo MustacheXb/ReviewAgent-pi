@@ -19,6 +19,7 @@ import {
   type CampaignRunResult,
 } from "./contracts.js";
 import type { L2Report } from "../l2/contracts.js";
+import type { NoiseFloorReport } from "../l2/calibration.js";
 import { rebuildCampaignReport } from "./rebuild.js";
 import { runCampaign } from "./runner.js";
 
@@ -38,10 +39,15 @@ import { runCampaign } from "./runner.js";
  * 空对照校准 / 全绿 → 0。用法错误由进程入口返回 2（不在本模块内）。
  */
 
-/** run 模式 options（CampaignPlan 字段 + 输出目录；reportOnly 判别标签） */
+/** run 模式 options（CampaignPlan 字段 + 输出目录 + 校准元数据；reportOnly 判别标签） */
 export interface CampaignRunCliOptions extends Omit<CampaignPlan, "outputDir"> {
   readonly reportOnly: false;
   readonly outDir: string;
+  /**
+   * 空对照校准 campaign id（#42）：`--calibration` 自指 campaign-id；
+   * `--calibration-ref <id>` 供正式 campaign 引用已完成的校准；缺省 null。
+   */
+  readonly calibrationRef: string | null;
 }
 
 /** report-only options（campaign id 可选，仅用于校验 plan.json） */
@@ -55,7 +61,12 @@ export type CampaignCliOptions = CampaignRunCliOptions | CampaignReportOnlyCliOp
 
 export type CampaignCommandResult =
   | { readonly mode: "run"; readonly run: CampaignRunResult }
-  | { readonly mode: "report-only"; readonly report: CampaignReport; readonly l2: L2Report };
+  | {
+      readonly mode: "report-only";
+      readonly report: CampaignReport;
+      readonly l2: L2Report;
+      readonly noiseFloor: NoiseFloorReport | null;
+    };
 
 interface CampaignParseValues {
   campaignId: string | null;
@@ -67,12 +78,14 @@ interface CampaignParseValues {
   arms: CampaignArm[] | null;
   outDir: string | null;
   reportOnly: boolean;
+  calibration: boolean;
+  calibrationRef: string | null;
 }
 
 const USAGE = `用法：
   run-campaign --campaign-id <id> --baseline-ref <ref> --candidate-ref <ref>
                --cases <cases.json> --model <id> [--reps <n>] [--arms baseline,candidate]
-               [--out <campaign-dir>] [--fake]
+               [--calibration | --calibration-ref <id>] [--out <campaign-dir>] [--fake]
   run-campaign --report-only (--out <campaign-dir> | --campaign-id <id>)
   --campaign-id         campaign id（run 必填；report-only 可选，用于校验 plan.json）
   --baseline-ref        baseline 臂 ref（冻结 tag / commit；run 必填）
@@ -81,6 +94,9 @@ const USAGE = `用法：
   --model               被测模型 id（run 必填）
   --reps                每个 case × arm 的重复次数（正整数，缺省 1）
   --arms                对照臂逗号列表（缺省 baseline,candidate）
+  --calibration         空对照校准（#42）：要求 baseline-ref == candidate-ref、双臂；
+                        自动记录 calibrationRef = campaign-id
+  --calibration-ref     正式 campaign 引用的空对照校准 id（与 --calibration 互斥）
   --out                 campaign 输出目录（缺省 runs/eval/<campaign-id>）
   --report-only         只读已有记录重建报告（不执行内核 / judge）
   --fake                #39 骨架：注入 fake 内核 / judge（零网络；不是真实测量）`;
@@ -92,6 +108,7 @@ const VALUE_FLAG_FIELDS = {
   "--cases": "casesFile",
   "--model": "model",
   "--out": "outDir",
+  "--calibration-ref": "calibrationRef",
 } as const;
 
 function singleValueFlag(flagName: keyof typeof VALUE_FLAG_FIELDS): ValueFlagParser<CampaignParseValues> {
@@ -117,8 +134,13 @@ const CAMPAIGN_ARG_SPEC: CliArgSpec<CampaignParseValues, CampaignCliOptions> = {
     arms: null,
     outDir: null,
     reportOnly: false,
+    calibration: false,
+    calibrationRef: null,
   }),
-  booleanFlags: { "--report-only": { reportOnly: true } },
+  booleanFlags: {
+    "--report-only": { reportOnly: true },
+    "--calibration": { calibration: true },
+  },
   valueFlags: {
     "--campaign-id": singleValueFlag("--campaign-id"),
     "--baseline-ref": singleValueFlag("--baseline-ref"),
@@ -126,6 +148,7 @@ const CAMPAIGN_ARG_SPEC: CliArgSpec<CampaignParseValues, CampaignCliOptions> = {
     "--cases": singleValueFlag("--cases"),
     "--model": singleValueFlag("--model"),
     "--out": singleValueFlag("--out"),
+    "--calibration-ref": singleValueFlag("--calibration-ref"),
     "--reps": (value, current) => once("--reps", current.repsRaw, { repsRaw: value }),
     "--arms": (value, current) => {
       if (current.arms !== null) {
@@ -152,7 +175,9 @@ function finalizeReportOnly(
     values.casesFile !== null ||
     values.repsRaw !== null ||
     values.model !== null ||
-    values.arms !== null
+    values.arms !== null ||
+    values.calibration ||
+    values.calibrationRef !== null
   ) {
     return fail("--report-only only accepts --campaign-id and --out");
   }
@@ -196,6 +221,11 @@ function finalizeRun(
   if (typeof reps !== "number") {
     return reps;
   }
+  const arms = values.arms ?? [...CAMPAIGN_ARMS];
+  const calibrationRef = resolveCalibrationRef(values, campaignId, baselineRef, candidateRef, arms, fail);
+  if (typeof calibrationRef !== "string" && calibrationRef !== null) {
+    return calibrationRef;
+  }
   return {
     ok: true,
     options: {
@@ -206,10 +236,42 @@ function finalizeRun(
       casesFile,
       reps,
       model,
-      arms: values.arms ?? [...CAMPAIGN_ARMS],
+      arms,
       outDir: values.outDir ?? path.join("runs", "eval", campaignId),
+      calibrationRef,
     },
   };
+}
+
+/**
+ * 校准元数据（#42）：`--calibration` 表示本 campaign 就是空对照校准——必须
+ * 同 ref + 双 arm，并自指 campaign-id；`--calibration-ref` 供正式 campaign
+ * 引用已完成的校准。两者互斥。
+ */
+function resolveCalibrationRef(
+  values: CampaignParseValues,
+  campaignId: string,
+  baselineRef: string,
+  candidateRef: string,
+  arms: readonly CampaignArm[],
+  fail: CampaignFail,
+): string | null | CliParseResult<CampaignCliOptions> {
+  if (values.calibration && values.calibrationRef !== null) {
+    return fail("--calibration and --calibration-ref are mutually exclusive");
+  }
+  if (!values.calibration) {
+    return values.calibrationRef;
+  }
+  if (baselineRef !== candidateRef) {
+    return fail(
+      "--calibration requires --baseline-ref == --candidate-ref " +
+        "(empty control: same code in both arms)",
+    );
+  }
+  if (!arms.includes("baseline") || !arms.includes("candidate")) {
+    return fail("--calibration requires both baseline and candidate arms");
+  }
+  return campaignId;
 }
 
 function requireValue(value: string | null): string | null {
@@ -255,14 +317,14 @@ export async function runCampaignCommand(
   runtime: CampaignRunRuntimeOptions = {},
 ): Promise<CampaignCommandResult> {
   if (options.reportOnly) {
-    const { report, l2 } = await rebuildCampaignReport({ outDir: options.outDir });
+    const { report, l2, noiseFloor } = await rebuildCampaignReport({ outDir: options.outDir });
     if (options.campaignId !== null && report.campaignId !== options.campaignId) {
       throw new Error(
         `campaign: --campaign-id ${JSON.stringify(options.campaignId)} does not match ` +
           `plan.json campaignId ${JSON.stringify(report.campaignId)}`,
       );
     }
-    return { mode: "report-only", report, l2 };
+    return { mode: "report-only", report, l2, noiseFloor };
   }
   if (environment === undefined) {
     throw new Error(
@@ -279,10 +341,19 @@ export async function runCampaignCommand(
     arms: options.arms,
     outputDir: options.outDir,
   };
+  // 校准元数据单源 = CLI（#42）：覆盖 provenance 里的 calibrationRef，
+  // 防装配层与 plan 语义漂移；runCampaign 会在烧网关前校验同 ref / 自指。
+  const environmentWithCalibration: CampaignEnvironmentInput = {
+    ...environment,
+    evaluation: {
+      ...environment.evaluation,
+      calibrationRef: options.calibrationRef,
+    },
+  };
   const run = await runCampaign(
     {
       plan,
-      environment,
+      environment: environmentWithCalibration,
       ...(runtime.repoRoot !== undefined ? { repoRoot: runtime.repoRoot } : {}),
       ...(runtime.progress !== undefined ? { progress: runtime.progress } : {}),
     },

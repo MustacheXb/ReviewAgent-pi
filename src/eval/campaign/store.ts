@@ -1,6 +1,10 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { L2_REPORT_FILE } from "../l2/contracts.js";
+import {
+  NOISE_FLOOR_MARKDOWN_FILE,
+  NOISE_FLOOR_REPORT_FILE,
+} from "../l2/contracts.js";
 import type { CampaignUnit, EvalRunRecord } from "./contracts.js";
 
 /**
@@ -79,6 +83,15 @@ export function campaignL2ReportPath(outDir: string): string {
   return path.join(outDir, L2_REPORT_FILE);
 }
 
+/** 空对照校准噪声底报告（#42；JSON + 确定性 Markdown） */
+export function campaignNoiseFloorReportPath(outDir: string): string {
+  return path.join(outDir, NOISE_FLOOR_REPORT_FILE);
+}
+
+export function campaignNoiseFloorMarkdownPath(outDir: string): string {
+  return path.join(outDir, NOISE_FLOOR_MARKDOWN_FILE);
+}
+
 /**
  * 清空上一次运行的单元产物（同目录重跑的单源清理）：
  * `runs/` / `judge/` / `audit/` / `report.json` / `failures.json` 全删；
@@ -93,6 +106,8 @@ export async function resetCampaignOutput(outDir: string): Promise<void> {
     rm(path.join(outDir, "audit"), { recursive: true, force: true }),
     rm(campaignReportPath(outDir), { force: true }),
     rm(campaignL2ReportPath(outDir), { force: true }),
+    rm(campaignNoiseFloorReportPath(outDir), { force: true }),
+    rm(campaignNoiseFloorMarkdownPath(outDir), { force: true }),
     rm(campaignFailuresPath(outDir), { force: true }),
     // environment 在运行结束时才写；先删旧值，防本次中途失败后残留上次 provenance
     rm(campaignEnvironmentPath(outDir), { force: true }),

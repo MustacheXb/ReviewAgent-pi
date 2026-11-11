@@ -12,6 +12,7 @@ import {
   L2_REPORT_SCHEMA_VERSION,
   type L2ArmMetrics,
   type L2BootstrapMetadata,
+  type L2CampaignType,
   type L2Coverage,
   type L2GateThresholds,
   type L2ReproSample,
@@ -27,7 +28,46 @@ import { buildMetricSet, buildPairedSet } from "./metrics.js";
  * 冷热分离（§5.3 / §6.3）：rep1 为冷启动单列（cold），rep2+ 为 L2 主口径
  * （warm）；四门只消费 warm 配对统计。有界性检查两臂全部 run（冷热全查），
  * 可复现门消费单元记录的审计引用与 cache break 计数。
+ *
+ * 空对照校准（#42）：同 ref 双 arm = calibration，`calibrationRef` 自指
+ * campaignId；正式 campaign 记录其引用的校准 id（可空）。校准只测噪声底，
+ * 不得宣称收益。
  */
+
+export interface CampaignIdentity {
+  readonly campaignType: L2CampaignType;
+  readonly calibrationRef: string | null;
+}
+
+/** 只需 calibrationRef 的 provenance 子集（environment input / manifest 共用） */
+export interface CalibrationProvenance {
+  readonly evaluation: { readonly calibrationRef: string | null };
+}
+
+/**
+ * 判定 campaign 类型并解析 `calibrationRef`（#42）。同 ref 双 arm 即空对照
+ * 校准（物理定义）；此时 `calibrationRef` 必须自指 campaignId（缺省自动补齐，
+ * 显式给别的 id 视为错配 fail fast）。同 ref 单 arm 是单边冒烟，不作校准。
+ */
+export function resolveCampaignIdentity(
+  plan: CampaignPlan,
+  environment: CalibrationProvenance,
+): CampaignIdentity {
+  const sameCode = plan.baselineRef === plan.candidateRef;
+  const dualArm =
+    plan.arms.includes("baseline") && plan.arms.includes("candidate");
+  const provided = environment.evaluation.calibrationRef;
+  if (!sameCode || !dualArm) {
+    return { campaignType: "formal", calibrationRef: provided };
+  }
+  if (provided !== null && provided !== plan.campaignId) {
+    throw new Error(
+      `campaign: empty-control calibration must record its own campaign id as ` +
+        `calibrationRef (got ${JSON.stringify(provided)}, expected ${JSON.stringify(plan.campaignId)})`,
+    );
+  }
+  return { campaignType: "calibration", calibrationRef: plan.campaignId };
+}
 
 export interface BuildL2ReportArgs {
   readonly plan: CampaignPlan;
@@ -46,12 +86,14 @@ export interface BuildL2ReportArgs {
 export function buildL2Report(args: BuildL2ReportArgs): L2Report {
   const baselineRuns = args.arms.baseline?.runs ?? [];
   const candidateRuns = args.arms.candidate?.runs ?? [];
+  const allRuns = [...baselineRuns, ...candidateRuns];
+  const identity = resolveCampaignIdentity(args.plan, args.environment);
   const bootstrap: BootstrapOptions = {
     ...DEFAULT_BOOTSTRAP_OPTIONS,
     ...args.bootstrap,
   };
 
-  const coverage = buildCoverage(args, countJudgedRuns([...baselineRuns, ...candidateRuns]));
+  const coverage = buildCoverage(args, countJudgedRuns(allRuns));
   const warmBaseline = warmRuns(baselineRuns);
   const warmCandidate = warmRuns(candidateRuns);
   const warmPaired = buildPairedSet(warmBaseline, warmCandidate, bootstrap);
@@ -61,10 +103,10 @@ export function buildL2Report(args: BuildL2ReportArgs): L2Report {
     baseline: buildMetricSet(warmBaseline),
     candidate: buildMetricSet(warmCandidate),
     paired: warmPaired,
-    runs: [...baselineRuns, ...candidateRuns],
+    runs: allRuns,
     repro: args.records.map(toReproSample),
     coverage,
-    negativeControlCases: countNegativeControlCases([...baselineRuns, ...candidateRuns]),
+    negativeControlCases: countNegativeControlCases(allRuns),
     ...(args.thresholds !== undefined ? { thresholds: args.thresholds } : {}),
   });
 
@@ -72,15 +114,24 @@ export function buildL2Report(args: BuildL2ReportArgs): L2Report {
     kind: L2_REPORT_KIND,
     schemaVersion: L2_REPORT_SCHEMA_VERSION,
     campaignId: args.plan.campaignId,
+    campaignType: identity.campaignType,
+    calibrationRef: identity.calibrationRef,
     baseline: { ref: args.plan.baselineRef, model: args.plan.model },
     candidate: { ref: args.plan.candidateRef, model: args.plan.model },
     dataset: {
       cases: args.environment.dataset.caseCount,
-      negativeControl: countNegativeControlCases([...baselineRuns, ...candidateRuns]),
+      negativeControl: countNegativeControlCases(allRuns),
       hash: args.environment.dataset.hash,
     },
     environmentRef: ENVIRONMENT_REF,
+    sampling: {
+      cases: args.environment.dataset.caseCount,
+      reps: args.plan.reps,
+      arms: args.plan.arms.length,
+      planned: args.plannedUnits,
+    },
     coverage,
+    bounds: computeBounds(allRuns),
     metrics: {
       baseline: buildArmMetrics(baselineRuns),
       candidate: buildArmMetrics(candidateRuns),
@@ -98,6 +149,20 @@ export function buildL2Report(args: BuildL2ReportArgs): L2Report {
     bootstrap: bootstrapMetadata(bootstrap),
     thresholds: evaluation.thresholds,
   };
+}
+
+/** 两臂全部 run 的绝对值观测（有界性阈值复核输入；无 run → null） */
+function computeBounds(runs: readonly RunAnalysis[]): L2Report["bounds"] {
+  return {
+    maxAttemptedToolCalls: maxOrNull(runs.map((run) => run.loop.attemptedToolCalls)),
+    maxRequests: maxOrNull(runs.map((run) => run.loop.requests)),
+    maxOutputTokens: maxOrNull(runs.map((run) => run.cost.outputTokens)),
+    truncatedRuns: runs.filter((run) => run.loop.truncated).length,
+  };
+}
+
+function maxOrNull(values: readonly number[]): number | null {
+  return values.length === 0 ? null : Math.max(...values);
 }
 
 /** rep2+ = 热稳定主口径；rep1 = 冷启动单列 */

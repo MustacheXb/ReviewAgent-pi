@@ -64,6 +64,8 @@ async function runDualArm(
     readonly kernel?: ReviewKernel;
     readonly armKernels?: Partial<Record<CampaignArm, ReviewKernel>>;
     readonly judge?: JudgeClient;
+    readonly candidateRef?: string;
+    readonly calibrationRef?: string | null;
   } = {},
 ): Promise<{ readonly result: CampaignRunResult; readonly outputDir: string }> {
   const dir = await tempDirs.create();
@@ -74,6 +76,9 @@ async function runDualArm(
     outputDir,
     reps: 2,
     arms: ["baseline", "candidate"],
+    ...(overrides.candidateRef !== undefined
+      ? { candidateRef: overrides.candidateRef }
+      : {}),
   });
   const deps: CampaignDeps = {
     kernel: overrides.kernel ?? fakeKernel(),
@@ -82,7 +87,10 @@ async function runDualArm(
     ...(overrides.armKernels !== undefined ? { armKernels: overrides.armKernels } : {}),
   };
   const result = await runCampaign(
-    { plan: campaign, environment: provenance(campaign.model) },
+    {
+      plan: campaign,
+      environment: provenance(campaign.model, overrides.calibrationRef ?? null),
+    },
     deps,
   );
   return { result, outputDir };
@@ -98,8 +106,10 @@ describe("runCampaign: L2 报告落盘", () => {
     expect(report).toEqual(result.l2);
     expect(report).toMatchObject({
       kind: "l2-token-bench",
-      schemaVersion: 1,
+      schemaVersion: 2,
       campaignId: "smoke-2026-11-11",
+      campaignType: "formal",
+      calibrationRef: null,
       baseline: { ref: "eval-e-baseline-2026-11-11", model: MODEL },
       candidate: { ref: "0123456789abcdef", model: MODEL },
       environmentRef: "environment.json",
@@ -109,6 +119,13 @@ describe("runCampaign: L2 报告落盘", () => {
         failed: 0,
         ratio: 1,
         note: "2 case × 2 reps × 2 arms",
+      },
+      sampling: { cases: 2, reps: 2, arms: 2, planned: 8 },
+      bounds: {
+        maxAttemptedToolCalls: 1,
+        maxRequests: 2,
+        maxOutputTokens: 200,
+        truncatedRuns: 0,
       },
       bootstrap: { iterations: 10_000, seed: 20_261_111, confidence: 0.95 },
     });
@@ -234,6 +251,81 @@ describe("runCampaign: L2 报告落盘", () => {
       "VUL4J-2/rep-2/baseline",
       "VUL4J-2/rep-2/candidate",
     ]);
+  });
+});
+
+describe("L2 报告：空对照校准标识（#42）", () => {
+  it("同 ref 双 arm → campaignType = calibration，calibrationRef 自指 campaignId", async () => {
+    const { result } = await runDualArm({
+      candidateRef: "eval-e-baseline-2026-11-11",
+    });
+
+    expect(result.l2.campaignType).toBe("calibration");
+    expect(result.l2.calibrationRef).toBe("smoke-2026-11-11");
+    expect(result.l2.baseline.ref).toBe(result.l2.candidate.ref);
+    // 空对照即使偶然出现成本下降也不得宣称收益
+    expect(result.l2.claimsAllowed).toBe(false);
+  });
+
+  it("同 ref 双 arm 显式给自指 calibrationRef → 接受", async () => {
+    const { result } = await runDualArm({
+      candidateRef: "eval-e-baseline-2026-11-11",
+      calibrationRef: "smoke-2026-11-11",
+    });
+
+    expect(result.l2.calibrationRef).toBe("smoke-2026-11-11");
+  });
+
+  it("同 ref 双 arm 但 calibrationRef 指向别的 campaign → fail fast（烧网关前）", async () => {
+    await expect(
+      runDualArm({
+        candidateRef: "eval-e-baseline-2026-11-11",
+        calibrationRef: "some-other-campaign",
+      }),
+    ).rejects.toThrow(/calibrationRef/);
+  });
+
+  it("正式 campaign 记录引用的 calibrationRef（可空）", async () => {
+    const { result } = await runDualArm({
+      calibrationRef: "p1-calibration-2026-11-11",
+    });
+
+    expect(result.l2.campaignType).toBe("formal");
+    expect(result.l2.calibrationRef).toBe("p1-calibration-2026-11-11");
+  });
+
+  it("空对照校准落 noise-floor.json + NOISE-FLOOR.md；正式 campaign 不落", async () => {
+    const calibration = await runDualArm({
+      candidateRef: "eval-e-baseline-2026-11-11",
+    });
+    expect(calibration.result.noiseFloor).not.toBeNull();
+    expect(calibration.result.noiseFloor?.calibrationRef).toBe("smoke-2026-11-11");
+    expect(existsSync(path.join(calibration.outputDir, "noise-floor.json"))).toBe(true);
+    expect(existsSync(path.join(calibration.outputDir, "NOISE-FLOOR.md"))).toBe(true);
+
+    const formal = await runDualArm();
+    expect(formal.result.noiseFloor).toBeNull();
+    expect(existsSync(path.join(formal.outputDir, "noise-floor.json"))).toBe(false);
+    expect(existsSync(path.join(formal.outputDir, "NOISE-FLOOR.md"))).toBe(false);
+  });
+
+  it("--report-only 重建噪声底产物，字节与直跑一致", async () => {
+    const { result, outputDir } = await runDualArm({
+      candidateRef: "eval-e-baseline-2026-11-11",
+    });
+    const noiseJson = path.join(outputDir, "noise-floor.json");
+    const noiseMd = path.join(outputDir, "NOISE-FLOOR.md");
+    const originalJson = readFileSync(noiseJson, "utf8");
+    const originalMd = readFileSync(noiseMd, "utf8");
+
+    await rm(noiseJson);
+    await rm(noiseMd);
+
+    const rebuilt = await rebuildCampaignReport({ outDir: outputDir });
+
+    expect(rebuilt.noiseFloor).toEqual(result.noiseFloor);
+    expect(readFileSync(noiseJson, "utf8")).toBe(originalJson);
+    expect(readFileSync(noiseMd, "utf8")).toBe(originalMd);
   });
 });
 

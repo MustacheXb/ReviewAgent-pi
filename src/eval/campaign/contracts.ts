@@ -3,6 +3,7 @@ import type { ReviewKernel } from "../../gate/review-kernel.js";
 import type { MRCase } from "../../instrument/contracts/mr-case.js";
 import type { AnalysisReport, MatchCounts } from "../analysis/contracts.js";
 import type { L2Report } from "../l2/contracts.js";
+import type { NoiseFloorReport } from "../l2/calibration.js";
 
 /**
  * Campaign runner 契约（#39 P1 骨架，eval-only）：campaign plan、执行单元、
@@ -288,4 +289,6 @@ export interface CampaignRunResult {
   readonly report: CampaignReport;
   /** L2 配对回归报告（#41；同时落盘 `l2-report.json`） */
   readonly l2: L2Report;
+  /** 空对照校准噪声底报告（#42；仅 calibration campaign 落盘，否则 null） */
+  readonly noiseFloor: NoiseFloorReport | null;
 }

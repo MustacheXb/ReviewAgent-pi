@@ -19,7 +19,9 @@ import {
   type CampaignRunResult,
 } from "./contracts.js";
 import { buildEnvironmentManifest, hashCasesText } from "./environment.js";
-import { buildL2Report } from "../l2/report.js";
+import { buildNoiseFloorReport } from "../l2/calibration.js";
+import { renderNoiseFloorMarkdown } from "../l2/calibration.js";
+import { buildL2Report, resolveCampaignIdentity } from "../l2/report.js";
 import { expandUnits, parseCampaignCases, validateCampaignPlan } from "./plan.js";
 import { toEvalRunRecord, unitKey } from "./records.js";
 import { buildCampaignReport } from "./report.js";
@@ -29,6 +31,8 @@ import {
   campaignFailuresPath,
   campaignJudgePath,
   campaignL2ReportPath,
+  campaignNoiseFloorMarkdownPath,
+  campaignNoiseFloorReportPath,
   campaignPlanPath,
   campaignRecordPath,
   campaignReportPath,
@@ -67,6 +71,8 @@ export async function runCampaign(
   const { plan, environment, repoRoot, progress } = options;
   validateCampaignPlan(plan);
   assertEnvironmentMatchesPlan(environment, plan);
+  // 空对照校准身份校验前置（#42）：错配的 calibrationRef 在烧真实网关前 fail fast
+  resolveCampaignIdentity(plan, environment);
 
   const casesText = await readTextFile(plan.casesFile);
   const cases = parseCampaignCases(casesText, `campaign: cases file ${plan.casesFile}`);
@@ -128,6 +134,11 @@ export async function runCampaign(
     plannedUnits: units.length,
     failedUnits: execution.failures.length,
   });
+  // 空对照校准噪声底（#42）：只有 calibration campaign 落 JSON + Markdown
+  const noiseFloor =
+    l2.campaignType === "calibration"
+      ? buildNoiseFloorReport({ l2, environment: environmentManifest })
+      : null;
 
   await withTimeout(
     writeJsonFile(campaignEnvironmentPath(plan.outputDir), environmentManifest),
@@ -149,10 +160,26 @@ export async function runCampaign(
     ioTimeoutMs,
     "l2 report write",
   );
+  if (noiseFloor !== null) {
+    await withTimeout(
+      writeJsonFile(campaignNoiseFloorReportPath(plan.outputDir), noiseFloor),
+      ioTimeoutMs,
+      "noise floor report write",
+    );
+    await withTimeout(
+      writeTextFile(
+        campaignNoiseFloorMarkdownPath(plan.outputDir),
+        renderNoiseFloorMarkdown(noiseFloor),
+      ),
+      ioTimeoutMs,
+      "noise floor markdown write",
+    );
+  }
   emit(
     progress,
     `run-done records=${execution.records.length} failures=${execution.failures.length} ` +
-      `claimsAllowed=${l2.claimsAllowed}`,
+      `claimsAllowed=${l2.claimsAllowed}` +
+      (noiseFloor === null ? "" : ` calibrationRef=${noiseFloor.calibrationRef}`),
   );
 
   return {
@@ -163,6 +190,7 @@ export async function runCampaign(
     environment: environmentManifest,
     report,
     l2,
+    noiseFloor,
   };
 }
 
