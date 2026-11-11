@@ -11,6 +11,10 @@ packages/ai/src/providers/data/** -text
 # 合成样本仓库一并禁用转换，保证跨平台检出字节一致
 packages/review-pi/testdata/** -text
 
+# 只读 RunRecord 分析器报告 golden（#37）：报告 schema 以固定字节锁定，
+# Windows autocrlf 的 LF→CRLF 转换会让 golden 测试在检出后假红
+tests/eval/testdata/** -text
+
 # npm bin 入口必须 LF：shebang 行 CRLF 会使 Unix 执行面 /usr/bin/env 'node\r'
 # 失败，pnpm pack 也直接拒收（ERR_PNPM_BIN_CRLF）——Windows autocrlf 检出
 # 会静默转换，故按 eol=lf 钉死（tarball 安装冒烟在本机 Windows 可复现的门）

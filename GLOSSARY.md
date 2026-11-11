@@ -3,6 +3,8 @@
 低 Token、高质量 MR 代码检视 Agent：用最小充分上下文与缓存稳定循环，以远低于全仓注入的 Token 成本获得接近全量上下文的检视质量。本分支是生产主线（固定 Config E，协议 v3；ADR-0014 / ADR-0015）；检视 Runtime 在 vendored pi 内核上实现（ADR-0009）。
 
 > 研究期词条（C0–C3 分级、Zone B 预取、Repo Map、判定链、字节 / 语义等价门、评测度量 RIE / CARC、逆补丁基准等）已随 E-only 生产化退役（#32 / ADR-0014 §8）。全量词汇表见 **Demo 线**：分支 `demo/config-matrix`，冻结基线标签 `demo-config-matrix-baseline-2026-11-03`。
+>
+> 评测面（eval-only）词条单列于文末「评测面」节：只服务评测分支与定位报告，**不进生产运行时、协议、CLI 或 `ConfigId` 写面**。
 
 ## Language
 
@@ -138,3 +140,67 @@ _Avoid_: 把对齐门 FAIL 读作劣化（方向盲门，已转形态记录）�
 **参数画像（Provider Profile）**:
 模型 id pattern → wire 序列化策略（thinking 字段 / completion 信封）+ usage 能力声明的单源查表（review-llm）；未知模型回落保守默认档（ADR-0008）。
 _Avoid_: 画像当 endpoint 配置（「怎么说话」与「连到哪」两轴正交）
+
+### 评测面（eval-only）
+
+> 本节词条只服务评测分支与定位报告，不进生产运行时、协议、CLI 或 `ConfigId` 写面；生产主 KPI 仍是「人工接受率」。
+
+**评测面（Evaluation Plane）**:
+承载对照实验、指标、判定链与定位报告的独立面；生产 `main` 只保留只读分析与报告消费，不执行评测配置。
+_Avoid_: 生产配置（评测面不是第二套生产配置）、研究线复活（评测面不是 A–D 矩阵的回归）
+
+**E 基线快照（E Baseline Snapshot）**:
+某一冻结 tag / commit 的 E 运行时，作为 L2 配对回归的 baseline 臂。
+_Avoid_: 把 Claude Code 也叫 baseline、用历史 C 数字冒充 E 基线
+
+**全仓参照（Full-Repo Reference，C_ref）**:
+eval-only 的全仓注入参照，复现历史 C 的信息参照角色；只在 L3 运行，不进入生产配置选择。其 `totalTokens` 可作 **参考分母**（见该词条），不作主成本门。
+_Avoid_: 配置 C（生产语境）、把 C_ref 的 `totalTokens` 当主成本门或真实账单
+
+**参考分母（Reference Denominator）**:
+L3 报告中用 C_ref 的 `totalTokens` 作 E/C_ref 名义成本比例的参照；只用于解释「相对信息参照」的量级，不作 L2 主门、不单独构成结论。主成本指标仍是 CARC，对外宣称用 USD / 价目表。
+_Avoid_: 成本主门、跨 provider 直接相除、把参考比例当真实账单
+
+**外部参照（External Reference，Claude Code）**:
+跨模型、同仓 / 同 diff / 同 judge 的通用 Agent 参照；单列报告，不进 S/A/B 主判定。
+_Avoid_: Claude Code 基线（与 E baseline 串义）、通用 Agent 上限（单次 / 单版本不构成上限）
+
+**L1 绝对质量门（Quality Gate）**:
+不依赖 C 的质量约束层：judge / rule 双列、零 finding 率、阴性对照 FP、人工接受率等。
+_Avoid_: 把 L1 当 token 门、用人工接受率替代每次改动的自动化门
+
+**L2 配对回归门（Paired Regression Gate）**:
+同一代码谱系、同窗口、同 judge 的 E baseline vs candidate 配对回归；主指标 CARC，质量非劣为约束。
+_Avoid_: 增量成本门（名字漏掉质量约束）、与历史 C 比较、只比 totalTokens
+
+**L3 定位报告 / 宣称门（Positioning Report / Claim Gate）**:
+低频的绝对定位层：E + C_ref + Claude Code 三列报告，只用于发布定位与对外宣称，不作日常合并门。
+_Avoid_: 每次合并都跑、把 L3 三列混进 S/A/B、跨模型直接比 token
+
+**同窗口（Same-Window）**:
+baseline 与 candidate 在同一 provider / 模型 / judge 条件下交错运行并记录时间窗；跨窗口比较必须标注混杂。
+_Avoid_: 跨时段直接比较、把网关漂移归因给代码
+
+**配对（Paired）**:
+同一 case / rep 的 baseline 与 candidate 成对比较，而不是两组独立均值比较。
+_Avoid_: 把 rep 当独立样本、只比组均值不看差值分布
+
+**空对照校准（Null-Control Calibration）**:
+同代码 E 的两条 arm（baseline vs baseline）在同窗口交错运行，用于测噪声底；结果用于确认 / 调整 L2 阈值，不用于判定优化收益。
+_Avoid_: 用空对照证明优化有效、把噪声底当质量变化
+
+**CARC（评测面）**:
+缓存调整后的成本近似：未命中输入 + 缓存写 + 输出 + 工具成本；同一 provider / 模型内的配对主指标，生产账单口径以 USD / 价目表为准。
+_Avoid_: 当货币账单、忽略 cached 字段、跨 provider 直接比
+
+**RIE（评测面）**:
+质量 × 成本综合的辅助效率指标，只作解释变量。
+_Avoid_: 当主判定、替代 CARC
+
+**judge 链（评测面）**:
+LLM-as-judge 的 finding↔truth 裁定链；版本 / 提示词 / 温度 / top_p 必须 pin 死并进环境留痕。
+_Avoid_: 判级（生产语境）、跨 judge 版本混跑、把 judge 当生产运行时组件
+
+**历史锚（Historical Anchor）**:
+ADR-0004 / ADR-0011 中作为 S/A/B 分母的 C；只作历史实验复算，不是活对照。
+_Avoid_: 活锚、把历史锚当未来评判标准
