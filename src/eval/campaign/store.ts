@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { L2_REPORT_FILE } from "../l2/contracts.js";
 import type { CampaignUnit, EvalRunRecord } from "./contracts.js";
 
 /**
@@ -16,9 +17,9 @@ import type { CampaignUnit, EvalRunRecord } from "./contracts.js";
  *   judge/<source>/<case>/<arm>/rep-<n>.json
  * ```
  *
- * `dashboard.md` 与 `audit/` 是后续产物：audit 随真实内核装配（#40）落盘到
- * `<outputDir>/audit`（pi 内核的 experiments 根 = outputDir），dashboard
- * 随双 arm 配对报告（#41）。
+ * `dashboard.md` 是后续产物（#46）；audit 随真实内核装配（#40）落盘到
+ * `<outputDir>/audit`（pi 内核的 experiments 根 = outputDir），`l2-report.json`
+ * 由双 arm 配对报告（#41）写入。
  *
  * JSON 落盘统一 `JSON.stringify(value, null, 2) + "\n"`（golden bytes 纪律）；
  * 路径段做 [A-Za-z0-9_.-] 白名单替换，防 caseId 携带路径分隔。
@@ -73,6 +74,11 @@ export function campaignReportPath(outDir: string): string {
   return path.join(outDir, "report.json");
 }
 
+/** L2 配对回归报告（#41；附录 B.1 形状，独立于 campaign 分节报告） */
+export function campaignL2ReportPath(outDir: string): string {
+  return path.join(outDir, L2_REPORT_FILE);
+}
+
 /**
  * 清空上一次运行的单元产物（同目录重跑的单源清理）：
  * `runs/` / `judge/` / `audit/` / `report.json` / `failures.json` 全删；
@@ -86,6 +92,7 @@ export async function resetCampaignOutput(outDir: string): Promise<void> {
     rm(path.join(outDir, "judge"), { recursive: true, force: true }),
     rm(path.join(outDir, "audit"), { recursive: true, force: true }),
     rm(campaignReportPath(outDir), { force: true }),
+    rm(campaignL2ReportPath(outDir), { force: true }),
     rm(campaignFailuresPath(outDir), { force: true }),
     // environment 在运行结束时才写；先删旧值，防本次中途失败后残留上次 provenance
     rm(campaignEnvironmentPath(outDir), { force: true }),

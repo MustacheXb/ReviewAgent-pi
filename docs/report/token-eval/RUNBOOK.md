@@ -49,8 +49,36 @@ candidate: <commit>
 
    真实调用由 `CAMPAIGN_REAL=1` 门控（默认关闭，不进 CI）；产物在
    `runs/eval/<campaign-id>/`：`plan.json` / `cases.json` / `environment.json` /
-   `failures.json` / `report.json` / `runs/` / `judge/` / `audit/`。
-   `pnpm campaign -- --report-only --out <dir>` 可只读重建报告。
+   `failures.json` / `report.json` / `l2-report.json` / `runs/` / `judge/` /
+   `audit/`。`pnpm campaign -- --report-only --out <dir>` 可只读重建两份报告
+   （字节稳定）。
+
+   L2 双 arm 配对冒烟（#41）：
+
+   ```bash
+   CAMPAIGN_REAL=1 pnpm campaign -- \
+     --campaign-id p1-l2-<date> \
+     --baseline-ref eval-e-baseline-2026-11-11 \
+     --candidate-ref <commit> \
+     --cases data/vul4j/p1-smoke-cases.json \
+     --model deepseek-v4-flash --reps 2 --arms baseline,candidate \
+     [--judge-model glm-5.2]
+   ```
+
+   `l2-report.json`（kind `l2-token-bench`）给出：warm（rep2+）主口径与
+   cold（rep1）单列、按 case 配对 bootstrap 95% CI（10,000 次、固定种子）、
+   CARC / uncached / output / totalTokens / cacheHit / attempts / requests，
+   以及 cost / quality / boundedness / reproducibility 四门 pass/fail 与
+   `claimsAllowed`。阈值 provisional；同 ref 的空对照校准即使偶然出现成本
+   下降也 `claimsAllowed = false`，不得据此宣称收益。
+
+   - 退出码：单元失败 → 1；双 arm 且 baseline/candidate ref 不同、L2 门未
+     通过 → 1（硬合并门）；单臂冒烟、空对照校准、`--report-only` → 0。
+   - `coverage.ratio = judged / planned`（有 judge 结果的成功评测单元）；
+     judge 失败计入 `coverage.failed` 并在质量门 fail，不静默丢样。
+   - 跨 commit 双 arm：runner 支持按 arm 注入内核（`armKernels`）；真实
+     assembly 默认两臂共用当前 checkout 的 pi 内核，因此非空对照的真实跑
+     需调用方提供 baseline 运行器，否则只作同代码校准。
 
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s
@@ -66,7 +94,7 @@ candidate: <commit>
    > 逐单元落盘。真实主跑前复核 `progress.log`，事故与续跑细节见
    > [p1-smoke-2026-11-11/REPORT.md](p1-smoke-2026-11-11/REPORT.md)。
 4. **主跑**：30 case × 3 reps（Vul4J 30 案），同 case × rep 两臂相邻或按 case 随机化臂顺序；同一 ≤48h 窗口。
-5. **判定**：L1 质量门（judge Recall / Precision 非劣、零 finding 率、阴性对照 FP、coverage）+ L2 成本门（CARC 主门、uncached / output 分解、attemptedToolCalls / requests 有界性、可复现）。阈值 provisional，先跑空对照校准（ADR-0017 §5）。
+5. **判定**：L1 质量门（judge Recall / Precision 非劣、零 finding 率、阴性对照 FP、coverage）+ L2 成本门（CARC 主门、uncached / output 分解、attemptedToolCalls / requests 有界性、可复现）。判定结果读取 `l2-report.json` 的 `gates` / `claimsAllowed`；阈值 provisional，先跑空对照校准（ADR-0017 §5）。
 6. **归档**：报表写本目录（`docs/report/token-eval/<campaign-id>/`），原始 `runs/` / `audit/` / `wireBody` 外置；报告不得含 key。
 7. **复测**：运行后再跑一次缓存探针；窗口内网关策略变化必须在报告标注，必要时重跑。
 
@@ -77,6 +105,7 @@ candidate: <commit>
 | `main` `docs/report/token-eval/` | baseline manifest、历史 provenance、L2 / L3 摘要报告、复算入口 |
 | `main` `src/eval/analysis/` | 只读 `RunRecord → cached / uncached / output / CARC` 分析器（零网络、零 LLM） |
 | `eval/bench` `src/eval/campaign/` | campaign harness（plan / 单元执行 / 记录 / 报告；零网络，依赖注入） |
+| `eval/bench` `src/eval/l2/` | L2 配对统计 + bootstrap + 四门判定 + `l2-report.json` 装配（纯函数） |
 | `eval/bench` `src/eval/judge/` | LLM-as-judge 链（prompt / parse / resolve / HTTP 客户端；离线可测） |
 | `eval/bench` `src/eval/assembly/` | 真实装配（pi 内核 + judge + `environment.json` provenance；`CAMPAIGN_REAL=1` 门控） |
 | `eval/bench` | campaign harness、judge 链、`C_ref`、Claude Code 参照、空对照校准、配对统计 |

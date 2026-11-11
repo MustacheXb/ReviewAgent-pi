@@ -41,5 +41,9 @@ export {
   type RunCampaignOptions,
 } from "./contracts.js";
 export { expandUnits, parseCampaignCases, validateCampaignCases, validateCampaignPlan } from "./plan.js";
-export { rebuildCampaignReport, type RebuildCampaignReportOptions } from "./rebuild.js";
+export {
+  rebuildCampaignReport,
+  type CampaignRebuildResult,
+  type RebuildCampaignReportOptions,
+} from "./rebuild.js";
 export { runCampaign } from "./runner.js";

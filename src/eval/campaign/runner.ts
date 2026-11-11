@@ -19,6 +19,7 @@ import {
   type CampaignRunResult,
 } from "./contracts.js";
 import { buildEnvironmentManifest, hashCasesText } from "./environment.js";
+import { buildL2Report } from "../l2/report.js";
 import { expandUnits, parseCampaignCases, validateCampaignPlan } from "./plan.js";
 import { toEvalRunRecord, unitKey } from "./records.js";
 import { buildCampaignReport } from "./report.js";
@@ -27,6 +28,7 @@ import {
   campaignEnvironmentPath,
   campaignFailuresPath,
   campaignJudgePath,
+  campaignL2ReportPath,
   campaignPlanPath,
   campaignRecordPath,
   campaignReportPath,
@@ -54,7 +56,8 @@ import { withTimeout } from "./timeout.js";
  * audit / report / failures / environment），防陈旧记录混入新报告或被
  * `--report-only` 当成有效证据。
  *
- * E-only：configId 恒 "E"、source 恒 "vul4j"；双 arm 配对统计 / L2 门在 #41。
+ * E-only：configId 恒 "E"、source 恒 "vul4j"；双 arm 配对统计 / L2 门由
+ * `src/eval/l2`（#41）在运行结束时生成并落盘 `l2-report.json`。
  * 默认测试零网络。
  */
 export async function runCampaign(
@@ -116,6 +119,15 @@ export async function runCampaign(
     judgeCounts: execution.judgeCounts,
     cases,
   });
+  // L2 配对回归报告（#41）：warm(rep2+) 主口径 + 冷/热分离 + 四门判定
+  const l2 = buildL2Report({
+    plan,
+    arms: report.arms,
+    environment: environmentManifest,
+    records: execution.records,
+    plannedUnits: units.length,
+    failedUnits: execution.failures.length,
+  });
 
   await withTimeout(
     writeJsonFile(campaignEnvironmentPath(plan.outputDir), environmentManifest),
@@ -132,7 +144,16 @@ export async function runCampaign(
     ioTimeoutMs,
     "report write",
   );
-  emit(progress, `run-done records=${execution.records.length} failures=${execution.failures.length}`);
+  await withTimeout(
+    writeJsonFile(campaignL2ReportPath(plan.outputDir), l2),
+    ioTimeoutMs,
+    "l2 report write",
+  );
+  emit(
+    progress,
+    `run-done records=${execution.records.length} failures=${execution.failures.length} ` +
+      `claimsAllowed=${l2.claimsAllowed}`,
+  );
 
   return {
     outDir: plan.outputDir,
@@ -141,6 +162,7 @@ export async function runCampaign(
     failures: execution.failures,
     environment: environmentManifest,
     report,
+    l2,
   };
 }
 
@@ -239,10 +261,12 @@ async function executeUnit(args: {
 }): Promise<UnitOutcome> {
   const { plan, unit, mrCase, deps, now, repoRoot, ioTimeoutMs, progress } = args;
   emit(progress, `unit-start ${unit.caseId}/${unit.arm}/rep-${unit.rep}`);
+  // 跨 commit 双 arm：按 arm 路由内核（未提供时两臂共用，同代码校准）
+  const kernel = deps.armKernels?.[unit.arm] ?? deps.kernel;
   let result: RunResult;
   try {
     result = await withTimeout(
-      deps.kernel.execute(buildKernelRequest(plan, unit, mrCase, repoRoot)),
+      kernel.execute(buildKernelRequest(plan, unit, mrCase, repoRoot)),
       deps.kernelTimeoutMs,
       "kernel execution",
     );

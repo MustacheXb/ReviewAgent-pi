@@ -17,6 +17,7 @@ const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const EVAL_DIR = path.join(REPO_ROOT, "src", "eval");
 const ANALYSIS_DIR = path.join(EVAL_DIR, "analysis");
 const CAMPAIGN_DIR = path.join(EVAL_DIR, "campaign");
+const L2_DIR = path.join(EVAL_DIR, "l2");
 const JUDGE_DIR = path.join(EVAL_DIR, "judge");
 const ASSEMBLY_DIR = path.join(EVAL_DIR, "assembly");
 
@@ -112,6 +113,14 @@ describe("评测面边界", () => {
     assertImportShape(CAMPAIGN_DIR, true);
   });
 
+  it("L2 配对 / 门判定源码零网络 / 零文件系统 / 零 LLM", () => {
+    assertNoRuntime(L2_DIR, FORBIDDEN_ANALYSIS_RUNTIME);
+  });
+
+  it("L2 配对 / 门判定 import 只允许相对模块与 review-pi type-only", () => {
+    assertImportShape(L2_DIR, false);
+  });
+
   it("campaign 核心不得 import judge / assembly（真实装配只在进程入口）", () => {
     const specifierPattern = /(?:from|import)\s+"([^"]+)"/g;
     for (const file of listTsFiles(CAMPAIGN_DIR)) {
@@ -148,7 +157,13 @@ describe("评测面边界", () => {
         }
         const source = readFileSync(file, "utf8");
         const relative = path.relative(REPO_ROOT, file);
-        for (const plane of ["eval/analysis", "eval/campaign", "eval/judge", "eval/assembly"]) {
+        for (const plane of [
+          "eval/analysis",
+          "eval/campaign",
+          "eval/l2",
+          "eval/judge",
+          "eval/assembly",
+        ]) {
           expect(source, `${relative} imports ${plane}`).not.toContain(plane);
         }
       }

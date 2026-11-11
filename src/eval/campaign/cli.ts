@@ -18,6 +18,7 @@ import {
   type CampaignReport,
   type CampaignRunResult,
 } from "./contracts.js";
+import type { L2Report } from "../l2/contracts.js";
 import { rebuildCampaignReport } from "./rebuild.js";
 import { runCampaign } from "./runner.js";
 
@@ -32,8 +33,9 @@ import { runCampaign } from "./runner.js";
  * - `--report-only`：只读已有 campaign 目录重建报告，只接受 `--out` /
  *   `--campaign-id`——混入 run-only flag 直接拒绝，防误以为会重跑。
  *
- * 退出码由 `campaignExitCode` 派生：run 有单元失败 → 1；否则 0。用法错误
- * 由进程入口返回 2（不在本模块内）。
+ * 退出码由 `campaignExitCode` 派生：run 有单元失败 → 1；双 arm 非空对照
+ * （baseline/candidate ref 不同）且 L2 门未通过 → 1；report-only / 单臂 /
+ * 空对照校准 / 全绿 → 0。用法错误由进程入口返回 2（不在本模块内）。
  */
 
 /** run 模式 options（CampaignPlan 字段 + 输出目录；reportOnly 判别标签） */
@@ -53,7 +55,7 @@ export type CampaignCliOptions = CampaignRunCliOptions | CampaignReportOnlyCliOp
 
 export type CampaignCommandResult =
   | { readonly mode: "run"; readonly run: CampaignRunResult }
-  | { readonly mode: "report-only"; readonly report: CampaignReport };
+  | { readonly mode: "report-only"; readonly report: CampaignReport; readonly l2: L2Report };
 
 interface CampaignParseValues {
   campaignId: string | null;
@@ -253,14 +255,14 @@ export async function runCampaignCommand(
   runtime: CampaignRunRuntimeOptions = {},
 ): Promise<CampaignCommandResult> {
   if (options.reportOnly) {
-    const report = await rebuildCampaignReport({ outDir: options.outDir });
+    const { report, l2 } = await rebuildCampaignReport({ outDir: options.outDir });
     if (options.campaignId !== null && report.campaignId !== options.campaignId) {
       throw new Error(
         `campaign: --campaign-id ${JSON.stringify(options.campaignId)} does not match ` +
           `plan.json campaignId ${JSON.stringify(report.campaignId)}`,
       );
     }
-    return { mode: "report-only", report };
+    return { mode: "report-only", report, l2 };
   }
   if (environment === undefined) {
     throw new Error(
@@ -289,7 +291,21 @@ export async function runCampaignCommand(
   return { mode: "run", run };
 }
 
-/** 进程退出码：run 有单元失败 → 1；report-only / 全绿 → 0（用法错误由入口给 2） */
+/**
+ * 进程退出码：run 有单元失败 → 1；双 arm 且 baseline/candidate ref 不同、
+ * L2 门未通过 → 1（token 相关改动的硬合并门，ADR-0017 §3）；report-only、
+ * 单臂冒烟、空对照校准（同 ref）与全绿 → 0（用法错误由入口给 2）。
+ */
 export function campaignExitCode(result: CampaignCommandResult): number {
-  return result.mode === "run" && result.run.failures.length > 0 ? 1 : 0;
+  if (result.mode !== "run") {
+    return 0;
+  }
+  const { run } = result;
+  if (run.failures.length > 0) {
+    return 1;
+  }
+  const arms = new Set(run.units.map((unit) => unit.arm));
+  const paired = arms.has("baseline") && arms.has("candidate");
+  const calibration = run.l2.baseline.ref === run.l2.candidate.ref;
+  return paired && !calibration && !run.l2.claimsAllowed ? 1 : 0;
 }

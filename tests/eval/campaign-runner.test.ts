@@ -299,7 +299,7 @@ describe("runCampaign: 同目录重跑", () => {
     expect(second.report.arms.candidate).toBeUndefined();
 
     const rebuilt = await rebuildCampaignReport({ outDir: outputDir });
-    expect(rebuilt).toEqual(second.report);
+    expect(rebuilt.report).toEqual(second.report);
     expect(
       existsSync(path.join(outputDir, "runs", "vul4j", "VUL4J-1", "candidate", "rep-1.json")),
     ).toBe(false);
@@ -349,7 +349,9 @@ describe("runCampaign: 进度回调（#40 事故诊断）", () => {
     expect(events).toContain("record-written");
     expect(events.some((event) => event.startsWith("judge-done"))).toBe(true);
     expect(events).toContain("unit-done VUL4J-1/baseline/rep-1");
-    expect(events).toContain("run-done records=1 failures=0");
+    expect(
+      events.some((event) => event.startsWith("run-done records=1 failures=0")),
+    ).toBe(true);
 
     // 诊断回调抛错不得拖垮运行
     const throwing = await runCampaign(

@@ -268,6 +268,49 @@ describe("runCampaignCommand: 命令分派", () => {
     expect(result.mode === "run" && result.run.failures).toHaveLength(1);
   });
 
+  it("双 arm 非空对照且 L2 门未通过 → 退出码 1（硬合并门）", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);
+    const outputDir = path.join(dir, "campaign");
+    const result = await runCampaignCommand(
+      parsed(
+        runFlags(casesFile, outputDir, ["--arms", "baseline,candidate", "--reps", "2"]),
+      ),
+      { kernel: fakeKernel(), judge: fakeJudge(), now: () => NOW },
+      provenance(MODEL),
+    );
+
+    expect(result.mode).toBe("run");
+    if (result.mode !== "run") {
+      throw new Error("expected run result");
+    }
+    // 相同 fake 数据 → CARC 比率 1，成本门 fail
+    expect(result.run.l2.claimsAllowed).toBe(false);
+    expect(campaignExitCode(result)).toBe(1);
+  });
+
+  it("空对照校准（baseline == candidate ref）门未过但退出码 0", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);
+    const outputDir = path.join(dir, "campaign");
+    const argv = runFlags(casesFile, outputDir, ["--arms", "baseline,candidate", "--reps", "2"]);
+    const candidateIndex = argv.indexOf("--candidate-ref") + 1;
+    argv[candidateIndex] = "eval-e-baseline-2026-11-11";
+
+    const result = await runCampaignCommand(
+      parsed(argv),
+      { kernel: fakeKernel(), judge: fakeJudge(), now: () => NOW },
+      provenance(MODEL),
+    );
+
+    expect(result.mode).toBe("run");
+    if (result.mode !== "run") {
+      throw new Error("expected run result");
+    }
+    expect(result.run.l2.claimsAllowed).toBe(false);
+    expect(campaignExitCode(result)).toBe(0);
+  });
+
   it("run 模式缺 environment provenance 时 fail fast", async () => {
     const dir = await tempDirs.create();
     const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);

@@ -2,6 +2,7 @@ import type { RunRecord } from "review-pi";
 import type { ReviewKernel } from "../../gate/review-kernel.js";
 import type { MRCase } from "../../instrument/contracts/mr-case.js";
 import type { AnalysisReport, MatchCounts } from "../analysis/contracts.js";
+import type { L2Report } from "../l2/contracts.js";
 
 /**
  * Campaign runner 契约（#39 P1 骨架，eval-only）：campaign plan、执行单元、
@@ -11,7 +12,7 @@ import type { AnalysisReport, MatchCounts } from "../analysis/contracts.js";
  * （`src/cli` / `src/rpc` / `src/server` / `src/run`）不得 import。本目录保持
  * 零网络、零真实执行入口：真实 pi 内核 + judge 链装配在 `src/eval/assembly`
  * （#40，进程入口在 `CAMPAIGN_REAL=1` 门控后调用），由本目录的注入缝消费。
- * 双 arm 配对统计与 L2 门在 #41。
+ * 双 arm 配对统计与 L2 门见 `src/eval/l2`（#41），runner 落 `l2-report.json`。
  *
  * N/A 纪律（ADR-0017）：environment 未知字段一律 `null`，不写 0；缺失
  * judge 结果的单元在报告中为 `null`，不记 0。
@@ -126,8 +127,10 @@ export interface JudgeRecordBase {
   readonly completedAt: string;
 }
 
-/** 单元失败留痕阶段：内核执行 / judge 链 / 记录落盘 */
-export type CampaignFailureStage = "kernel" | "judge" | "record";
+/** 单元失败留痕阶段：内核执行 / judge 链 / 记录落盘（单源词表） */
+export const CAMPAIGN_FAILURE_STAGES = ["kernel", "judge", "record"] as const;
+
+export type CampaignFailureStage = (typeof CAMPAIGN_FAILURE_STAGES)[number];
 
 /** 单元级失败留痕（`failures.json`；不拖垮整批，不静默剔除） */
 export interface CampaignFailure {
@@ -221,6 +224,12 @@ export const DEFAULT_IO_TIMEOUT_MS = 60_000;
 /** runner 注入面：fake / 真实内核 + judge 链 + 时钟（测试用固定值） */
 export interface CampaignDeps {
   readonly kernel: ReviewKernel;
+  /**
+   * 按 arm 路由的内核（#41 双 arm 代码对照注入缝）：baseline / candidate
+   * 处于不同 commit 时各提供一个运行器；未提供时两臂共用 `kernel`（同代码
+   * 校准 / fake 测试）。真实装配默认只有当前 checkout 的 kernel。
+   */
+  readonly armKernels?: Partial<Readonly<Record<CampaignArm, ReviewKernel>>>;
   readonly judge: JudgeClient;
   /** 记录 / 失败 / 环境时间戳来源；缺省真实时钟 */
   readonly now?: () => string;
@@ -259,7 +268,7 @@ export interface RunCampaignOptions {
  * campaign 报告：按 arm 分节，每节是 main 只读分析器的 `AnalysisReport`
  * （kind `run-record-analysis`）。分析器按 `source|caseId|configId|rep`
  * 去重且不含 arm，合并两臂会撞唯一键——因此 campaign 层分节，配对统计与
- * L2 门在 #41 消费两侧分节报告。
+ * L2 门由 `src/eval/l2`（#41）消费两侧分节报告（输出 `l2-report.json`）。
  */
 export interface CampaignReport {
   readonly kind: typeof CAMPAIGN_REPORT_KIND;
@@ -277,4 +286,6 @@ export interface CampaignRunResult {
   readonly failures: readonly CampaignFailure[];
   readonly environment: EnvironmentManifest;
   readonly report: CampaignReport;
+  /** L2 配对回归报告（#41；同时落盘 `l2-report.json`） */
+  readonly l2: L2Report;
 }

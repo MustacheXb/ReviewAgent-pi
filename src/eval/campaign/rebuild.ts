@@ -2,12 +2,16 @@ import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { MatchCounts } from "../analysis/contracts.js";
+import type { L2Report } from "../l2/contracts.js";
+import { buildL2Report } from "../l2/report.js";
 import {
-  CAMPAIGN_ARMS,
+  CAMPAIGN_FAILURE_STAGES,
   ENVIRONMENT_REF,
   type CampaignCase,
+  type CampaignFailure,
   type CampaignPlan,
   type CampaignReport,
+  type EnvironmentManifest,
   type EvalRunRecord,
   type JudgeRecord,
 } from "./contracts.js";
@@ -18,6 +22,8 @@ import { buildCampaignReport } from "./report.js";
 import {
   campaignCasesPath,
   campaignEnvironmentPath,
+  campaignFailuresPath,
+  campaignL2ReportPath,
   campaignPlanPath,
   campaignReportPath,
   readJsonFile,
@@ -41,9 +47,15 @@ export interface RebuildCampaignReportOptions {
   readonly outDir: string;
 }
 
+/** `--report-only` 重建产物：分节报告 + L2 配对回归报告 */
+export interface CampaignRebuildResult {
+  readonly report: CampaignReport;
+  readonly l2: L2Report;
+}
+
 export async function rebuildCampaignReport(
   options: RebuildCampaignReportOptions,
-): Promise<CampaignReport> {
+): Promise<CampaignRebuildResult> {
   const { outDir } = options;
   const planRaw = await readJsonFile<unknown>(campaignPlanPath(outDir));
   validateCampaignPlan(planRaw);
@@ -53,18 +65,28 @@ export async function rebuildCampaignReport(
   const cases = parseCampaignCases(casesText, `campaign report-only: ${campaignCasesPath(outDir)}`);
   const caseIds = new Set(cases.map((mrCase) => mrCase.caseId));
 
-  await verifyEnvironment(outDir, plan, cases, casesText);
+  const environment = await verifyEnvironment(outDir, plan, cases, casesText);
 
   const records = await readRecords(outDir, plan, caseIds);
   const judgeCounts = await readJudgeCounts(outDir, plan, caseIds, records);
+  const failures = await readFailures(outDir, plan, caseIds);
   const report = buildCampaignReport({
     campaignId: plan.campaignId,
     records,
     judgeCounts,
     cases,
   });
+  const l2 = buildL2Report({
+    plan,
+    arms: report.arms,
+    environment,
+    records,
+    plannedUnits: cases.length * plan.reps * plan.arms.length,
+    failedUnits: failures.length,
+  });
   await writeJsonFile(campaignReportPath(outDir), report);
-  return report;
+  await writeJsonFile(campaignL2ReportPath(outDir), l2);
+  return { report, l2 };
 }
 
 async function verifyEnvironment(
@@ -72,7 +94,7 @@ async function verifyEnvironment(
   plan: CampaignPlan,
   cases: readonly CampaignCase[],
   casesText: string,
-): Promise<void> {
+): Promise<EnvironmentManifest> {
   const environment = await readOptionalJson(campaignEnvironmentPath(outDir));
   if (environment === null) {
     throw new Error(
@@ -80,20 +102,31 @@ async function verifyEnvironment(
         "provenance cannot be used as evaluation evidence (design §6.6/§8.5)",
     );
   }
-  if (!isRecord(environment)) {
+  assertEnvironmentManifest(environment, plan, cases, casesText);
+  return environment;
+}
+
+/** environment.json 完整性断言（campaign 身份 + dataset hash/caseCount） */
+function assertEnvironmentManifest(
+  value: unknown,
+  plan: CampaignPlan,
+  cases: readonly CampaignCase[],
+  casesText: string,
+): asserts value is EnvironmentManifest {
+  if (!isRecord(value)) {
     throw new Error("campaign report-only: environment.json must be an object");
   }
-  if (environment.campaignId !== plan.campaignId) {
+  if (value.campaignId !== plan.campaignId) {
     throw new Error(
       "campaign report-only: environment.json campaignId " +
-        `${JSON.stringify(environment.campaignId)} does not match plan.json ` +
+        `${JSON.stringify(value.campaignId)} does not match plan.json ` +
         `${JSON.stringify(plan.campaignId)}`,
     );
   }
-  if (!isRecord(environment.dataset)) {
+  if (!isRecord(value.dataset)) {
     throw new Error("campaign report-only: environment.json dataset must be an object");
   }
-  const dataset = environment.dataset;
+  const dataset = value.dataset;
   if (dataset.caseCount !== cases.length) {
     throw new Error(
       `campaign report-only: cases.json has ${cases.length} cases but ` +
@@ -107,6 +140,52 @@ async function verifyEnvironment(
         `dataset.hash (expected ${String(dataset.hash)}, actual ${actualHash}) — ` +
         "records and cases disagree",
     );
+  }
+}
+
+/**
+ * 失败留痕（`failures.json`）：缺失视为零失败（正常完成才会写空数组；
+ * 中断运行可能没有该文件）。在场时逐条校验 campaign 身份与形状（含
+ * caseId 归属），防污染 coverage / 门判定。
+ */
+async function readFailures(
+  outDir: string,
+  plan: CampaignPlan,
+  caseIds: ReadonlySet<string>,
+): Promise<readonly CampaignFailure[]> {
+  const value = await readOptionalJson(campaignFailuresPath(outDir));
+  if (value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("campaign report-only: failures.json must be an array");
+  }
+  const failures: CampaignFailure[] = [];
+  for (const [index, entry] of value.entries()) {
+    assertCampaignFailure(entry, plan, caseIds, `failures.json[${index}]`);
+    failures.push(entry);
+  }
+  return failures;
+}
+
+function assertCampaignFailure(
+  value: unknown,
+  plan: CampaignPlan,
+  caseIds: ReadonlySet<string>,
+  where: string,
+): asserts value is CampaignFailure {
+  if (!isRecord(value)) {
+    throw new Error(`campaign report-only: ${where} must be an object`);
+  }
+  assertCampaignUnitIdentity(value, plan, caseIds, where);
+  if (
+    typeof value.stage !== "string" ||
+    !(CAMPAIGN_FAILURE_STAGES as readonly string[]).includes(value.stage)
+  ) {
+    throw new Error(`campaign report-only: ${where} stage is invalid`);
+  }
+  if (typeof value.error !== "string" || typeof value.at !== "string") {
+    throw new Error(`campaign report-only: ${where} needs error / at strings`);
   }
 }
 
@@ -181,27 +260,40 @@ function assertEvalRunRecord(
         `(got source ${JSON.stringify(value.source)}, configId ${JSON.stringify(value.configId)})`,
     );
   }
-  if (value.campaignId !== plan.campaignId) {
-    throw new Error(
-      `campaign report-only: ${where} campaignId ${JSON.stringify(value.campaignId)} ` +
-        `does not match plan.json ${JSON.stringify(plan.campaignId)}`,
-    );
-  }
   if (value.evalOnly !== true || value.environmentRef !== ENVIRONMENT_REF) {
     throw new Error(
       `campaign report-only: ${where} is missing the eval-only sidecar ` +
         "(evalOnly: true, environmentRef: \"environment.json\")",
     );
   }
-  if (typeof value.arm !== "string" || !(plan.arms as readonly string[]).includes(value.arm)) {
+  assertCampaignUnitIdentity(value, plan, caseIds, where);
+}
+
+/** 记录 / judge / 失败留痕共用的单元身份（campaign / source / case / arm / rep） */
+function assertCampaignUnitIdentity(
+  value: Record<string, unknown>,
+  plan: CampaignPlan,
+  caseIds: ReadonlySet<string>,
+  where: string,
+): void {
+  if (value.campaignId !== plan.campaignId) {
     throw new Error(
-      `campaign report-only: ${where} arm ${JSON.stringify(value.arm)} is not in plan.json arms`,
+      `campaign report-only: ${where} campaignId ${JSON.stringify(value.campaignId)} ` +
+        `does not match plan.json ${JSON.stringify(plan.campaignId)}`,
     );
+  }
+  if (value.source !== "vul4j") {
+    throw new Error(`campaign report-only: ${where} source must be "vul4j"`);
   }
   if (typeof value.caseId !== "string" || !caseIds.has(value.caseId)) {
     throw new Error(
       `campaign report-only: ${where} references a case missing from cases.json ` +
         `(${JSON.stringify(value.caseId)})`,
+    );
+  }
+  if (typeof value.arm !== "string" || !(plan.arms as readonly string[]).includes(value.arm)) {
+    throw new Error(
+      `campaign report-only: ${where} arm ${JSON.stringify(value.arm)} is not in plan.json arms`,
     );
   }
   if (
@@ -248,31 +340,7 @@ function assertJudgeIdentity(
   if (!isRecord(value)) {
     throw new Error(`campaign report-only: judge record ${where} must be an object`);
   }
-  if (value.campaignId !== plan.campaignId) {
-    throw new Error(
-      `campaign report-only: judge record ${where} campaignId ` +
-        `${JSON.stringify(value.campaignId)} does not match plan.json`,
-    );
-  }
-  if (value.source !== "vul4j") {
-    throw new Error(`campaign report-only: judge record ${where} source must be "vul4j"`);
-  }
-  if (typeof value.caseId !== "string" || !caseIds.has(value.caseId)) {
-    throw new Error(
-      `campaign report-only: judge record ${where} references a case missing from cases.json`,
-    );
-  }
-  if (typeof value.arm !== "string" || !(CAMPAIGN_ARMS as readonly string[]).includes(value.arm)) {
-    throw new Error(`campaign report-only: judge record ${where} has unknown arm`);
-  }
-  if (
-    typeof value.rep !== "number" ||
-    !Number.isInteger(value.rep) ||
-    value.rep < 1 ||
-    value.rep > plan.reps
-  ) {
-    throw new Error(`campaign report-only: judge record ${where} has invalid rep`);
-  }
+  assertCampaignUnitIdentity(value, plan, caseIds, where);
 }
 
 function assertJudgeCounts(value: unknown, where: string): asserts value is MatchCounts {

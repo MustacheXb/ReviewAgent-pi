@@ -16,8 +16,8 @@ import { unitKey } from "./records.js";
  *
  * 为什么分节：分析器按 `source|caseId|configId|rep` 去重且不含 arm；两臂
  * 共享 `configId = E`，合并成一份报告会撞唯一键。分节后每臂的报告保持
- * 分析器原 schema（kind `run-record-analysis`）；双 arm 配对统计 / L2 门
- * 在 #41 消费两侧分节报告。
+ * 分析器原 schema（kind `run-record-analysis`）；`src/eval/l2`（#41）消费
+ * 两侧分节报告做配对统计与门判定（输出 `l2-report.json`）。
  */
 
 export interface CampaignReportArgs {

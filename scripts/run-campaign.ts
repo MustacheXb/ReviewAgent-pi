@@ -22,8 +22,9 @@
  * 编译：tsc -p tsconfig.campaign.json（同 migration-gate 先例：必须走 -p，
  * 否则 baseUrl/paths 失效、review-pi 类型链解析回 vendored pi 源码）。
  *
- * 退出码：0 全绿 / report-only 成功；1 run 有单元失败（failures.json 留痕）；
- * 2 用法 / 装配 / 门控 / 完整性错误。
+ * 退出码：0 全绿 / report-only 成功 / 单臂冒烟 / 空对照校准；1 run 有单元
+ * 失败，或双 arm 非空对照的 L2 门未通过（硬合并门）；2 用法 / 装配 / 门控 /
+ * 完整性错误。
  */
 import { appendFileSync } from "node:fs";
 import path from "node:path";
@@ -43,6 +44,7 @@ import {
   extractValueFlag,
   prepareRealCampaign,
 } from "../src/eval/assembly/index.js";
+import type { L2Report } from "../src/eval/l2/index.js";
 import { errorMessage } from "../src/instrument/cli-args.js";
 import { formatEnvLocalSummary, loadEnvLocalFile } from "../src/instrument/env-local.js";
 
@@ -101,11 +103,13 @@ async function main(argv: readonly string[]): Promise<number> {
         throw new Error("unexpected command mode");
       }
       console.log(`[campaign] report rebuilt: ${path.join(outDir, "report.json")}`);
+      console.log(`[campaign] l2 report rebuilt: ${path.join(outDir, "l2-report.json")}`);
       for (const [arm, report] of Object.entries(result.report.arms)) {
         console.log(
           `[campaign] ${arm}: runs=${report.summary.runCount} cases=${report.summary.caseCount}`,
         );
       }
+      printL2Gates(result.l2);
       return 0;
     } catch (error) {
       console.error(`[campaign] ${errorMessage(error)}`);
@@ -202,6 +206,7 @@ function reportRun(result: Awaited<ReturnType<typeof runCampaignCommand>>): numb
     );
   }
   console.log(`[campaign] output: ${result.run.outDir}`);
+  printL2Gates(result.run.l2);
   for (const failure of result.run.failures) {
     console.error(
       `[campaign] FAILED ${failure.caseId}/${failure.arm}/rep-${failure.rep} ` +
@@ -209,6 +214,22 @@ function reportRun(result: Awaited<ReturnType<typeof runCampaignCommand>>): numb
     );
   }
   return campaignExitCode(result);
+}
+
+/** L2 配对回归门摘要（#41）：逐门 pass/fail + claimsAllowed */
+function printL2Gates(l2: L2Report): void {
+  const gateSummary = Object.entries(l2.gates)
+    .map(([name, gate]) => `${name}=${gate.pass ? "PASS" : "FAIL"}`)
+    .join(" ");
+  console.log(
+    `[campaign] L2 gates: ${gateSummary}; coverage=${l2.coverage.executed}/${l2.coverage.planned}; ` +
+      `claimsAllowed=${l2.claimsAllowed}`,
+  );
+  for (const [name, gate] of Object.entries(l2.gates)) {
+    if (!gate.pass) {
+      console.error(`[campaign] L2 ${name} FAIL: ${gate.detail}`);
+    }
+  }
 }
 
 process.exit(await main(process.argv.slice(2)));

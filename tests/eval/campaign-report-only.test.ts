@@ -51,13 +51,14 @@ describe("rebuildCampaignReport: 从已有记录重建", () => {
 
     const rebuilt = await rebuildCampaignReport({ outDir: outputDir });
 
-    expect(rebuilt).toEqual(result.report);
+    expect(rebuilt.report).toEqual(result.report);
+    expect(rebuilt.l2).toEqual(result.l2);
     expect(readFileSync(reportFile, "utf8")).toBe(originalBytes);
-    expect(rebuilt.kind).toBe("campaign-report");
-    expect(rebuilt.arms.baseline?.kind).toBe("run-record-analysis");
-    expect(rebuilt.arms.baseline?.summary.runCount).toBe(2);
-    expect(rebuilt.arms.candidate?.summary.runCount).toBe(2);
-    expect(rebuilt.arms.baseline?.l1.judge.runs).toBe(2);
+    expect(rebuilt.report.kind).toBe("campaign-report");
+    expect(rebuilt.report.arms.baseline?.kind).toBe("run-record-analysis");
+    expect(rebuilt.report.arms.baseline?.summary.runCount).toBe(2);
+    expect(rebuilt.report.arms.candidate?.summary.runCount).toBe(2);
+    expect(rebuilt.report.arms.baseline?.l1.judge.runs).toBe(2);
   });
 
   it("cases.json 与 environment.json 的 dataset hash 不一致时 fail fast", async () => {
