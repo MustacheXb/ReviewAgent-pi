@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-run-provenance",
+  "datasetId": "phase2-pi",
+  "status": "evidence-only",
+  "notReproducible": true,
+  "evidenceOnly": true,
+  "created": "2026-11-11",
+  "git": {
+    "commit": "b94e4614a7fc99548cf66466916304edf8306eee",
+    "tag": null,
+    "branchAtRun": null,
+    "commitBasis": "运行窗口（最早/最晚 RunRecord.completedAt）完全落在 b94e461（2026-09-23T05:05:56Z）之后、其唯一后继 3d03cc5（2026-09-25T14:44:00Z）之前；窗口内无其他提交。工作树是否干净未记录，故来源 commit 为可考推定而非构建留痕。"
+  },
+  "window": {
+    "start": "2026-09-23T06:52:42.017Z",
+    "end": "2026-09-25T13:01:38.773Z",
+    "timezone": "Asia/Shanghai",
+    "basis": "450 份 RunRecord.completedAt 的最早 / 最晚值；judge 第三轮重试收口于 2026-09-25T14:31Z 前后"
+  },
+  "model": {
+    "requestedId": "deepseek-v4-flash",
+    "actualDeployment": null,
+    "providerClass": "gateway",
+    "baseUrlClass": "OpenAI-compatible 企业内部网关（base URL 见本地 runs/phase2-pi/plan.json，不落盘 key）"
+  },
+  "judge": {
+    "enabled": true,
+    "model": "glm-5-3-260814",
+    "promptVersion": null,
+    "temperature": null,
+    "topP": null,
+    "records": 450,
+    "statuses": {
+      "judged": 426,
+      "skipped-no-findings": 24
+    }
+  },
+  "kernel": "pi",
+  "protocolVersion": null,
+  "configSemantics": "A–E 实验矩阵（v3 前形态：configId 可选）；本数据不适用生产协议 v3 口径",
+  "scale": {
+    "cases": 30,
+    "sourcesPlanned": ["defects4j", "vul4j", "msb-java", "clean-mr"],
+    "sourcesExecuted": ["vul4j"],
+    "configs": ["A", "B", "C", "D", "E"],
+    "reps": 3,
+    "runRecords": 450,
+    "judgeRecords": 450,
+    "auditFiles": 692,
+    "files": 1598,
+    "negativeControlCaseCount": 0
+  },
+  "dataset": {
+    "casesFile": "runs/phase2-pi/cases.json",
+    "planFile": "runs/phase2-pi/plan.json",
+    "reportFile": "runs/phase2-pi/report.json",
+    "casesSha256": "fd752f54082c87ad704d0463b18e7e8bf1a28ed2342138800b3289fba1315d36",
+    "planSha256": "284f5d6f8da99bb89a7e81f2e20e5292a7947652486bdfdf523e10fa25534065",
+    "reportSha256": "0275a609a94363fc6dbd36f5c065382182731ba14f8d9e898d2f1d441f930293",
+    "treeSha256": "5e2397a8f06c1728f0a800867bcb63cbf0164bb42923da16045d0f0d44c3a9c3",
+    "treeHashBasis": "仓库根相对路径（含 runs/phase2-pi/ 前缀）升序排序；每文件取小写十六进制 sha256；按 path + NUL + hexDigest + LF 拼接后再取 sha256。见 phase2-pi-provenance.md §5 的可执行片段。"
+  },
+  "recompute": {
+    "analyzer": "src/eval/analysis (#37)",
+    "scope": "E rep2+（30 case × rep 2–3 = 60 条记录）",
+    "cachedInputTokens": 72238.93,
+    "uncachedInputTokens": 40876.08,
+    "outputTokens": 16401.88,
+    "totalTokens": 129516.9,
+    "carc": 57277.97,
+    "cacheHitRate": 0.606238,
+    "zeroFindings": 1,
+    "reference": "runs/phase2-pi/dashboard.md rep2+ hot 表（cached 72239 / uncached 40876 / total 129517 / CARC 57278 / cacheHit 60.6%）",
+    "matchesDashboard": true
+  },
+  "gaps": [
+    "模型实际部署版本未记录（plan.json 只有模型 id deepseek-v4-flash）",
+    "judge 提示词模板版本 / 温度 / top_p 未记录",
+    "网关前缀缓存门策略随时段漂移（#18 探针），cacheHitRate 不可跨时段复现",
+    "运行时工作树是否干净未记录，来源 commit 为窗口推定",
+    "阴性对照 0 案（clean-MR 计划内、未执行）",
+    "判级 anchor 为历史 C，属 ADR-0004 历史 A–E 矩阵实验口径，不作 L2 结论"
+  ],
+  "supersededBy": "eval-e-baseline-2026-11-11"
+}

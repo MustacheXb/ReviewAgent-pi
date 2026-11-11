@@ -79,4 +79,10 @@
 - **负/风险**：judge 依赖跨模型裁定，版本漂移必须 pin；配对统计与交错执行需要纪律；阈值 provisional，首轮校准前不能当硬结论；评测成本（30×3×2 + judge）不可忽略；30 案统计功效有限，需要 holdout / 扩充；模型 / 网关变更走 L3，不能复用 L2 结论。
 - **中性**：ADR-0004 的 S/A/B 保留为历史实验口径；L2 只覆盖 token 相关改动，不阻塞无关修复；L3 是独立报告，不混入生产判级。
 
+## 补记（2026-11-11）：P0-1 / P0-3 落地
+
+- **E 基线快照**：`eval-e-baseline-2026-11-11`（commit `e724958`，与 `reviewagent-v1.0.0` 同一提交；Config E / 协议 v3 / vendored pi 0.85.1）。重建步骤与机读 manifest 见 `docs/report/token-eval/e-baseline.md` 与 `e-baseline.json`。
+- **历史数据**：`runs/phase2-pi` 已补录来源 commit（`b94e461`）、可考时间窗（2026-09-23 → 09-25）、模型（`deepseek-v4-flash`）与 judge（`glm-5-3-260814`），标 `NOT_REPRODUCIBLE`，只作证据；见 `docs/report/token-eval/phase2-pi-provenance.md` 与同名 `.json`。未重建缺失的网关 / 部署环境。
+- L2 阈值仍为 provisional，待 P1 空对照校准后按 §5 补记。
+
 跨线限定语纪律：本 ADR 为主线序列 0017；Demo 线 ADR 独立编号，引用须写「Demo 线 ADR-XXXX」。
