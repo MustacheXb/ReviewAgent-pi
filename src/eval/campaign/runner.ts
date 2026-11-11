@@ -3,6 +3,7 @@ import type { UnitReviewRequest } from "../../gate/review-kernel.js";
 import type { RunResult } from "../../instrument/contracts/run.js";
 import type { MatchCounts } from "../analysis/contracts.js";
 import {
+  DEFAULT_IO_TIMEOUT_MS,
   type CampaignCase,
   type CampaignDeps,
   type CampaignEnvironmentInput,
@@ -34,29 +35,33 @@ import {
   writeJsonFile,
   writeTextFile,
 } from "./store.js";
+import { withTimeout } from "./timeout.js";
 
 /**
- * Campaign runner（#39 P1 骨架）：读取 plan + cases file，按 case → rep →
- * arm 顺序执行单元，注入 `ReviewKernel` 与 `JudgeClient`，落盘单元记录 /
- * judge 结果 / `environment.json` / `failures.json` / 报告。
+ * Campaign runner（#39 骨架 / #40 真实装配接线）：读取 plan + cases file，
+ * 按 case → rep → arm 顺序执行单元，注入 `ReviewKernel` 与 `JudgeClient`，
+ * 落盘单元记录 / judge 结果 / `environment.json` / `failures.json` / 报告。
  *
  * 失败隔离（VUL4J 评测方案）：单单元内核 / judge / 落盘失败只留痕并继续，
  * 不静默剔除；报告按已完成记录生成，coverage 反映实际完成面。judge 失败
  * 不自动重试；重跑同一输出目录会清空单元产物并全量重跑（不做单元级续跑）。
- * 真实网络挂起由 `kernelTimeoutMs` / `judgeTimeoutMs` 兜底（#40），按阶段留痕。
+ *
+ * 有界等待（#40 冒烟事故）：kernel / judge / **记录落盘** 全部经 `withTimeout`
+ * 兜底，超时按阶段留痕并继续下一单元；`failures.json` 逐单元落盘。真实网络
+ * 或文件系统挂起不得让整批静默停摆。
  *
  * 重跑语义：同一输出目录视为新一次运行，先清空上次单元产物（runs / judge /
- * report / failures / environment），防陈旧记录混入新报告或被 `--report-only`
- * 当成有效证据。
+ * audit / report / failures / environment），防陈旧记录混入新报告或被
+ * `--report-only` 当成有效证据。
  *
- * E-only 骨架：configId 恒 "E"、source 恒 "vul4j"；真实内核 / judge 装配在
- * #40，双 arm 配对统计 / L2 门在 #41。默认测试零网络。
+ * E-only：configId 恒 "E"、source 恒 "vul4j"；双 arm 配对统计 / L2 门在 #41。
+ * 默认测试零网络。
  */
 export async function runCampaign(
   options: RunCampaignOptions,
   deps: CampaignDeps,
 ): Promise<CampaignRunResult> {
-  const { plan, environment, repoRoot } = options;
+  const { plan, environment, repoRoot, progress } = options;
   validateCampaignPlan(plan);
   assertEnvironmentMatchesPlan(environment, plan);
 
@@ -65,10 +70,20 @@ export async function runCampaign(
   const units = expandUnits(plan, cases);
   const caseById = new Map(cases.map((mrCase) => [mrCase.caseId, mrCase]));
   const resolvedRepoRoot = repoRoot ?? process.cwd();
+  const ioTimeoutMs = deps.ioTimeoutMs ?? DEFAULT_IO_TIMEOUT_MS;
 
   await resetCampaignOutput(plan.outputDir);
-  await writeJsonFile(campaignPlanPath(plan.outputDir), plan);
-  await writeTextFile(campaignCasesPath(plan.outputDir), casesText);
+  await withTimeout(
+    writeJsonFile(campaignPlanPath(plan.outputDir), plan),
+    ioTimeoutMs,
+    "plan write",
+  );
+  await withTimeout(
+    writeTextFile(campaignCasesPath(plan.outputDir), casesText),
+    ioTimeoutMs,
+    "cases write",
+  );
+  emit(progress, `run-start campaign=${plan.campaignId} units=${units.length}`);
 
   const now = deps.now ?? (() => new Date().toISOString());
   const startedAt = now();
@@ -79,6 +94,8 @@ export async function runCampaign(
     deps,
     now,
     repoRoot: resolvedRepoRoot,
+    ioTimeoutMs,
+    ...(progress !== undefined ? { progress } : {}),
   });
   const endedAt = now();
 
@@ -100,9 +117,22 @@ export async function runCampaign(
     cases,
   });
 
-  await writeJsonFile(campaignEnvironmentPath(plan.outputDir), environmentManifest);
-  await writeJsonFile(campaignFailuresPath(plan.outputDir), execution.failures);
-  await writeJsonFile(campaignReportPath(plan.outputDir), report);
+  await withTimeout(
+    writeJsonFile(campaignEnvironmentPath(plan.outputDir), environmentManifest),
+    ioTimeoutMs,
+    "environment write",
+  );
+  await withTimeout(
+    writeJsonFile(campaignFailuresPath(plan.outputDir), execution.failures),
+    ioTimeoutMs,
+    "failures write",
+  );
+  await withTimeout(
+    writeJsonFile(campaignReportPath(plan.outputDir), report),
+    ioTimeoutMs,
+    "report write",
+  );
+  emit(progress, `run-done records=${execution.records.length} failures=${execution.failures.length}`);
 
   return {
     outDir: plan.outputDir,
@@ -139,6 +169,8 @@ async function executeUnits(args: {
   readonly deps: CampaignDeps;
   readonly now: () => string;
   readonly repoRoot: string;
+  readonly ioTimeoutMs: number;
+  readonly progress?: (event: string) => void;
 }): Promise<ExecutionResult> {
   const records: EvalRunRecord[] = [];
   const failures: CampaignFailure[] = [];
@@ -156,16 +188,35 @@ async function executeUnits(args: {
       deps: args.deps,
       now: args.now,
       repoRoot: args.repoRoot,
+      ioTimeoutMs: args.ioTimeoutMs,
+      ...(args.progress !== undefined ? { progress: args.progress } : {}),
     });
     records.push(...outcome.records);
     failures.push(...outcome.failures);
     for (const [key, counts] of outcome.judgeCounts) {
       judgeCounts.set(key, counts);
     }
+    emit(
+      args.progress,
+      outcome.failures.length === 0
+        ? `unit-done ${unit.caseId}/${unit.arm}/rep-${unit.rep}`
+        : `unit-failed ${unit.caseId}/${unit.arm}/rep-${unit.rep} ` +
+            `stages=${outcome.failures.map((failure) => failure.stage).join(",")}`,
+    );
     // 失败留痕逐单元落盘（#40 冒烟事故）：进程被终止时不丢已发生单元的失败；
-    // 最终仍由 runCampaign 覆写一次完整快照。落盘失败按基础设施错误上抛
-    // （无法持久化失败痕迹的评测产物不可信）。
-    await writeJsonFile(campaignFailuresPath(args.plan.outputDir), failures);
+    // 最终仍由 runCampaign 覆写一次完整快照。写盘自身也设界——留痕写盘挂起
+    // 不得让整批静默停摆。
+    try {
+      await withTimeout(
+        writeJsonFile(campaignFailuresPath(args.plan.outputDir), failures),
+        args.ioTimeoutMs,
+        "failures write",
+      );
+    } catch (error) {
+      const failure = makeFailure(args.plan.campaignId, unit, "record", error, args.now());
+      failures.push(failure);
+      emit(args.progress, `failures-write-failed ${failure.error}`);
+    }
   }
   return { records, failures, judgeCounts };
 }
@@ -183,27 +234,45 @@ async function executeUnit(args: {
   readonly deps: CampaignDeps;
   readonly now: () => string;
   readonly repoRoot: string;
+  readonly ioTimeoutMs: number;
+  readonly progress?: (event: string) => void;
 }): Promise<UnitOutcome> {
-  const { plan, unit, mrCase, deps, now, repoRoot } = args;
+  const { plan, unit, mrCase, deps, now, repoRoot, ioTimeoutMs, progress } = args;
+  emit(progress, `unit-start ${unit.caseId}/${unit.arm}/rep-${unit.rep}`);
   let result: RunResult;
   try {
     result = await withTimeout(
       deps.kernel.execute(buildKernelRequest(plan, unit, mrCase, repoRoot)),
       deps.kernelTimeoutMs,
-      "kernel",
+      "kernel execution",
     );
   } catch (error) {
     return failedUnit(plan.campaignId, unit, "kernel", error, now());
   }
+  emit(progress, "kernel-done");
 
   const record = toEvalRunRecord({ plan, unit, result, completedAt: now() });
   try {
-    await writeJsonFile(campaignRecordPath(plan.outputDir, record), record);
+    await withTimeout(
+      writeJsonFile(campaignRecordPath(plan.outputDir, record), record),
+      ioTimeoutMs,
+      "record write",
+    );
   } catch (error) {
     return failedUnit(plan.campaignId, unit, "record", error, now());
   }
+  emit(progress, "record-written");
 
-  const judged = await judgeUnit({ plan, unit, mrCase, record, deps, now });
+  const judged = await judgeUnit({
+    plan,
+    unit,
+    mrCase,
+    record,
+    deps,
+    now,
+    ioTimeoutMs,
+    ...(progress !== undefined ? { progress } : {}),
+  });
   return {
     records: [record],
     failures: judged.failures,
@@ -245,9 +314,12 @@ async function judgeUnit(args: {
   readonly record: EvalRunRecord;
   readonly deps: CampaignDeps;
   readonly now: () => string;
+  readonly ioTimeoutMs: number;
+  readonly progress?: (event: string) => void;
 }): Promise<{ readonly counts: MatchCounts | null; readonly failures: readonly CampaignFailure[] }> {
-  const { plan, unit, mrCase, record, deps, now } = args;
+  const { plan, unit, mrCase, record, deps, now, ioTimeoutMs, progress } = args;
   let outcome: JudgeOutcome;
+  emit(progress, "judge-start");
   try {
     outcome = await withTimeout(
       deps.judge.judge({
@@ -258,7 +330,7 @@ async function judgeUnit(args: {
         record,
       }),
       deps.judgeTimeoutMs,
-      "judge",
+      "judge execution",
     );
   } catch (error) {
     // judge 调用失败：留痕并写 failed 记录；不自动重试（重跑整批重判）
@@ -271,12 +343,14 @@ async function judgeUnit(args: {
       error,
       now,
       plan.campaignId,
+      ioTimeoutMs,
     );
     if (writeFailure !== null) {
       failures.push(writeFailure);
     }
     return { counts: null, failures };
   }
+  emit(progress, `judge-done tp=${outcome.counts.tp} fp=${outcome.counts.fp} fn=${outcome.counts.fn}`);
 
   const judgeRecord: JudgeRecord = {
     status: "judged",
@@ -290,7 +364,11 @@ async function judgeUnit(args: {
     completedAt: now(),
   };
   try {
-    await writeJsonFile(campaignJudgePath(plan.outputDir, unit), judgeRecord);
+    await withTimeout(
+      writeJsonFile(campaignJudgePath(plan.outputDir, unit), judgeRecord),
+      ioTimeoutMs,
+      "judge record write",
+    );
   } catch (error) {
     // judge 已成功但留痕落盘失败：报告不消费未落盘计数（保持 report-only
     // 可重建），失败阶段记 record 而不是 judge。
@@ -322,7 +400,8 @@ function makeFailure(
   stage: CampaignFailureStage,
   error: unknown,
   at: string,
-): CampaignFailure {  return {
+): CampaignFailure {
+  return {
     campaignId,
     source: unit.source,
     caseId: unit.caseId,
@@ -341,6 +420,7 @@ async function tryWriteJudgeFailure(
   error: unknown,
   now: () => string,
   campaignId: string,
+  timeoutMs: number,
 ): Promise<CampaignFailure | null> {
   const judgeRecord: JudgeRecord = {
     status: "failed",
@@ -353,42 +433,25 @@ async function tryWriteJudgeFailure(
     completedAt: now(),
   };
   try {
-    await writeJsonFile(campaignJudgePath(outDir, unit), judgeRecord);
+    await withTimeout(
+      writeJsonFile(campaignJudgePath(outDir, unit), judgeRecord),
+      timeoutMs,
+      "judge failure write",
+    );
     return null;
   } catch (writeError) {
     return makeFailure(campaignId, unit, "record", writeError, now());
   }
 }
 
-/**
- * 单阶段有界等待（#40）：真实网络可能挂起，超时转成普通异常，由调用方按
- * kernel / judge 阶段留痕并继续下一单元。
- *
- * 语义边界：超时不取消底层 promise（Promise 无取消语义）；真实 HTTP 客户端
- * 自带 AbortSignal 超时与有界重试，因此超时后不会无限持有连接。测试路径
- * （fake）缺省不设超时，行为与 #39 完全一致。
- */
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number | undefined,
-  stage: CampaignFailureStage,
-): Promise<T> {
-  if (timeoutMs === undefined) {
-    return await promise;
+/** 进度事件（best-effort 诊断面：回调异常不拖垮评测） */
+function emit(progress: ((event: string) => void) | undefined, event: string): void {
+  if (progress === undefined) {
+    return;
   }
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error(`campaign: ${stage} execution timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
+    progress(event);
+  } catch {
+    // 诊断面失败不影响评测结果；调用方（CLI）自行保证落盘 best-effort
   }
 }

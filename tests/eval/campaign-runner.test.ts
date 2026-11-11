@@ -329,6 +329,44 @@ describe("runCampaign: judge 有界失败留痕", () => {
   });
 });
 
+describe("runCampaign: 进度回调（#40 事故诊断）", () => {
+  it("按阶段发出进度事件；回调异常不影响评测", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);
+    const outputDir = path.join(dir, "campaign");
+    const campaign = plan({ casesFile, outputDir, arms: ["baseline"] });
+    const events: string[] = [];
+
+    const result = await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model), progress: (event) => events.push(event) },
+      { kernel: fakeKernel(), judge: fakeJudge(), now: () => NOW },
+    );
+
+    expect(result.failures).toEqual([]);
+    expect(events[0]).toMatch(/^run-start /);
+    expect(events).toContain("unit-start VUL4J-1/baseline/rep-1");
+    expect(events).toContain("kernel-done");
+    expect(events).toContain("record-written");
+    expect(events.some((event) => event.startsWith("judge-done"))).toBe(true);
+    expect(events).toContain("unit-done VUL4J-1/baseline/rep-1");
+    expect(events).toContain("run-done records=1 failures=0");
+
+    // 诊断回调抛错不得拖垮运行
+    const throwing = await runCampaign(
+      {
+        plan: campaign,
+        environment: provenance(campaign.model),
+        progress: () => {
+          throw new Error("progress sink failed");
+        },
+      },
+      { kernel: fakeKernel(), judge: fakeJudge(), now: () => NOW },
+    );
+    expect(throwing.failures).toEqual([]);
+    expect(throwing.records).toHaveLength(1);
+  });
+});
+
 describe("runCampaign: repoPath 解析基准", () => {
   it("相对 repoPath 按 repoRoot 解析后送入内核；cases 原始字节不变", async () => {
     const dir = await tempDirs.create();

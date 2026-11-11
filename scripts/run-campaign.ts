@@ -25,6 +25,7 @@
  * 退出码：0 全绿 / report-only 成功；1 run 有单元失败（failures.json 留痕）；
  * 2 用法 / 装配 / 门控 / 完整性错误。
  */
+import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -49,6 +50,12 @@ import { formatEnvLocalSummary, loadEnvLocalFile } from "../src/instrument/env-l
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 /** judge 模型缺省（异构：被测为 deepseek 系；可用 --judge-model / CAMPAIGN_JUDGE_MODEL 覆盖） */
 const DEFAULT_CAMPAIGN_JUDGE_MODEL = "glm-5.2";
+/**
+ * 无进度看门狗（#40 冒烟事故兜底）：真实运行 40 分钟无任何单元进度即中止。
+ * 单阶段超时（kernel 20m / judge 30m / 写盘 60s）覆盖已知路径；看门狗覆盖
+ * 未知的无界等待，避免再次出现静默 90 分钟停摆。
+ */
+const NO_PROGRESS_WATCHDOG_MS = 40 * 60_000;
 
 async function main(argv: readonly string[]): Promise<number> {
   // 进程入口显式装载 .env.local（显式环境变量优先，文件只补缺）
@@ -142,13 +149,37 @@ async function main(argv: readonly string[]): Promise<number> {
       `[campaign] real run: model=${options.model} judge=${resolvedJudgeModel} ` +
         `gateway=${setup.environment.model.providerClass ?? "N/A"}`,
     );
-    const result = await runCampaignCommand(
-      runOptions,
-      setup.deps,
-      setup.environment,
-      { repoRoot: REPO_ROOT },
-    );
-    return reportRun(result);
+    const progressPath = path.join(runOptions.outDir, "progress.log");
+    let lastProgressAt = Date.now();
+    const progress = (event: string): void => {
+      lastProgressAt = Date.now();
+      try {
+        appendFileSync(progressPath, `${new Date().toISOString()} ${event}\n`, "utf8");
+      } catch {
+        // 诊断面 best-effort：进度日志写失败不拖垮评测
+      }
+    };
+    const watchdog = setInterval(() => {
+      const idleMs = Date.now() - lastProgressAt;
+      if (idleMs > NO_PROGRESS_WATCHDOG_MS) {
+        console.error(
+          `[campaign] watchdog: no progress for ${Math.round(idleMs / 60_000)} minutes ` +
+            `(last event in ${progressPath}); aborting real run — completed units are persisted`,
+        );
+        process.exit(2);
+      }
+    }, 60_000);
+    try {
+      const result = await runCampaignCommand(
+        runOptions,
+        setup.deps,
+        setup.environment,
+        { repoRoot: REPO_ROOT, progress },
+      );
+      return reportRun(result);
+    } finally {
+      clearInterval(watchdog);
+    }
   } catch (error) {
     console.error(`[campaign] ${errorMessage(error)}`);
     return 2;

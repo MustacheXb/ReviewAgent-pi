@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { JudgeClient } from "../../src/eval/campaign/index.js";
 import { runCampaign } from "../../src/eval/campaign/index.js";
 import type { ReviewKernel } from "../../src/gate/review-kernel.js";
+import { withTimeout } from "../../src/eval/campaign/timeout.js";
 import {
   NOW,
   fakeJudge,
@@ -28,6 +29,21 @@ afterEach(async () => {
 function hangingJudge(): JudgeClient {
   return { judge: () => new Promise(() => {}) };
 }
+
+describe("withTimeout — 通用阶段兜底（#40 事故修复）", () => {
+  it("永不 settle 的 promise 在超时后抛出带阶段标签的错误", async () => {
+    await expect(withTimeout(new Promise(() => {}), 20, "record write")).rejects.toThrowError(
+      "campaign: record write timed out after 20ms",
+    );
+  });
+
+  it("缺省超时（undefined）直接透传原 promise 结果 / 错误", async () => {
+    await expect(withTimeout(Promise.resolve(42), undefined, "x")).resolves.toBe(42);
+    await expect(
+      withTimeout(Promise.reject(new Error("boom")), undefined, "x"),
+    ).rejects.toThrowError("boom");
+  });
+});
 
 describe("runCampaign: 单单元超时", () => {
   it("kernel 超时按 kernel 阶段留痕，后续单元继续执行", async () => {

@@ -41,7 +41,9 @@ judge 模型说明：历史 `glm-5-3-260814` 已从网关下线（chat 返回 40
 
 - `VUL4J-12 / rep-1` 在首跑未产出记录/审计（kernel 阶段），补跑成功；中断时 `failures.json` 尚未落盘，该次 kernel 失败的具体错误文本丢失。
 - `VUL4J-30 / rep-1` 首跑的 kernel 审计保留在 `p1-smoke-2026-11-11-interrupted/`，未进入最终工件；最终工件使用补跑的审计。
-- **单单元超时在离线 fake 测试中生效（2s 超时 → judge 阶段失败留痕），但本次挂起时 20/30 分钟超时均未触发**；根因未定位（进程线程处于等待态，事件循环未阻塞）。#41 前需复查真实网络挂起路径。
+- **挂起根因推断（高置信）**：kernel 审计已落盘，但 record / judge 文件均不存在——挂起发生在 kernel 返回之后、记录落盘 `writeJsonFile` 阶段；该窗口原先没有超时包裹，judge 的 30 分钟超时根本未启动（与产物证据一致）。
+- **修复（本次后续提交）**：kernel / judge / 记录与 judge 留痕 / failures / plan / environment / report 全部落盘阶段经 `withTimeout` 有界（写盘 60s）；新增 `progress.log` 阶段事件与 CLI 40 分钟无进度看门狗；`failures.json` 逐单元落盘。超时不取消底层 promise（Promise 无取消语义），若底层写盘在超时后才完成，可能留下迟到记录——`failures.json` 会记录该单元 record 阶段失败。
+- 修复后真实单案复核（`VUL4J-30`）：kernel 2m21s → record 2ms → judge 1m06s，`progress.log` 逐阶段可见，run 完成 0 失败。
 
 ## 3. L1 绝对质量（per-case 等权，mean ± sample std）
 
@@ -80,6 +82,7 @@ judge 模型说明：历史 `glm-5-3-260814` 已从网关下线（chat 返回 40
 plan.json / cases.json
 environment.json
 failures.json            # []
+progress.log             # 阶段进度（修复后新增；本次工件由旧代码产生，无此文件）
 report.json              # 本目录同名文件为副本
 runs/vul4j/<case>/baseline/rep-<n>.json      # 20
 judge/vul4j/<case>/baseline/rep-<n>.json     # 20
@@ -99,5 +102,5 @@ pnpm campaign -- --report-only --out runs/eval/p1-smoke-2026-11-11
 - ✅ 真实网关 E 检视、真实 judge 评分、审计落盘、失败隔离、`--report-only` 复算在 10×2 规模跑通。
 - ⚠️ 单 arm、单 judge 版本、无 clean-MR 阴性对照、无 C_ref / Claude Code；结论只限链路可用。
 - ⚠️ judge 由历史 `glm-5-3-260814` 漂移到 `glm-5.2`，与 `runs/phase2-pi` 的 L1 数字不可直接比较。
-- ⚠️ 首跑的挂起与超时未触发是已知未决问题；#41 双 arm 主跑前必须复核（否则长跑可能再次卡死）。
+- ⚠️ 首跑挂起已按上述推断定位到无界记录写盘窗口并修复（全阶段超时 + `progress.log` + 40m 看门狗）；底层 OS 级写盘成因未复现，若超时后才完成可能留下迟到记录（`failures.json` 会记 record 阶段失败）。#41 主跑前复核 `progress.log`。
 - 下一步（#41）：空对照校准、双 arm 配对统计与 L2 门；真实主跑 30 案 × 3 reps。

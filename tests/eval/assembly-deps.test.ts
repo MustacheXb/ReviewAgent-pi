@@ -29,6 +29,7 @@ describe("createRealCampaignDeps — 装配", () => {
     expect(typeof deps.judge.judge).toBe("function");
     expect(deps.kernelTimeoutMs).toBeGreaterThan(0);
     expect(deps.judgeTimeoutMs).toBeGreaterThan(0);
+    expect(deps.ioTimeoutMs).toBeGreaterThan(0);
   });
 
   it("judge 与被测模型同源时构造期拒绝（异构约束）", () => {

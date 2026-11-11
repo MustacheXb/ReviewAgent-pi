@@ -215,6 +215,9 @@ export interface EnvironmentManifest extends CampaignEnvironmentInput {
   };
 }
 
+/** 记录 / judge 留痕落盘超时缺省（#40 冒烟事故：无界写盘曾挂起 90 分钟） */
+export const DEFAULT_IO_TIMEOUT_MS = 60_000;
+
 /** runner 注入面：fake / 真实内核 + judge 链 + 时钟（测试用固定值） */
 export interface CampaignDeps {
   readonly kernel: ReviewKernel;
@@ -228,6 +231,11 @@ export interface CampaignDeps {
   readonly kernelTimeoutMs?: number;
   /** 单单元 judge 超时（毫秒；#40）。缺省不限；超时按 judge 阶段留痕。 */
   readonly judgeTimeoutMs?: number;
+  /**
+   * 记录 / judge 留痕 / failures 落盘超时（毫秒；#40）。缺省 60s。
+   * 覆盖 kernel 返回之后、judge 之前的写盘窗口——该窗口无界曾导致整批静默挂起。
+   */
+  readonly ioTimeoutMs?: number;
 }
 
 /** 一次 campaign 运行的输入 */
@@ -239,6 +247,12 @@ export interface RunCampaignOptions {
    * 请求，不改 cases 原始字节 / 记录 / 数据集 hash——证据面保持可复算。
    */
   readonly repoRoot?: string;
+  /**
+   * 进度回调（#40 事故诊断）：单元开始 / kernel 完成 / 记录落盘 / judge
+   * 完成 / 单元失败。回调异常不影响运行（诊断面 best-effort）；进程入口用
+   * 它写 `progress.log` 并驱动无进度看门狗。
+   */
+  readonly progress?: (event: string) => void;
 }
 
 /**

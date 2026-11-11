@@ -1,5 +1,6 @@
 import { piKernel } from "../../gate/pi-kernel.js";
 import type { EnvLookup } from "review-llm";
+import { DEFAULT_IO_TIMEOUT_MS } from "../campaign/contracts.js";
 import type { CampaignDeps } from "../campaign/contracts.js";
 import {
   GptJudgeClient,
@@ -66,6 +67,8 @@ export interface RealCampaignDepsOptions {
   readonly fetchFn?: typeof fetch;
   readonly kernelTimeoutMs?: number;
   readonly judgeTimeoutMs?: number;
+  /** 记录 / judge 留痕落盘超时（毫秒；缺省 60s） */
+  readonly ioTimeoutMs?: number;
   readonly now?: () => string;
 }
 
@@ -106,6 +109,7 @@ export function createRealCampaignDeps(options: RealCampaignDepsOptions): Campai
     judge: createCampaignJudgeClient({ client: judgeClient }),
     kernelTimeoutMs: options.kernelTimeoutMs ?? DEFAULT_KERNEL_TIMEOUT_MS,
     judgeTimeoutMs: options.judgeTimeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS,
+    ioTimeoutMs: options.ioTimeoutMs ?? DEFAULT_IO_TIMEOUT_MS,
     ...(options.now !== undefined ? { now: options.now } : {}),
   };
 }

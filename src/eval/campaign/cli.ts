@@ -238,6 +238,8 @@ export function parseCampaignArgs(argv: readonly string[]): CliParseResult<Campa
  */
 export interface CampaignRunRuntimeOptions {
   readonly repoRoot?: string;
+  /** 进度回调（#40 事故诊断 / 看门狗）；run-only */
+  readonly progress?: (event: string) => void;
 }
 
 /**
@@ -280,6 +282,7 @@ export async function runCampaignCommand(
       plan,
       environment,
       ...(runtime.repoRoot !== undefined ? { repoRoot: runtime.repoRoot } : {}),
+      ...(runtime.progress !== undefined ? { progress: runtime.progress } : {}),
     },
     deps,
   );
