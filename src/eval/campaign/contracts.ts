@@ -8,9 +8,10 @@ import type { AnalysisReport, MatchCounts } from "../analysis/contracts.js";
  * 评测记录 sidecar、judge 链注入缝与环境 manifest。
  *
  * 落位纪律（ADR-0016）：本目录只存在于长期 `eval/bench` 分支；生产入口
- * （`src/cli` / `src/rpc` / `src/server` / `src/run`）不得 import。骨架阶段
- * 只执行 E（`ConfigId = "E"` 恒定）与 `vul4j` 源——真实内核 + judge 链在
- * #40 装配，双 arm 配对统计与 L2 门在 #41。
+ * （`src/cli` / `src/rpc` / `src/server` / `src/run`）不得 import。本目录保持
+ * 零网络、零真实执行入口：真实 pi 内核 + judge 链装配在 `src/eval/assembly`
+ * （#40，进程入口在 `CAMPAIGN_REAL=1` 门控后调用），由本目录的注入缝消费。
+ * 双 arm 配对统计与 L2 门在 #41。
  *
  * N/A 纪律（ADR-0017）：environment 未知字段一律 `null`，不写 0；缺失
  * judge 结果的单元在报告中为 `null`，不记 0。
@@ -83,11 +84,21 @@ export interface JudgeRequest {
 }
 
 /**
- * judge 链注入缝：返回行级 TP / FP / FN 计数（分析器消费预计算计数）。
+ * judge 链返回：行级计数 + 有界失败留痕（#40）。`anomalies` 是 judge 输出
+ * 中越界索引 / 重复占用 / 畸形条目被丢弃的说明，空数组 = 无异常；调用方
+ * 必须落盘，不静默吞掉。
+ */
+export interface JudgeOutcome {
+  readonly counts: MatchCounts;
+  readonly anomalies: readonly string[];
+}
+
+/**
+ * judge 链注入缝：返回行级 TP / FP / FN 计数与有界失败留痕。
  * 失败由抛错表达——runner 留痕，不自动重试（VUL4J 评测方案 §失败隔离）。
  */
 export interface JudgeClient {
-  judge(request: JudgeRequest): Promise<MatchCounts>;
+  judge(request: JudgeRequest): Promise<JudgeOutcome>;
 }
 
 /** judge 结果落盘形状（`judge/` 目录；`failed` 单元在报告中为 N/A） */
@@ -96,6 +107,8 @@ export type JudgeRecord = JudgeRecordBase &
     | {
         readonly status: "judged";
         readonly counts: MatchCounts;
+        /** judge 输出有界失败留痕（空数组 = 无异常；旧记录此键可缺省） */
+        readonly anomalies?: readonly string[];
       }
     | {
         readonly status: "failed";
@@ -208,12 +221,24 @@ export interface CampaignDeps {
   readonly judge: JudgeClient;
   /** 记录 / 失败 / 环境时间戳来源；缺省真实时钟 */
   readonly now?: () => string;
+  /**
+   * 单单元内核超时（毫秒；#40）。缺省不限（fake / 离线路径零等待）。
+   * 超时按 kernel 阶段留痕，继续下一单元——真实网络挂起不拖垮整批。
+   */
+  readonly kernelTimeoutMs?: number;
+  /** 单单元 judge 超时（毫秒；#40）。缺省不限；超时按 judge 阶段留痕。 */
+  readonly judgeTimeoutMs?: number;
 }
 
 /** 一次 campaign 运行的输入 */
 export interface RunCampaignOptions {
   readonly plan: CampaignPlan;
   readonly environment: CampaignEnvironmentInput;
+  /**
+   * 相对 `repoPath` 的解析基准（#40；缺省 process.cwd）。只影响送入内核的
+   * 请求，不改 cases 原始字节 / 记录 / 数据集 hash——证据面保持可复算。
+   */
+  readonly repoRoot?: string;
 }
 
 /**

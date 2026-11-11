@@ -4,11 +4,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * 评测面边界守卫（#37 / #39 AC / ADR-0016 §2/§4/§8）：
+ * 评测面边界守卫（#37 / #39 / #40 AC / ADR-0016 §2/§4/§8）：
  * - 只读分析器零网络、零 LLM、零执行入口（纯读 RunRecord）；
- * - campaign runner 零网络、零真实执行入口（只经注入的 ReviewKernel 缝；
- *   真实网关 / judge 装配在 #40，fake 默认离线）；
- * - 生产入口（root src 非 eval 区 + review-pi 包）不得 import 评测面。
+ * - campaign runner 零网络、零真实执行入口（只经注入的 ReviewKernel /
+ *   JudgeClient 缝；真实网关 / judge 装配在 src/eval/assembly，fake 默认离线）；
+ * - 真实装配面（eval/judge + eval/assembly）由进程入口在环境变量门控后调用；
+ * - 生产入口（root src 非 eval 区 + review-pi 包）不得 import 任何评测面。
  *
  * 这是确定性 CI 的一部分：边界漂移在这里变红，而不是等评测面泄漏进生产。
  */
@@ -16,6 +17,8 @@ const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const EVAL_DIR = path.join(REPO_ROOT, "src", "eval");
 const ANALYSIS_DIR = path.join(EVAL_DIR, "analysis");
 const CAMPAIGN_DIR = path.join(EVAL_DIR, "campaign");
+const JUDGE_DIR = path.join(EVAL_DIR, "judge");
+const ASSEMBLY_DIR = path.join(EVAL_DIR, "assembly");
 
 const FORBIDDEN_ANALYSIS_RUNTIME = [
   "node:http",
@@ -109,6 +112,33 @@ describe("评测面边界", () => {
     assertImportShape(CAMPAIGN_DIR, true);
   });
 
+  it("campaign 核心不得 import judge / assembly（真实装配只在进程入口）", () => {
+    const specifierPattern = /(?:from|import)\s+"([^"]+)"/g;
+    for (const file of listTsFiles(CAMPAIGN_DIR)) {
+      const source = readFileSync(file, "utf8");
+      const relative = path.relative(REPO_ROOT, file);
+      for (const match of source.matchAll(specifierPattern)) {
+        const specifier = match[1] ?? "";
+        if (!specifier.startsWith(".")) {
+          continue;
+        }
+        const resolved = path.resolve(path.dirname(file), specifier);
+        for (const [plane, dir] of [
+          ["eval/judge", JUDGE_DIR],
+          ["eval/assembly", ASSEMBLY_DIR],
+        ] as const) {
+          expect(resolved.startsWith(dir), `${relative} imports ${plane}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("judge / assembly 目录在评测面落位（真实装配面存在）", () => {
+    for (const dir of [JUDGE_DIR, ASSEMBLY_DIR]) {
+      expect(listTsFiles(dir).length).toBeGreaterThan(0);
+    }
+  });
+
   it("生产入口不得 import 评测面（ADR-0016：评测面隔离）", () => {
     const roots = [path.join(REPO_ROOT, "src"), path.join(REPO_ROOT, "packages", "review-pi", "src")];
     for (const root of roots) {
@@ -118,7 +148,7 @@ describe("评测面边界", () => {
         }
         const source = readFileSync(file, "utf8");
         const relative = path.relative(REPO_ROOT, file);
-        for (const plane of ["eval/analysis", "eval/campaign"]) {
+        for (const plane of ["eval/analysis", "eval/campaign", "eval/judge", "eval/assembly"]) {
           expect(source, `${relative} imports ${plane}`).not.toContain(plane);
         }
       }

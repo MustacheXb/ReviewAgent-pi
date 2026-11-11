@@ -225,6 +225,7 @@ function assertJudgeRecord(
   assertJudgeIdentity(value, plan, caseIds, where);
   if (value.status === "judged") {
     assertJudgeCounts(value.counts, where);
+    assertJudgeAnomalies(value.anomalies, where);
     return;
   }
   if (value.status === "failed") {
@@ -285,6 +286,18 @@ function assertJudgeCounts(value: unknown, where: string): asserts value is Matc
         `campaign report-only: judge record ${where} counts.${field} must be a non-negative integer`,
       );
     }
+  }
+}
+
+/** judge 有界失败留痕（#40）：缺省兼容旧记录；在场必须是字符串数组 */
+function assertJudgeAnomalies(value: unknown, where: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error(
+      `campaign report-only: judge record ${where} anomalies must be an array of strings`,
+    );
   }
 }
 

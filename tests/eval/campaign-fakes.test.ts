@@ -88,7 +88,7 @@ describe("fake ReviewKernel / JudgeClient", () => {
         fixPatch: "patch",
       },
     });
-    const counts = await judge.judge({
+    const outcome = await judge.judge({
       campaignId: "smoke-2026-11-11",
       arm: "baseline",
       rep: 1,
@@ -126,7 +126,7 @@ describe("fake ReviewKernel / JudgeClient", () => {
       }),
     });
 
-    expect(counts).toEqual({ tp: 1, fp: 1, fn: 1 });
+    expect(outcome).toEqual({ counts: { tp: 1, fp: 1, fn: 1 }, anomalies: [] });
   });
 
   it("fake environment 使用 plan 模型，未知字段为 null", () => {

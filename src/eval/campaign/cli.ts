@@ -27,7 +27,8 @@ import { runCampaign } from "./runner.js";
  *
  * 模式：
  * - run（缺省）：构造 plan 并调用 `runCampaign`；必须注入内核 / judge 与
- *   environment provenance（真实装配在 #40；#39 的进程入口用显式 fake）。
+ *   environment provenance。真实装配在 `src/eval/assembly`（#40，进程入口
+ *   门控后注入）；本核心模块保持零网络。
  * - `--report-only`：只读已有 campaign 目录重建报告，只接受 `--out` /
  *   `--campaign-id`——混入 run-only flag 直接拒绝，防误以为会重跑。
  *
@@ -232,6 +233,14 @@ export function parseCampaignArgs(argv: readonly string[]): CliParseResult<Campa
 }
 
 /**
+ * run 模式的运行期选项（#40）：cases 内相对 repoPath 的解析基准。
+ * 不属于 plan（不进 plan.json / 数据集 hash）。
+ */
+export interface CampaignRunRuntimeOptions {
+  readonly repoRoot?: string;
+}
+
+/**
  * 命令分派：run 走 `runCampaign`；report-only 走 `rebuildCampaignReport`。
  * report-only 不消费 `deps`（测试用抛错内核 / judge 证明未触达）。
  */
@@ -239,6 +248,7 @@ export async function runCampaignCommand(
   options: CampaignCliOptions,
   deps: CampaignDeps,
   environment?: CampaignEnvironmentInput,
+  runtime: CampaignRunRuntimeOptions = {},
 ): Promise<CampaignCommandResult> {
   if (options.reportOnly) {
     const report = await rebuildCampaignReport({ outDir: options.outDir });
@@ -252,7 +262,7 @@ export async function runCampaignCommand(
   }
   if (environment === undefined) {
     throw new Error(
-      "campaign: run mode requires environment provenance (real assembly lands in #40)",
+      "campaign: run mode requires environment provenance (real assembly: src/eval/assembly)",
     );
   }
   const plan: CampaignPlan = {
@@ -265,7 +275,14 @@ export async function runCampaignCommand(
     arms: options.arms,
     outputDir: options.outDir,
   };
-  const run = await runCampaign({ plan, environment }, deps);
+  const run = await runCampaign(
+    {
+      plan,
+      environment,
+      ...(runtime.repoRoot !== undefined ? { repoRoot: runtime.repoRoot } : {}),
+    },
+    deps,
+  );
   return { mode: "run", run };
 }
 

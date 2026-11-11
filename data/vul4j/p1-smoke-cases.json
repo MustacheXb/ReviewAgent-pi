@@ -1,0 +1,555 @@
+[
+  {
+    "caseId": "VUL4J-1",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-1-f5903fa564",
+    "diff": "--- src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\n+++ src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\n@@ -174,7 +174,7 @@ public <T> T deserialze(DefaultJSONParser parser, Type type, Object fieldName) {\n             componentType = componentClass = clazz.getComponentType();\n         }\n         JSONArray array = new JSONArray();\n+        parser.parseArray(componentClass, array, fieldName);\n-        parser.parseArray(componentType, array, fieldName);\n \n         return (T) toObjectArray(parser, componentClass, array);\n     }\n",
+    "issueDescription": "Vulnerability CVE-2017-18349 (CWE-20: Improper Input Validation) in alibaba/fastjson. Fixed by https://github.com/alibaba/fastjson/commit/f5903fa56497c00ed0703ac875b511f9bd5f1d8e.",
+    "truth": {
+      "locations": [
+        {
+          "file": "src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java",
+          "lineStart": 177,
+          "lineEnd": 177,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java b/src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\nindex 9b8c0e3c17..77f2d63d98 100755\n--- a/src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\n+++ b/src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\n@@ -174,7 +174,7 @@ public <T> T deserialze(DefaultJSONParser parser, Type type, Object fieldName) {\n             componentType = componentClass = clazz.getComponentType();\r\n         }\r\n         JSONArray array = new JSONArray();\r\n-        parser.parseArray(componentClass, array, fieldName);\r\n+        parser.parseArray(componentType, array, fieldName);\r\n \r\n         return (T) toObjectArray(parser, componentClass, array);\r\n     }\r\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-1",
+      "repoSlug": "alibaba/fastjson",
+      "fixCommitUrl": "https://github.com/alibaba/fastjson/commit/f5903fa56497c00ed0703ac875b511f9bd5f1d8e",
+      "fixSha": "f5903fa56497c00ed0703ac875b511f9bd5f1d8e",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2017-18349",
+      "cweId": "CWE-20",
+      "cweName": "Improper Input Validation",
+      "owaspId": "CWE Top 25",
+      "excludedTestFiles": "src/test/java/com/alibaba/json/bvt/bug/Issue1005.java"
+    }
+  },
+  {
+    "caseId": "VUL4J-12",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-12-6a79d35d66",
+    "diff": "--- src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java\n+++ src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java\n@@ -400,7 +400,7 @@ private static int fastRound(final float x) {\n     private int extend(int v, final int t) {\n         // \"EXTEND\", section F.2.2.1, figure F.12, page 105 of T.81\n         int vt = (1 << (t - 1));\n+        while (v < vt) {\n-        if (v < vt) {\n             vt = (-1 << t) + 1;\n             v += vt;\n         }\n",
+    "issueDescription": "Vulnerability CVE-2018-17202 (CWE-835: Loop with Unreachable Exit Condition ('Infinite Loop')) in apache/commons-imaging. Fixed by https://github.com/apache/commons-imaging/commit/6a79d35d6654d895d0a4b73b3a9282ec9aaeeb06.",
+    "truth": {
+      "locations": [
+        {
+          "file": "src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java",
+          "lineStart": 403,
+          "lineEnd": 403,
+          "defectNature": "RESOURCE"
+        }
+      ],
+      "fixPatch": "diff --git a/src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java b/src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java\nindex 3561fcbcf6..2b21da2c21 100644\n--- a/src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java\n+++ b/src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java\n@@ -400,7 +400,7 @@ private static int fastRound(final float x) {\n     private int extend(int v, final int t) {\n         // \"EXTEND\", section F.2.2.1, figure F.12, page 105 of T.81\n         int vt = (1 << (t - 1));\n-        while (v < vt) {\n+        if (v < vt) {\n             vt = (-1 << t) + 1;\n             v += vt;\n         }\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-12",
+      "repoSlug": "apache/commons-imaging",
+      "fixCommitUrl": "https://github.com/apache/commons-imaging/commit/6a79d35d6654d895d0a4b73b3a9282ec9aaeeb06",
+      "fixSha": "6a79d35d6654d895d0a4b73b3a9282ec9aaeeb06",
+      "nature": "RESOURCE",
+      "natureMatched": "true",
+      "cveId": "CVE-2018-17202",
+      "cweId": "CWE-835",
+      "cweName": "Loop with Unreachable Exit Condition ('Infinite Loop')",
+      "owaspId": "none",
+      "excludedTestFiles": "src/test/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoderTest.java,src/test/resources/IMAGING-220/timeout-48eb4251935b4ca8b26d1859ea525c1b42ae0c78"
+    }
+  },
+  {
+    "caseId": "VUL4J-15",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-15-d9e2a6e7",
+    "diff": "--- rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java\n+++ rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java\n@@ -30,7 +30,6 @@\n import javax.ws.rs.core.MultivaluedMap;\n import javax.ws.rs.ext.MessageBodyReader;\n import javax.ws.rs.ext.MessageBodyWriter;\n-import javax.xml.stream.XMLStreamReader;\n \n import org.apache.abdera.Abdera;\n import org.apache.abdera.model.Document;\n@@ -40,7 +39,6 @@\n import org.apache.abdera.writer.Writer;\n import org.apache.cxf.common.logging.LogUtils;\n import org.apache.cxf.jaxrs.utils.ExceptionUtils;\n-import org.apache.cxf.staxutils.StaxUtils;\n \n public abstract class AbstractAtomProvider<T extends Element> \n     implements MessageBodyWriter<T>, MessageBodyReader<T> {\n@@ -91,10 +89,10 @@ public T readFrom(Class<T> clazz, Type t, Annotation[] a, MediaType mt,\n             ParserOptions options = parser.getDefaultParserOptions();\n             if (options != null) {\n                 options.setAutodetectCharset(autodetectCharset);\n+                options.setResolveEntities(false);\n             }\n         }\n+        Document<T> doc = parser.parse(is);\n-        XMLStreamReader reader = StaxUtils.createXMLStreamReader(is);\n-        Document<T> doc = parser.parse(reader);\n         return doc.getRoot();\n     }\n \n",
+    "issueDescription": "Vulnerability CVE-2016-8739 (CWE-611: Improper Restriction of XML External Entity Reference) in apache/cxf. Fixed by https://github.com/apache/cxf/commit/d9e2a6e7.",
+    "truth": {
+      "locations": [
+        {
+          "file": "rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java",
+          "lineStart": 33,
+          "lineEnd": 33,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java",
+          "lineStart": 42,
+          "lineEnd": 42,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java",
+          "lineStart": 92,
+          "lineEnd": 92,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java",
+          "lineStart": 95,
+          "lineEnd": 95,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java b/rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java\nindex 179ee66c168..acc1285635c 100644\n--- a/rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java\n+++ b/rt/rs/extensions/providers/src/main/java/org/apache/cxf/jaxrs/provider/atom/AbstractAtomProvider.java\n@@ -30,6 +30,7 @@\n import javax.ws.rs.core.MultivaluedMap;\n import javax.ws.rs.ext.MessageBodyReader;\n import javax.ws.rs.ext.MessageBodyWriter;\n+import javax.xml.stream.XMLStreamReader;\n \n import org.apache.abdera.Abdera;\n import org.apache.abdera.model.Document;\n@@ -39,6 +40,7 @@\n import org.apache.abdera.writer.Writer;\n import org.apache.cxf.common.logging.LogUtils;\n import org.apache.cxf.jaxrs.utils.ExceptionUtils;\n+import org.apache.cxf.staxutils.StaxUtils;\n \n public abstract class AbstractAtomProvider<T extends Element> \n     implements MessageBodyWriter<T>, MessageBodyReader<T> {\n@@ -89,10 +91,10 @@ public T readFrom(Class<T> clazz, Type t, Annotation[] a, MediaType mt,\n             ParserOptions options = parser.getDefaultParserOptions();\n             if (options != null) {\n                 options.setAutodetectCharset(autodetectCharset);\n-                options.setResolveEntities(false);\n             }\n         }\n-        Document<T> doc = parser.parse(is);\n+        XMLStreamReader reader = StaxUtils.createXMLStreamReader(is);\n+        Document<T> doc = parser.parse(reader);\n         return doc.getRoot();\n     }\n \n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-15",
+      "repoSlug": "apache/cxf",
+      "fixCommitUrl": "https://github.com/apache/cxf/commit/d9e2a6e7",
+      "fixSha": "d9e2a6e7",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2016-8739",
+      "cweId": "CWE-611",
+      "cweName": "Improper Restriction of XML External Entity Reference",
+      "owaspId": "A4",
+      "excludedTestFiles": "rt/rs/extensions/providers/src/test/java/org/apache/cxf/jaxrs/provider/atom/AtomPojoProviderTest.java"
+    }
+  },
+  {
+    "caseId": "VUL4J-16",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-16-845eccb648",
+    "diff": "--- rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java\n+++ rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java\n@@ -92,7 +92,7 @@ public SSOValidatorResponse validateSamlResponse(\n         }\n         \n         // Validate Assertions\n+        boolean foundValidSubject = false;\n-        org.opensaml.saml.saml2.core.Assertion validAssertion = null;\n         Date sessionNotOnOrAfter = null;\n         for (org.opensaml.saml.saml2.core.Assertion assertion : samlResponse.getAssertions()) {\n             // Check the Issuer\n@@ -114,7 +114,7 @@ public SSOValidatorResponse validateSamlResponse(\n                 org.opensaml.saml.saml2.core.Subject subject = assertion.getSubject();\n                 if (validateAuthenticationSubject(subject, assertion.getID(), postBinding)) {\n                     validateAudienceRestrictionCondition(assertion.getConditions());\n+                    foundValidSubject = true;\n-                    validAssertion = assertion;\n                     // Store Session NotOnOrAfter\n                     for (AuthnStatement authnStatment : assertion.getAuthnStatements()) {\n                         if (authnStatment.getSessionNotOnOrAfter() != null) {\n@@ -123,9 +123,10 @@ public SSOValidatorResponse validateSamlResponse(\n                     }\n                 }\n             }\n+            \n         }\n         \n+        if (!foundValidSubject) {\n-        if (validAssertion == null) {\n             LOG.fine(\"The Response did not contain any Authentication Statement that matched \"\n                      + \"the Subject Confirmation criteria\");\n             throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, \"invalidSAMLsecurity\");\n@@ -139,7 +140,7 @@ public SSOValidatorResponse validateSamlResponse(\n         }\n         \n         // the assumption for now is that SAMLResponse will contain only a single assertion\n+        Element assertionElement = samlResponse.getAssertions().get(0).getDOM();\n-        Element assertionElement = validAssertion.getDOM();\n         Element clonedAssertionElement = (Element)assertionElement.cloneNode(true);\n         validatorResponse.setAssertionElement(clonedAssertionElement);\n         validatorResponse.setAssertion(DOM2Writer.nodeToString(clonedAssertionElement));\n",
+    "issueDescription": "Vulnerability CVE-2015-5253 (CWE-264: Permissions, Privileges, and Access Controls) in apache/cxf. Fixed by https://github.com/apache/cxf/commit/845eccb6484b43ba02875c71e824db23ae4f20c0.",
+    "truth": {
+      "locations": [
+        {
+          "file": "rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java",
+          "lineStart": 95,
+          "lineEnd": 95,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java",
+          "lineStart": 117,
+          "lineEnd": 117,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java",
+          "lineStart": 126,
+          "lineEnd": 126,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java",
+          "lineStart": 129,
+          "lineEnd": 129,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java",
+          "lineStart": 143,
+          "lineEnd": 143,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java b/rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java\nindex e89216e91be..abf439fac86 100644\n--- a/rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java\n+++ b/rt/rs/security/sso/saml/src/main/java/org/apache/cxf/rs/security/saml/sso/SAMLSSOResponseValidator.java\n@@ -92,7 +92,7 @@ public SSOValidatorResponse validateSamlResponse(\n         }\n         \n         // Validate Assertions\n-        boolean foundValidSubject = false;\n+        org.opensaml.saml.saml2.core.Assertion validAssertion = null;\n         Date sessionNotOnOrAfter = null;\n         for (org.opensaml.saml.saml2.core.Assertion assertion : samlResponse.getAssertions()) {\n             // Check the Issuer\n@@ -114,7 +114,7 @@ public SSOValidatorResponse validateSamlResponse(\n                 org.opensaml.saml.saml2.core.Subject subject = assertion.getSubject();\n                 if (validateAuthenticationSubject(subject, assertion.getID(), postBinding)) {\n                     validateAudienceRestrictionCondition(assertion.getConditions());\n-                    foundValidSubject = true;\n+                    validAssertion = assertion;\n                     // Store Session NotOnOrAfter\n                     for (AuthnStatement authnStatment : assertion.getAuthnStatements()) {\n                         if (authnStatment.getSessionNotOnOrAfter() != null) {\n@@ -123,10 +123,9 @@ public SSOValidatorResponse validateSamlResponse(\n                     }\n                 }\n             }\n-            \n         }\n         \n-        if (!foundValidSubject) {\n+        if (validAssertion == null) {\n             LOG.fine(\"The Response did not contain any Authentication Statement that matched \"\n                      + \"the Subject Confirmation criteria\");\n             throw new WSSecurityException(WSSecurityException.ErrorCode.FAILURE, \"invalidSAMLsecurity\");\n@@ -140,7 +139,7 @@ public SSOValidatorResponse validateSamlResponse(\n         }\n         \n         // the assumption for now is that SAMLResponse will contain only a single assertion\n-        Element assertionElement = samlResponse.getAssertions().get(0).getDOM();\n+        Element assertionElement = validAssertion.getDOM();\n         Element clonedAssertionElement = (Element)assertionElement.cloneNode(true);\n         validatorResponse.setAssertionElement(clonedAssertionElement);\n         validatorResponse.setAssertion(DOM2Writer.nodeToString(clonedAssertionElement));\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-16",
+      "repoSlug": "apache/cxf",
+      "fixCommitUrl": "https://github.com/apache/cxf/commit/845eccb6484b43ba02875c71e824db23ae4f20c0",
+      "fixSha": "845eccb6484b43ba02875c71e824db23ae4f20c0",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2015-5253",
+      "cweId": "CWE-264",
+      "cweName": "Permissions, Privileges, and Access Controls",
+      "owaspId": "none",
+      "excludedTestFiles": "rt/rs/security/sso/saml/src/test/java/org/apache/cxf/rs/security/saml/sso/AbstractSAMLCallbackHandler.java,rt/rs/security/sso/saml/src/test/java/org/apache/cxf/rs/security/saml/sso/CombinedValidatorTest.java"
+    }
+  },
+  {
+    "caseId": "VUL4J-21",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-21-e504880441",
+    "diff": "--- src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java\n+++ src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java\n@@ -72,7 +72,6 @@ public interface InputProcessorChain extends ProcessorChain {\n     /**\n      * Create a new SubChain. The XMLEvents will be only be processed from the given InputProcessor to the end.\n      * All earlier InputProcessors don't get these events. In other words the chain will be splitted in two parts.\n-     * The associated DocumentContext will be cloned.\n      *\n      * @param inputProcessor The InputProcessor position the XMLEvents should be processed over this SubChain.\n      * @return A new InputProcessorChain\n@@ -81,20 +80,6 @@ public interface InputProcessorChain extends ProcessorChain {\n      */\n     InputProcessorChain createSubChain(InputProcessor inputProcessor) throws XMLStreamException, XMLSecurityException;\n \n-    /**\n-     * Create a new SubChain. The XMLEvents will be only be processed from the given InputProcessor to the end.\n-     * All earlier InputProcessors don't get these events. In other words the chain will be splitted in two parts.\n-     *\n-     * The parameter clone controls if the associated DocumentContext should be cloned or reference the existing one.\n-     *\n-     * @param inputProcessor The InputProcessor position the XMLEvents should be processed over this SubChain.\n-     * @param clone if true the associated DocumentContext will be cloned otherwise the DocumentContext will be referenced.\n-     * @return A new InputProcessorChain\n-     * @throws XMLStreamException   thrown when a streaming error occurs\n-     * @throws XMLSecurityException thrown when a Security failure occurs\n-     */\n-    InputProcessorChain createSubChain(InputProcessor inputProcessor, boolean clone) throws XMLStreamException, XMLSecurityException;\n-\n     /**\n      * Requests the next security header XMLEvent from the next processor in the chain.\n      *\n--- src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java\n+++ src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java\n@@ -200,15 +200,9 @@ public void doFinal() throws XMLStreamException, XMLSecurityException {\n \n     @Override\n     public InputProcessorChain createSubChain(InputProcessor inputProcessor) throws XMLStreamException, XMLSecurityException {\n-        return createSubChain(inputProcessor, true);\n-    }\n-\n-    @Override\n-    public InputProcessorChain createSubChain(InputProcessor inputProcessor, boolean clone) throws XMLStreamException, XMLSecurityException {\n         InputProcessorChainImpl inputProcessorChain;\n         try {\n+            inputProcessorChain = new InputProcessorChainImpl(inboundSecurityContext, documentContext.clone(),\n-            final DocumentContextImpl docContext = clone ? documentContext.clone() : documentContext;\n-            inputProcessorChain = new InputProcessorChainImpl(inboundSecurityContext, docContext,\n                     inputProcessors.indexOf(inputProcessor) + 1, new ArrayList<InputProcessor>(this.inputProcessors));\n         } catch (CloneNotSupportedException e) {\n             throw new XMLSecurityException(e);\n--- src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java\n+++ src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java\n@@ -138,15 +138,11 @@ public XMLSecEvent processNextEvent(InputProcessorChain inputProcessorChain)\n                     inputProcessorChain.addProcessor(internalReplayProcessor);\n \n                     //...and let the SignatureVerificationProcessor process the buffered events (enveloped signature).\n+                    InputProcessorChain subInputProcessorChain = inputProcessorChain.createSubChain(this);\n-                    InputProcessorChain subInputProcessorChain = inputProcessorChain.createSubChain(this, false);\n                     while (!xmlSecEventList.isEmpty()) {\n                         subInputProcessorChain.reset();\n                         subInputProcessorChain.processEvent();\n                     }\n-\n-                    // copy all processor back to main chain for finalization\n-                    inputProcessorChain.getProcessors().clear();\n-                    inputProcessorChain.getProcessors().addAll(subInputProcessorChain.getProcessors());\n                 }\n                 break;\n         }\n",
+    "issueDescription": "Vulnerability CVE-2014-8152 (CWE-254: 7PK - Security Features) in apache/santuario-java. Fixed by https://github.com/apache/santuario-java/commit/e50488044121cf01ffbc235ca53b9562031d69c5.",
+    "truth": {
+      "locations": [
+        {
+          "file": "src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java",
+          "lineStart": 75,
+          "lineEnd": 75,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java",
+          "lineStart": 83,
+          "lineEnd": 83,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java",
+          "lineStart": 203,
+          "lineEnd": 203,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java",
+          "lineStart": 205,
+          "lineEnd": 205,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java",
+          "lineStart": 141,
+          "lineEnd": 141,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java",
+          "lineStart": 146,
+          "lineEnd": 146,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java b/src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java\nindex 49991abaa1..aaab2a380f 100644\n--- a/src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java\n+++ b/src/main/java/org/apache/xml/security/stax/ext/InputProcessorChain.java\n@@ -72,6 +72,7 @@ public interface InputProcessorChain extends ProcessorChain {\n     /**\n      * Create a new SubChain. The XMLEvents will be only be processed from the given InputProcessor to the end.\n      * All earlier InputProcessors don't get these events. In other words the chain will be splitted in two parts.\n+     * The associated DocumentContext will be cloned.\n      *\n      * @param inputProcessor The InputProcessor position the XMLEvents should be processed over this SubChain.\n      * @return A new InputProcessorChain\n@@ -80,6 +81,20 @@ public interface InputProcessorChain extends ProcessorChain {\n      */\n     InputProcessorChain createSubChain(InputProcessor inputProcessor) throws XMLStreamException, XMLSecurityException;\n \n+    /**\n+     * Create a new SubChain. The XMLEvents will be only be processed from the given InputProcessor to the end.\n+     * All earlier InputProcessors don't get these events. In other words the chain will be splitted in two parts.\n+     *\n+     * The parameter clone controls if the associated DocumentContext should be cloned or reference the existing one.\n+     *\n+     * @param inputProcessor The InputProcessor position the XMLEvents should be processed over this SubChain.\n+     * @param clone if true the associated DocumentContext will be cloned otherwise the DocumentContext will be referenced.\n+     * @return A new InputProcessorChain\n+     * @throws XMLStreamException   thrown when a streaming error occurs\n+     * @throws XMLSecurityException thrown when a Security failure occurs\n+     */\n+    InputProcessorChain createSubChain(InputProcessor inputProcessor, boolean clone) throws XMLStreamException, XMLSecurityException;\n+\n     /**\n      * Requests the next security header XMLEvent from the next processor in the chain.\n      *\ndiff --git a/src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java b/src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java\nindex 3bd95c11a9..c1358a502b 100644\n--- a/src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java\n+++ b/src/main/java/org/apache/xml/security/stax/impl/InputProcessorChainImpl.java\n@@ -200,9 +200,15 @@ public void doFinal() throws XMLStreamException, XMLSecurityException {\n \n     @Override\n     public InputProcessorChain createSubChain(InputProcessor inputProcessor) throws XMLStreamException, XMLSecurityException {\n+        return createSubChain(inputProcessor, true);\n+    }\n+\n+    @Override\n+    public InputProcessorChain createSubChain(InputProcessor inputProcessor, boolean clone) throws XMLStreamException, XMLSecurityException {\n         InputProcessorChainImpl inputProcessorChain;\n         try {\n-            inputProcessorChain = new InputProcessorChainImpl(inboundSecurityContext, documentContext.clone(),\n+            final DocumentContextImpl docContext = clone ? documentContext.clone() : documentContext;\n+            inputProcessorChain = new InputProcessorChainImpl(inboundSecurityContext, docContext,\n                     inputProcessors.indexOf(inputProcessor) + 1, new ArrayList<InputProcessor>(this.inputProcessors));\n         } catch (CloneNotSupportedException e) {\n             throw new XMLSecurityException(e);\ndiff --git a/src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java b/src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java\nindex 7e58dcd957..72a75c26f5 100644\n--- a/src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java\n+++ b/src/main/java/org/apache/xml/security/stax/impl/processor/input/XMLSecurityInputProcessor.java\n@@ -138,11 +138,15 @@ public XMLSecEvent processNextEvent(InputProcessorChain inputProcessorChain)\n                     inputProcessorChain.addProcessor(internalReplayProcessor);\n \n                     //...and let the SignatureVerificationProcessor process the buffered events (enveloped signature).\n-                    InputProcessorChain subInputProcessorChain = inputProcessorChain.createSubChain(this);\n+                    InputProcessorChain subInputProcessorChain = inputProcessorChain.createSubChain(this, false);\n                     while (!xmlSecEventList.isEmpty()) {\n                         subInputProcessorChain.reset();\n                         subInputProcessorChain.processEvent();\n                     }\n+\n+                    // copy all processor back to main chain for finalization\n+                    inputProcessorChain.getProcessors().clear();\n+                    inputProcessorChain.getProcessors().addAll(subInputProcessorChain.getProcessors());\n                 }\n                 break;\n         }\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-21",
+      "repoSlug": "apache/santuario-java",
+      "fixCommitUrl": "https://github.com/apache/santuario-java/commit/e50488044121cf01ffbc235ca53b9562031d69c5",
+      "fixSha": "e50488044121cf01ffbc235ca53b9562031d69c5",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2014-8152",
+      "cweId": "CWE-254",
+      "cweName": "7PK - Security Features",
+      "owaspId": "none",
+      "excludedTestFiles": "src/test/java/org/apache/xml/security/test/stax/signature/SignatureVerificationTest.java"
+    }
+  },
+  {
+    "caseId": "VUL4J-22",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-22-b15ab92770",
+    "diff": "--- web/src/main/java/org/apache/shiro/web/util/WebUtils.java\n+++ web/src/main/java/org/apache/shiro/web/util/WebUtils.java\n@@ -248,12 +248,11 @@ public static String getContextPath(HttpServletRequest request) {\n         if (contextPath == null) {\n             contextPath = request.getContextPath();\n         }\n-        contextPath = normalize(decodeRequestString(request, contextPath));\n         if (\"/\".equals(contextPath)) {\n+            // Invalid case, but happens for includes on Jetty: silently adapt it.\n-            // the normalize method will return a \"/\" and includes on Jetty, will also be a \"/\".\n             contextPath = \"\";\n         }\n+        return decodeRequestString(request, contextPath);\n-        return contextPath;\n     }\n \n     /**\n",
+    "issueDescription": "Vulnerability CVE-2016-6802 (CWE-284: Improper Access Control) in apache/shiro. Fixed by https://github.com/apache/shiro/commit/b15ab927709ca18ea4a02538be01919a19ab65af.",
+    "truth": {
+      "locations": [
+        {
+          "file": "web/src/main/java/org/apache/shiro/web/util/WebUtils.java",
+          "lineStart": 251,
+          "lineEnd": 251,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "web/src/main/java/org/apache/shiro/web/util/WebUtils.java",
+          "lineStart": 252,
+          "lineEnd": 252,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "web/src/main/java/org/apache/shiro/web/util/WebUtils.java",
+          "lineStart": 255,
+          "lineEnd": 255,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/web/src/main/java/org/apache/shiro/web/util/WebUtils.java b/web/src/main/java/org/apache/shiro/web/util/WebUtils.java\nindex 561dae9994..3f3f750522 100644\n--- a/web/src/main/java/org/apache/shiro/web/util/WebUtils.java\n+++ b/web/src/main/java/org/apache/shiro/web/util/WebUtils.java\n@@ -248,11 +248,12 @@ public static String getContextPath(HttpServletRequest request) {\n         if (contextPath == null) {\n             contextPath = request.getContextPath();\n         }\n+        contextPath = normalize(decodeRequestString(request, contextPath));\n         if (\"/\".equals(contextPath)) {\n-            // Invalid case, but happens for includes on Jetty: silently adapt it.\n+            // the normalize method will return a \"/\" and includes on Jetty, will also be a \"/\".\n             contextPath = \"\";\n         }\n-        return decodeRequestString(request, contextPath);\n+        return contextPath;\n     }\n \n     /**\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-22",
+      "repoSlug": "apache/shiro",
+      "fixCommitUrl": "https://github.com/apache/shiro/commit/b15ab927709ca18ea4a02538be01919a19ab65af",
+      "fixSha": "b15ab927709ca18ea4a02538be01919a19ab65af",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2016-6802",
+      "cweId": "CWE-284",
+      "cweName": "Improper Access Control",
+      "owaspId": "A5",
+      "excludedTestFiles": "web/src/test/groovy/org/apache/shiro/web/util/WebUtilsTest.groovy"
+    }
+  },
+  {
+    "caseId": "VUL4J-25",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-25-ec6764d165",
+    "diff": "--- src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\n+++ src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\n@@ -18,6 +18,9 @@\n \n import java.io.StringReader;\n import java.io.StringWriter;\n+import java.io.UnsupportedEncodingException;\n+import java.net.URLDecoder;\n+import java.nio.charset.StandardCharsets;\n import java.util.HashMap;\n import java.util.Map;\n import java.util.regex.Matcher;\n@@ -29,6 +32,7 @@\n import javax.xml.parsers.SAXParser;\n import javax.xml.parsers.SAXParserFactory;\n \n+import org.apache.commons.lang3.StringEscapeUtils;\n import org.apache.commons.lang3.StringUtils;\n import org.apache.sling.xss.ProtectionContext;\n import org.apache.sling.xss.XSSAPI;\n@@ -224,22 +228,33 @@ private String mangleNamespaces(String absPath) {\n     @Nonnull\n     public String getValidHref(final String url) {\n         if (StringUtils.isNotEmpty(url)) {\n+            try {\n+                String unescapedURL = URLDecoder.decode(url, StandardCharsets.UTF_8.name());\n+                /*\n+                    StringEscapeUtils is deprecated starting with version 3.6 of commons-lang3, however the indicated replacement comes from\n+                    commons-text, which is not an OSGi bundle\n+                */\n+                unescapedURL = StringEscapeUtils.unescapeXml(unescapedURL);\n+                // Percent-encode characters that are not allowed in unquoted\n+                // HTML attributes: \", ', >, <, ` and space. We don't encode =\n+                // since this would break links with query parameters.\n+                String encodedUrl = unescapedURL.replaceAll(\"\\\"\", \"%22\")\n+                        .replaceAll(\"'\", \"%27\")\n+                        .replaceAll(\">\", \"%3E\")\n+                        .replaceAll(\"<\", \"%3C\")\n+                        .replaceAll(\"`\", \"%60\")\n+                        .replaceAll(\" \", \"%20\");\n+                int qMarkIx = encodedUrl.indexOf('?');\n+                if (qMarkIx > 0) {\n+                    encodedUrl = encodedUrl.substring(0, qMarkIx) + encodedUrl.substring(qMarkIx).replaceAll(\":\", \"%3A\");\n+                }\n+\n+                encodedUrl = mangleNamespaces(encodedUrl);\n+                if (xssFilter.isValidHref(encodedUrl)) {\n+                    return encodedUrl;\n+                }\n+            } catch (UnsupportedEncodingException e) {\n+                LOGGER.error(\"Unable to decode url: {}.\", url);\n-            // Percent-encode characters that are not allowed in unquoted\n-            // HTML attributes: \", ', >, <, ` and space. We don't encode =\n-            // since this would break links with query parameters.\n-            String encodedUrl = url.replaceAll(\"\\\"\", \"%22\")\n-                    .replaceAll(\"'\", \"%27\")\n-                    .replaceAll(\">\", \"%3E\")\n-                    .replaceAll(\"<\", \"%3C\")\n-                    .replaceAll(\"`\", \"%60\")\n-                    .replaceAll(\" \", \"%20\");\n-            int qMarkIx = encodedUrl.indexOf('?');\n-            if (qMarkIx > 0) {\n-                encodedUrl = encodedUrl.substring(0, qMarkIx) + encodedUrl.substring(qMarkIx).replaceAll(\":\", \"%3A\");\n-            }\n-            encodedUrl = mangleNamespaces(encodedUrl);\n-            if (xssFilter.isValidHref(encodedUrl)) {\n-                return encodedUrl;\n             }\n         }\n         // fall through to empty string\n",
+    "issueDescription": "Vulnerability CVE-2017-15717 (CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')) in apache/sling-org-apache-sling-xss. Fixed by https://github.com/apache/sling-org-apache-sling-xss/commit/ec6764d165abc4df8cffd8439761bb2228887db9.",
+    "truth": {
+      "locations": [
+        {
+          "file": "src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java",
+          "lineStart": 21,
+          "lineEnd": 23,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java",
+          "lineStart": 35,
+          "lineEnd": 35,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java",
+          "lineStart": 231,
+          "lineEnd": 257,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java b/src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\nindex 4c62098..f0d35e1 100644\n--- a/src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\n+++ b/src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\n@@ -18,9 +18,6 @@\n \n import java.io.StringReader;\n import java.io.StringWriter;\n-import java.io.UnsupportedEncodingException;\n-import java.net.URLDecoder;\n-import java.nio.charset.StandardCharsets;\n import java.util.HashMap;\n import java.util.Map;\n import java.util.regex.Matcher;\n@@ -32,7 +29,6 @@\n import javax.xml.parsers.SAXParser;\n import javax.xml.parsers.SAXParserFactory;\n \n-import org.apache.commons.lang3.StringEscapeUtils;\n import org.apache.commons.lang3.StringUtils;\n import org.apache.sling.xss.ProtectionContext;\n import org.apache.sling.xss.XSSAPI;\n@@ -228,33 +224,22 @@ private String mangleNamespaces(String absPath) {\n     @Nonnull\n     public String getValidHref(final String url) {\n         if (StringUtils.isNotEmpty(url)) {\n-            try {\n-                String unescapedURL = URLDecoder.decode(url, StandardCharsets.UTF_8.name());\n-                /*\n-                    StringEscapeUtils is deprecated starting with version 3.6 of commons-lang3, however the indicated replacement comes from\n-                    commons-text, which is not an OSGi bundle\n-                */\n-                unescapedURL = StringEscapeUtils.unescapeXml(unescapedURL);\n-                // Percent-encode characters that are not allowed in unquoted\n-                // HTML attributes: \", ', >, <, ` and space. We don't encode =\n-                // since this would break links with query parameters.\n-                String encodedUrl = unescapedURL.replaceAll(\"\\\"\", \"%22\")\n-                        .replaceAll(\"'\", \"%27\")\n-                        .replaceAll(\">\", \"%3E\")\n-                        .replaceAll(\"<\", \"%3C\")\n-                        .replaceAll(\"`\", \"%60\")\n-                        .replaceAll(\" \", \"%20\");\n-                int qMarkIx = encodedUrl.indexOf('?');\n-                if (qMarkIx > 0) {\n-                    encodedUrl = encodedUrl.substring(0, qMarkIx) + encodedUrl.substring(qMarkIx).replaceAll(\":\", \"%3A\");\n-                }\n-\n-                encodedUrl = mangleNamespaces(encodedUrl);\n-                if (xssFilter.isValidHref(encodedUrl)) {\n-                    return encodedUrl;\n-                }\n-            } catch (UnsupportedEncodingException e) {\n-                LOGGER.error(\"Unable to decode url: {}.\", url);\n+            // Percent-encode characters that are not allowed in unquoted\n+            // HTML attributes: \", ', >, <, ` and space. We don't encode =\n+            // since this would break links with query parameters.\n+            String encodedUrl = url.replaceAll(\"\\\"\", \"%22\")\n+                    .replaceAll(\"'\", \"%27\")\n+                    .replaceAll(\">\", \"%3E\")\n+                    .replaceAll(\"<\", \"%3C\")\n+                    .replaceAll(\"`\", \"%60\")\n+                    .replaceAll(\" \", \"%20\");\n+            int qMarkIx = encodedUrl.indexOf('?');\n+            if (qMarkIx > 0) {\n+                encodedUrl = encodedUrl.substring(0, qMarkIx) + encodedUrl.substring(qMarkIx).replaceAll(\":\", \"%3A\");\n+            }\n+            encodedUrl = mangleNamespaces(encodedUrl);\n+            if (xssFilter.isValidHref(encodedUrl)) {\n+                return encodedUrl;\n             }\n         }\n         // fall through to empty string\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-25",
+      "repoSlug": "apache/sling-org-apache-sling-xss",
+      "fixCommitUrl": "https://github.com/apache/sling-org-apache-sling-xss/commit/ec6764d165abc4df8cffd8439761bb2228887db9",
+      "fixSha": "ec6764d165abc4df8cffd8439761bb2228887db9",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2017-15717",
+      "cweId": "CWE-79",
+      "cweName": "Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')",
+      "owaspId": "A7",
+      "excludedTestFiles": "src/test/java/org/apache/sling/xss/impl/XSSAPIImplTest.java"
+    }
+  },
+  {
+    "caseId": "VUL4J-29",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-29-1a668af7f1",
+    "diff": "--- core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java\n+++ core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java\n@@ -33,7 +33,6 @@\n \n import javax.servlet.http.Cookie;\n import java.util.Collections;\n-import java.util.HashSet;\n import java.util.LinkedHashMap;\n import java.util.Map;\n import java.util.Set;\n@@ -176,13 +175,7 @@ public class CookieInterceptor extends AbstractInterceptor {\n \n     // Allowed names of cookies\n     private Pattern acceptedPattern = Pattern.compile(ACCEPTED_PATTERN, Pattern.CASE_INSENSITIVE);\n+    private Pattern excludedPattern = Pattern.compile(ExcludedPatterns.CLASS_ACCESS_PATTERN, Pattern.CASE_INSENSITIVE);\n-    private Set<Pattern> excludedPatterns = new HashSet<Pattern>();\n-\n-    public CookieInterceptor() {\n-        for (String pattern : ExcludedPatterns.EXCLUDED_PATTERNS) {\n-            excludedPatterns.add(Pattern.compile(pattern, Pattern.CASE_INSENSITIVE));\n-        }\n-    }\n \n     /**\n      * Set the <code>cookiesName</code> which if matched will allow the cookie\n@@ -260,16 +253,13 @@ public String intercept(ActionInvocation invocation) throws Exception {\n      * @return true|false\n      */\n     protected boolean isAcceptableValue(String value) {\n+        boolean matches = !excludedPattern.matcher(value).matches();\n+        if (!matches) {\n+            if (LOG.isTraceEnabled()) {\n+                LOG.trace(\"Cookie value [#0] matches excludedPattern [#1]\", value, ExcludedPatterns.CLASS_ACCESS_PATTERN);\n-        for (Pattern excludedPattern : excludedPatterns) {\n-            boolean matches = !excludedPattern.matcher(value).matches();\n-            if (!matches) {\n-                if (LOG.isTraceEnabled()) {\n-                    LOG.trace(\"Cookie value [#0] matches excludedPattern [#1]\", value, excludedPattern.toString());\n-                }\n-                return false;\n             }\n         }\n+        return matches;\n-        return true;\n     }\n \n     /**\n@@ -303,26 +293,23 @@ protected boolean isAccepted(String name) {\n     }\n \n     /**\n+     * Checks if name of Cookie match {@link #excludedPattern}\n-     * Checks if name of Cookie match {@link #excludedPatterns}\n      *\n      * @param name of Cookie\n      * @return true|false\n      */\n     protected boolean isExcluded(String name) {\n+        boolean matches = excludedPattern.matcher(name).matches();\n+        if (matches) {\n+            if (LOG.isTraceEnabled()) {\n+                LOG.trace(\"Cookie [#0] matches excludedPattern [#1]\", name, ExcludedPatterns.CLASS_ACCESS_PATTERN);\n+            }\n+        } else {\n+            if (LOG.isTraceEnabled()) {\n+                LOG.trace(\"Cookie [#0] doesn't match excludedPattern [#1]\", name, ExcludedPatterns.CLASS_ACCESS_PATTERN);\n-        for (Pattern excludedPattern : excludedPatterns) {\n-            boolean matches = excludedPattern.matcher(name).matches();\n-            if (matches) {\n-                if (LOG.isTraceEnabled()) {\n-                    LOG.trace(\"Cookie [#0] matches excludedPattern [#1]\", name, excludedPattern.toString());\n-                }\n-                return true;\n-            } else {\n-                if (LOG.isTraceEnabled()) {\n-                    LOG.trace(\"Cookie [#0] doesn't match excludedPattern [#1]\", name, excludedPattern.toString());\n-                }\n             }\n         }\n+        return matches;\n-        return false;\n     }\n \n     /**\n",
+    "issueDescription": "Vulnerability CVE-2014-0116 (CWE-264: Permissions, Privileges, and Access Controls) in apache/struts. Fixed by https://github.com/bqcuong/vul4j/commit/1a668af7f1ffccea4a3b46d8d8c1fe1c7331ff02.",
+    "truth": {
+      "locations": [
+        {
+          "file": "core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java",
+          "lineStart": 36,
+          "lineEnd": 36,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java",
+          "lineStart": 178,
+          "lineEnd": 178,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java",
+          "lineStart": 256,
+          "lineEnd": 259,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java",
+          "lineStart": 262,
+          "lineEnd": 262,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java",
+          "lineStart": 296,
+          "lineEnd": 296,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java",
+          "lineStart": 302,
+          "lineEnd": 309,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java",
+          "lineStart": 312,
+          "lineEnd": 312,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java b/core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java\nindex 3e2e81d321eb..340b57f8134e 100644\n--- a/core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java\n+++ b/core/src/main/java/org/apache/struts2/interceptor/CookieInterceptor.java\n@@ -33,6 +33,7 @@\n \n import javax.servlet.http.Cookie;\n import java.util.Collections;\n+import java.util.HashSet;\n import java.util.LinkedHashMap;\n import java.util.Map;\n import java.util.Set;\n@@ -175,7 +176,13 @@ public class CookieInterceptor extends AbstractInterceptor {\n \n     // Allowed names of cookies\n     private Pattern acceptedPattern = Pattern.compile(ACCEPTED_PATTERN, Pattern.CASE_INSENSITIVE);\n-    private Pattern excludedPattern = Pattern.compile(ExcludedPatterns.CLASS_ACCESS_PATTERN, Pattern.CASE_INSENSITIVE);\n+    private Set<Pattern> excludedPatterns = new HashSet<Pattern>();\n+\n+    public CookieInterceptor() {\n+        for (String pattern : ExcludedPatterns.EXCLUDED_PATTERNS) {\n+            excludedPatterns.add(Pattern.compile(pattern, Pattern.CASE_INSENSITIVE));\n+        }\n+    }\n \n     /**\n      * Set the <code>cookiesName</code> which if matched will allow the cookie\n@@ -253,13 +260,16 @@ public String intercept(ActionInvocation invocation) throws Exception {\n      * @return true|false\n      */\n     protected boolean isAcceptableValue(String value) {\n-        boolean matches = !excludedPattern.matcher(value).matches();\n-        if (!matches) {\n-            if (LOG.isTraceEnabled()) {\n-                LOG.trace(\"Cookie value [#0] matches excludedPattern [#1]\", value, ExcludedPatterns.CLASS_ACCESS_PATTERN);\n+        for (Pattern excludedPattern : excludedPatterns) {\n+            boolean matches = !excludedPattern.matcher(value).matches();\n+            if (!matches) {\n+                if (LOG.isTraceEnabled()) {\n+                    LOG.trace(\"Cookie value [#0] matches excludedPattern [#1]\", value, excludedPattern.toString());\n+                }\n+                return false;\n             }\n         }\n-        return matches;\n+        return true;\n     }\n \n     /**\n@@ -293,23 +303,26 @@ protected boolean isAccepted(String name) {\n     }\n \n     /**\n-     * Checks if name of Cookie match {@link #excludedPattern}\n+     * Checks if name of Cookie match {@link #excludedPatterns}\n      *\n      * @param name of Cookie\n      * @return true|false\n      */\n     protected boolean isExcluded(String name) {\n-        boolean matches = excludedPattern.matcher(name).matches();\n-        if (matches) {\n-            if (LOG.isTraceEnabled()) {\n-                LOG.trace(\"Cookie [#0] matches excludedPattern [#1]\", name, ExcludedPatterns.CLASS_ACCESS_PATTERN);\n-            }\n-        } else {\n-            if (LOG.isTraceEnabled()) {\n-                LOG.trace(\"Cookie [#0] doesn't match excludedPattern [#1]\", name, ExcludedPatterns.CLASS_ACCESS_PATTERN);\n+        for (Pattern excludedPattern : excludedPatterns) {\n+            boolean matches = excludedPattern.matcher(name).matches();\n+            if (matches) {\n+                if (LOG.isTraceEnabled()) {\n+                    LOG.trace(\"Cookie [#0] matches excludedPattern [#1]\", name, excludedPattern.toString());\n+                }\n+                return true;\n+            } else {\n+                if (LOG.isTraceEnabled()) {\n+                    LOG.trace(\"Cookie [#0] doesn't match excludedPattern [#1]\", name, excludedPattern.toString());\n+                }\n             }\n         }\n-        return matches;\n+        return false;\n     }\n \n     /**\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-29",
+      "repoSlug": "apache/struts",
+      "fixCommitUrl": "https://github.com/bqcuong/vul4j/commit/1a668af7f1ffccea4a3b46d8d8c1fe1c7331ff02",
+      "fixSha": "1a668af7f1ffccea4a3b46d8d8c1fe1c7331ff02",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2014-0116",
+      "cweId": "CWE-264",
+      "cweName": "Permissions, Privileges, and Access Controls",
+      "owaspId": "none",
+      "excludedTestFiles": "core/src/test/java/org/apache/struts2/interceptor/CookieInterceptorTest.java"
+    }
+  },
+  {
+    "caseId": "VUL4J-30",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-30-554b9dddb0",
+    "diff": "--- core/src/main/java/com/opensymphony/xwork2/validator/validators/URLValidator.java\n+++ core/src/main/java/com/opensymphony/xwork2/validator/validators/URLValidator.java\n@@ -55,7 +55,7 @@ public void validate(Object object) throws ValidationException {\n             return;\n         }\n \n+        if (!(value.getClass().equals(String.class)) || !Pattern.compile(getUrlRegex(), Pattern.CASE_INSENSITIVE).matcher(String.valueOf(value)).matches()) {\n-        if (!(value.getClass().equals(String.class)) || !Pattern.compile(getUrlRegex(), Pattern.CASE_INSENSITIVE).matcher(String.valueOf(value).trim()).matches()) {\n             addFieldError(fieldName, object);\n         }\n     }\n",
+    "issueDescription": "Vulnerability CVE-2016-8738 (CWE-20: Improper Input Validation) in apache/struts. Fixed by https://github.com/apache/struts/commit/554b9dddb0fbd1e581ef577dd62a7c22955ad0f6.",
+    "truth": {
+      "locations": [
+        {
+          "file": "core/src/main/java/com/opensymphony/xwork2/validator/validators/URLValidator.java",
+          "lineStart": 58,
+          "lineEnd": 58,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/core/src/main/java/com/opensymphony/xwork2/validator/validators/URLValidator.java b/core/src/main/java/com/opensymphony/xwork2/validator/validators/URLValidator.java\nindex 735d861de6..8786c18e14 100644\n--- a/core/src/main/java/com/opensymphony/xwork2/validator/validators/URLValidator.java\n+++ b/core/src/main/java/com/opensymphony/xwork2/validator/validators/URLValidator.java\n@@ -55,7 +55,7 @@ public void validate(Object object) throws ValidationException {\n             return;\n         }\n \n-        if (!(value.getClass().equals(String.class)) || !Pattern.compile(getUrlRegex(), Pattern.CASE_INSENSITIVE).matcher(String.valueOf(value)).matches()) {\n+        if (!(value.getClass().equals(String.class)) || !Pattern.compile(getUrlRegex(), Pattern.CASE_INSENSITIVE).matcher(String.valueOf(value).trim()).matches()) {\n             addFieldError(fieldName, object);\n         }\n     }\n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-30",
+      "repoSlug": "apache/struts",
+      "fixCommitUrl": "https://github.com/apache/struts/commit/554b9dddb0fbd1e581ef577dd62a7c22955ad0f6",
+      "fixSha": "554b9dddb0fbd1e581ef577dd62a7c22955ad0f6",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2016-8738",
+      "cweId": "CWE-20",
+      "cweName": "Improper Input Validation",
+      "owaspId": "CWE Top 25"
+    }
+  },
+  {
+    "caseId": "VUL4J-33",
+    "repoPath": ".cache/datasets/vul4j-repos/VUL4J-33-f238cf4f10",
+    "diff": "--- core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java\n+++ core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java\n@@ -287,7 +287,7 @@ public void setValue(final String name, final Map<String, Object> context, final\n         compileAndExecute(name, context, new OgnlTask<Void>() {\n             public Void execute(Object tree) throws OgnlException {\n                 if (isEvalExpression(tree, context)) {\n+                    throw new OgnlException(\"Eval expression cannot be used as parameter name\");\n-                    throw new OgnlException(\"Eval expression/chained expressions cannot be used as parameter name\");\n                 }\n                 Ognl.setValue(tree, context, root, value);\n                 return null;\n@@ -303,7 +303,7 @@ private boolean isEvalExpression(Object tree, Map<String, Object> context) throw\n             if (context!=null && context instanceof OgnlContext) {\n                 ognlContext = (OgnlContext) context;\n             }\n+            return node.isEvalChain(ognlContext);\n-            return node.isEvalChain(ognlContext) || node.isSequence(ognlContext);\n         }\n         return false;\n     }\n@@ -360,7 +360,7 @@ public Object execute(Object tree) throws OgnlException {\n     \n     private void checkEnableEvalExpression(Object tree, Map<String, Object> context) throws OgnlException {\n         if (!enableEvalExpression && isEvalExpression(tree, context)) {\n+            throw new OgnlException(\"Eval expressions has been disabled!\");\n-            throw new OgnlException(\"Eval expressions/chained expressions have been disabled!\");\n         }\n     }\n \n",
+    "issueDescription": "Vulnerability CVE-2016-3081 (CWE-77: Improper Neutralization of Special Elements used in a Command ('Command Injection')) in apache/struts. Fixed by https://github.com/apache/struts/commit/f238cf4f1091be19fbcfd086b042c86a1bcaa7fc.",
+    "truth": {
+      "locations": [
+        {
+          "file": "core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java",
+          "lineStart": 290,
+          "lineEnd": 290,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java",
+          "lineStart": 306,
+          "lineEnd": 306,
+          "defectNature": "SECURITY"
+        },
+        {
+          "file": "core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java",
+          "lineStart": 363,
+          "lineEnd": 363,
+          "defectNature": "SECURITY"
+        }
+      ],
+      "fixPatch": "diff --git a/core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java b/core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java\nindex 679c804514..562b6fc14b 100644\n--- a/core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java\n+++ b/core/src/main/java/com/opensymphony/xwork2/ognl/OgnlUtil.java\n@@ -287,7 +287,7 @@ public void setValue(final String name, final Map<String, Object> context, final\n         compileAndExecute(name, context, new OgnlTask<Void>() {\n             public Void execute(Object tree) throws OgnlException {\n                 if (isEvalExpression(tree, context)) {\n-                    throw new OgnlException(\"Eval expression cannot be used as parameter name\");\n+                    throw new OgnlException(\"Eval expression/chained expressions cannot be used as parameter name\");\n                 }\n                 Ognl.setValue(tree, context, root, value);\n                 return null;\n@@ -303,7 +303,7 @@ private boolean isEvalExpression(Object tree, Map<String, Object> context) throw\n             if (context!=null && context instanceof OgnlContext) {\n                 ognlContext = (OgnlContext) context;\n             }\n-            return node.isEvalChain(ognlContext);\n+            return node.isEvalChain(ognlContext) || node.isSequence(ognlContext);\n         }\n         return false;\n     }\n@@ -360,7 +360,7 @@ public Object execute(Object tree) throws OgnlException {\n     \n     private void checkEnableEvalExpression(Object tree, Map<String, Object> context) throws OgnlException {\n         if (!enableEvalExpression && isEvalExpression(tree, context)) {\n-            throw new OgnlException(\"Eval expressions has been disabled!\");\n+            throw new OgnlException(\"Eval expressions/chained expressions have been disabled!\");\n         }\n     }\n \n"
+    },
+    "labels": {
+      "source": "vul4j",
+      "riskClass": "High",
+      "allowedConfigs": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E"
+      ]
+    },
+    "extensions": {
+      "vulId": "VUL4J-33",
+      "repoSlug": "apache/struts",
+      "fixCommitUrl": "https://github.com/apache/struts/commit/f238cf4f1091be19fbcfd086b042c86a1bcaa7fc",
+      "fixSha": "f238cf4f1091be19fbcfd086b042c86a1bcaa7fc",
+      "nature": "SECURITY",
+      "natureMatched": "true",
+      "cveId": "CVE-2016-3081",
+      "cweId": "CWE-77",
+      "cweName": "Improper Neutralization of Special Elements used in a Command ('Command Injection')",
+      "owaspId": "A1",
+      "excludedTestFiles": "core/src/test/java/com/opensymphony/xwork2/ognl/OgnlUtilTest.java"
+    }
+  }
+]

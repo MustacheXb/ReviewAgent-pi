@@ -5,11 +5,11 @@ import { screenFindings } from "../analysis/screening.js";
 import type { CampaignEnvironmentInput, JudgeClient } from "./contracts.js";
 
 /**
- * #39 进程入口的显式 fake 依赖（`run-campaign --fake`）：确定性、零网络。
+ * 进程入口的显式 fake 依赖（`run-campaign --fake`）：确定性、零网络。
  *
- * 用途仅限骨架 tracer bullet——证明「plan → 单元 → 记录 → 报告」路径成立；
- * 记录仍带 `evalOnly: true`，environment 的 judge/prompt 字段标 `fake`，
- * 不得作为真实测量结果引用。真实 E 内核 + judge 链装配在 #40。
+ * 用途仅限 harness tracer bullet——证明「plan → 单元 → 记录 → 报告」路径
+ * 成立；记录仍带 `evalOnly: true`，environment 的 judge/prompt 字段标
+ * `fake`，不得作为真实测量结果引用。真实装配见 `src/eval/assembly`（#40）。
  */
 
 /** fake 内核：有真值时按首个真值位置产出一条 finding；clean MR 产出空集 */
@@ -75,9 +75,15 @@ export function createFakeJudgeClient(): JudgeClient {
   return {
     judge: async (request) => {
       if (request.mrCase.truth === null) {
-        return { tp: 0, fp: request.record.baseline.findings.length, fn: 0 };
+        return {
+          counts: { tp: 0, fp: request.record.baseline.findings.length, fn: 0 },
+          anomalies: [],
+        };
       }
-      return screenFindings(request.record.baseline.findings, request.mrCase.truth);
+      return {
+        counts: screenFindings(request.record.baseline.findings, request.mrCase.truth),
+        anomalies: [],
+      };
     },
   };
 }

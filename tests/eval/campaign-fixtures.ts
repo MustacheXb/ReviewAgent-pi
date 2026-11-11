@@ -147,7 +147,10 @@ export function fakeKernel(
 export type FakeJudge = JudgeClient & { readonly calls: readonly JudgeRequest[] };
 
 export function fakeJudge(
-  options: { failWhen?: (request: JudgeRequest) => boolean } = {},
+  options: {
+    failWhen?: (request: JudgeRequest) => boolean;
+    anomalies?: readonly string[];
+  } = {},
 ): FakeJudge {
   const calls: JudgeRequest[] = [];
   return {
@@ -157,7 +160,7 @@ export function fakeJudge(
       if (options.failWhen?.(request) === true) {
         throw new Error(`judge failed for ${request.arm}`);
       }
-      return { tp: 1, fp: 0, fn: 0 };
+      return { counts: { tp: 1, fp: 0, fn: 0 }, anomalies: options.anomalies ?? [] };
     },
   };
 }

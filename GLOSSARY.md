@@ -209,6 +209,10 @@ _Avoid_: 当主判定、替代 CARC
 LLM-as-judge 的 finding↔truth 裁定链；版本 / 提示词 / 温度 / top_p 必须 pin 死并进环境留痕。
 _Avoid_: 判级（生产语境）、跨 judge 版本混跑、把 judge 当生产运行时组件
 
+**真实冒烟门控（Real Smoke Gate）**:
+真实网关 / judge 评测运行的环境变量门控（`CAMPAIGN_REAL=1`）；默认关闭，确定性 CI 不触达。开启后单单元内核 / judge 超时与失败均落 `failures.json`，不拖垮整批。
+_Avoid_: 默认开启真实调用、把 `--fake` tracer bullet 当真实测量、在默认 CI 跑真网关
+
 **历史锚（Historical Anchor）**:
 ADR-0004 / ADR-0011 中作为 S/A/B 分母的 C；只作历史实验复算，不是活对照。
 _Avoid_: 活锚、把历史锚当未来评判标准

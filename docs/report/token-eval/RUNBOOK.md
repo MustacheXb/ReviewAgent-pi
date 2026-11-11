@@ -31,8 +31,34 @@ candidate: <commit>
 ## 2. L2 评测战役流程
 
 1. **冻结 baseline**：确认 baseline ref 不变；在 `eval/bench` checkout candidate，确认除目标提交外运行时与 baseline 一致（同代码谱系）。
-2. **环境探针**：运行前跑 `probe-gateway-cache`，记录模型 / 网关 / judge / 机器 / 时间窗；运行后复测（网关策略随时段漂移，跨窗口不可归因）。
+2. **环境探针**：记录模型 / 网关 / judge / 机器 / 时间窗；运行后复测（网关策略随时段漂移，跨窗口不可归因）。缓存探针脚本随研究装置删除（#32），`environment.gateway.cacheProbe*` 当前记 `null`（N/A）；跨窗口缓存对比前需先恢复探针。
 3. **冒烟**：10 case × 2 reps，baseline / candidate 交错，失败隔离；修 runbook，不修数据。
+
+   P1 冒烟（#40）数据集与命令：
+
+   ```bash
+   # 数据集：冻结 30 案 target 列表的前 10 案（确定性切片，字节入 campaign hash）
+   CAMPAIGN_REAL=1 pnpm campaign -- \
+     --campaign-id p1-smoke-2026-11-11 \
+     --baseline-ref eval-e-baseline-2026-11-11 \
+     --candidate-ref <commit> \
+     --cases data/vul4j/p1-smoke-cases.json \
+     --model deepseek-v4-flash --reps 2 --arms baseline \
+     [--judge-model glm-5.2]
+   ```
+
+   真实调用由 `CAMPAIGN_REAL=1` 门控（默认关闭，不进 CI）；产物在
+   `runs/eval/<campaign-id>/`：`plan.json` / `cases.json` / `environment.json` /
+   `failures.json` / `report.json` / `runs/` / `judge/` / `audit/`。
+   `pnpm campaign -- --report-only --out <dir>` 可只读重建报告。
+
+   > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
+   > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s
+   > 超时重试），`glm-5.3-flash` 返回非法 JSON。当前缺省用 `glm-5.2`
+   > （同 glm family，61s 完成且计数与 qwen3.7-max / doubao-seed-2.1-pro
+   > 一致，异构约束不变）。实际 judge 模型以 `environment.json.judge.model`
+   > 为准（网关不回显实际部署版本，`model.actualDeployment` 记 `null`）；
+   > judge 版本变更后按 ADR-0017 §5 重做空对照校准。
 4. **主跑**：30 case × 3 reps（Vul4J 30 案），同 case × rep 两臂相邻或按 case 随机化臂顺序；同一 ≤48h 窗口。
 5. **判定**：L1 质量门（judge Recall / Precision 非劣、零 finding 率、阴性对照 FP、coverage）+ L2 成本门（CARC 主门、uncached / output 分解、attemptedToolCalls / requests 有界性、可复现）。阈值 provisional，先跑空对照校准（ADR-0017 §5）。
 6. **归档**：报表写本目录（`docs/report/token-eval/<campaign-id>/`），原始 `runs/` / `audit/` / `wireBody` 外置；报告不得含 key。
@@ -44,6 +70,9 @@ candidate: <commit>
 |---|---|
 | `main` `docs/report/token-eval/` | baseline manifest、历史 provenance、L2 / L3 摘要报告、复算入口 |
 | `main` `src/eval/analysis/` | 只读 `RunRecord → cached / uncached / output / CARC` 分析器（零网络、零 LLM） |
+| `eval/bench` `src/eval/campaign/` | campaign harness（plan / 单元执行 / 记录 / 报告；零网络，依赖注入） |
+| `eval/bench` `src/eval/judge/` | LLM-as-judge 链（prompt / parse / resolve / HTTP 客户端；离线可测） |
+| `eval/bench` `src/eval/assembly/` | 真实装配（pi 内核 + judge + `environment.json` provenance；`CAMPAIGN_REAL=1` 门控） |
 | `eval/bench` | campaign harness、judge 链、`C_ref`、Claude Code 参照、空对照校准、配对统计 |
 | 本机 / 外置存储 | 原始 `runs/`、`audit/`、`wireBody`（gitignored，不入库） |
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -280,6 +280,11 @@ describe("runCampaign: 同目录重跑", () => {
     );
     expect(first.records).toHaveLength(2);
 
+    // 真跑内核审计落在 <out>/audit（重放字节）；重跑必须同代清理
+    const staleAudit = path.join(outputDir, "audit", "stale.json");
+    mkdirSync(path.dirname(staleAudit), { recursive: true });
+    writeFileSync(staleAudit, "{}\n", "utf8");
+
     const second = await runCampaign(
       { plan: campaign, environment: provenance(campaign.model) },
       {
@@ -301,6 +306,50 @@ describe("runCampaign: 同目录重跑", () => {
     expect(
       existsSync(path.join(outputDir, "judge", "vul4j", "VUL4J-1", "candidate", "rep-1.json")),
     ).toBe(false);
+    expect(existsSync(staleAudit)).toBe(false);
+  });
+});
+
+describe("runCampaign: judge 有界失败留痕", () => {
+  it("judge 丢弃畸形 / 越界条目时 anomalies 落盘（不静默吞掉）", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);
+    const outputDir = path.join(dir, "campaign");
+    const campaign = plan({ casesFile, outputDir, arms: ["baseline"] });
+    const anomalies = ["dropped malformed match entry 2 (invalid shape/index/confidence)"];
+
+    const result = await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model) },
+      { kernel: fakeKernel(), judge: fakeJudge({ anomalies }), now: () => NOW },
+    );
+
+    expect(result.failures).toEqual([]);
+    const judgeFile = path.join(outputDir, "judge", "vul4j", "VUL4J-1", "baseline", "rep-1.json");
+    expect(readJson(judgeFile)).toMatchObject({ status: "judged", anomalies });
+  });
+});
+
+describe("runCampaign: repoPath 解析基准", () => {
+  it("相对 repoPath 按 repoRoot 解析后送入内核；cases 原始字节不变", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);
+    const outputDir = path.join(dir, "campaign");
+    const campaign = plan({ casesFile, outputDir, arms: ["baseline"] });
+    const kernel = fakeKernel();
+    const repoRoot = path.join(dir, "repo-root");
+
+    await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model), repoRoot },
+      { kernel, judge: fakeJudge(), now: () => NOW },
+    );
+
+    expect(kernel.calls[0]?.mrCase.repoPath).toBe(
+      path.resolve(repoRoot, ".cache/datasets/vul4j-repos/VUL4J-1"),
+    );
+    // 数据集 hash 依据原始 cases 字节：不写回绝对路径
+    expect(readFileSync(path.join(outputDir, "cases.json"), "utf8")).toBe(
+      readFileSync(casesFile, "utf8"),
+    );
   });
 });
 

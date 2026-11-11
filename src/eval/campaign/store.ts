@@ -16,9 +16,9 @@ import type { CampaignUnit, EvalRunRecord } from "./contracts.js";
  *   judge/<source>/<case>/<arm>/rep-<n>.json
  * ```
  *
- * `dashboard.md` 与 `audit/` 是后续产物：audit 随真实内核装配（#40），dashboard
- * 随双 arm 配对报告（#41）；#39 骨架只落计划 / cases / 单元记录 / judge /
- * environment / failures / report。
+ * `dashboard.md` 与 `audit/` 是后续产物：audit 随真实内核装配（#40）落盘到
+ * `<outputDir>/audit`（pi 内核的 experiments 根 = outputDir），dashboard
+ * 随双 arm 配对报告（#41）。
  *
  * JSON 落盘统一 `JSON.stringify(value, null, 2) + "\n"`（golden bytes 纪律）；
  * 路径段做 [A-Za-z0-9_.-] 白名单替换，防 caseId 携带路径分隔。
@@ -75,14 +75,16 @@ export function campaignReportPath(outDir: string): string {
 
 /**
  * 清空上一次运行的单元产物（同目录重跑的单源清理）：
- * `runs/` / `judge/` / `report.json` / `failures.json` 全删；plan / cases /
- * environment 由本次运行覆写。防陈旧记录混入新报告，或被 `--report-only`
- * 当成有效证据重建（#39 审查发现：kernel 本次失败的单元会残留上次成功记录）。
+ * `runs/` / `judge/` / `audit/` / `report.json` / `failures.json` 全删；
+ * plan / cases / environment 由本次运行覆写。防陈旧记录混入新报告，或被
+ * `--report-only` 当成有效证据重建（#39 审查发现：kernel 本次失败的单元会
+ * 残留上次成功记录）；audit 是内核真跑的重放字节，也必须与记录同代（#40）。
  */
 export async function resetCampaignOutput(outDir: string): Promise<void> {
   await Promise.all([
     rm(path.join(outDir, "runs"), { recursive: true, force: true }),
     rm(path.join(outDir, "judge"), { recursive: true, force: true }),
+    rm(path.join(outDir, "audit"), { recursive: true, force: true }),
     rm(campaignReportPath(outDir), { force: true }),
     rm(campaignFailuresPath(outDir), { force: true }),
     // environment 在运行结束时才写；先删旧值，防本次中途失败后残留上次 provenance

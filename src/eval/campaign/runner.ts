@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { UnitReviewRequest } from "../../gate/review-kernel.js";
 import type { RunResult } from "../../instrument/contracts/run.js";
 import type { MatchCounts } from "../analysis/contracts.js";
@@ -11,6 +12,7 @@ import {
   type CampaignReport,
   type CampaignUnit,
   type EvalRunRecord,
+  type JudgeOutcome,
   type JudgeRecord,
   type RunCampaignOptions,
   type CampaignRunResult,
@@ -40,7 +42,8 @@ import {
  *
  * 失败隔离（VUL4J 评测方案）：单单元内核 / judge / 落盘失败只留痕并继续，
  * 不静默剔除；报告按已完成记录生成，coverage 反映实际完成面。judge 失败
- * 不自动重试——删除 `judge/` 留痕后重跑即重判。
+ * 不自动重试；重跑同一输出目录会清空单元产物并全量重跑（不做单元级续跑）。
+ * 真实网络挂起由 `kernelTimeoutMs` / `judgeTimeoutMs` 兜底（#40），按阶段留痕。
  *
  * 重跑语义：同一输出目录视为新一次运行，先清空上次单元产物（runs / judge /
  * report / failures / environment），防陈旧记录混入新报告或被 `--report-only`
@@ -53,7 +56,7 @@ export async function runCampaign(
   options: RunCampaignOptions,
   deps: CampaignDeps,
 ): Promise<CampaignRunResult> {
-  const { plan, environment } = options;
+  const { plan, environment, repoRoot } = options;
   validateCampaignPlan(plan);
   assertEnvironmentMatchesPlan(environment, plan);
 
@@ -61,6 +64,7 @@ export async function runCampaign(
   const cases = parseCampaignCases(casesText, `campaign: cases file ${plan.casesFile}`);
   const units = expandUnits(plan, cases);
   const caseById = new Map(cases.map((mrCase) => [mrCase.caseId, mrCase]));
+  const resolvedRepoRoot = repoRoot ?? process.cwd();
 
   await resetCampaignOutput(plan.outputDir);
   await writeJsonFile(campaignPlanPath(plan.outputDir), plan);
@@ -68,7 +72,14 @@ export async function runCampaign(
 
   const now = deps.now ?? (() => new Date().toISOString());
   const startedAt = now();
-  const execution = await executeUnits({ plan, units, caseById, deps, now });
+  const execution = await executeUnits({
+    plan,
+    units,
+    caseById,
+    deps,
+    now,
+    repoRoot: resolvedRepoRoot,
+  });
   const endedAt = now();
 
   const environmentManifest = buildEnvironmentManifest({
@@ -127,6 +138,7 @@ async function executeUnits(args: {
   readonly caseById: ReadonlyMap<string, CampaignCase>;
   readonly deps: CampaignDeps;
   readonly now: () => string;
+  readonly repoRoot: string;
 }): Promise<ExecutionResult> {
   const records: EvalRunRecord[] = [];
   const failures: CampaignFailure[] = [];
@@ -143,6 +155,7 @@ async function executeUnits(args: {
       mrCase,
       deps: args.deps,
       now: args.now,
+      repoRoot: args.repoRoot,
     });
     records.push(...outcome.records);
     failures.push(...outcome.failures);
@@ -165,11 +178,16 @@ async function executeUnit(args: {
   readonly mrCase: CampaignCase;
   readonly deps: CampaignDeps;
   readonly now: () => string;
+  readonly repoRoot: string;
 }): Promise<UnitOutcome> {
-  const { plan, unit, mrCase, deps, now } = args;
+  const { plan, unit, mrCase, deps, now, repoRoot } = args;
   let result: RunResult;
   try {
-    result = await deps.kernel.execute(buildKernelRequest(plan, unit, mrCase));
+    result = await withTimeout(
+      deps.kernel.execute(buildKernelRequest(plan, unit, mrCase, repoRoot)),
+      deps.kernelTimeoutMs,
+      "kernel",
+    );
   } catch (error) {
     return failedUnit(plan.campaignId, unit, "kernel", error, now());
   }
@@ -194,6 +212,7 @@ function buildKernelRequest(
   plan: CampaignPlan,
   unit: CampaignUnit,
   mrCase: CampaignCase,
+  repoRoot: string,
 ): UnitReviewRequest {
   return {
     unit: {
@@ -202,7 +221,14 @@ function buildKernelRequest(
       configId: "E",
       rep: unit.rep,
     },
-    mrCase,
+    // 相对 repoPath 锚定 repoRoot（同 migration-gate 纪律）：CWD 漂移不改变
+    // 内核读取的仓库快照；cases 原始字节与 hash 不变。
+    mrCase: {
+      ...mrCase,
+      repoPath: path.isAbsolute(mrCase.repoPath)
+        ? mrCase.repoPath
+        : path.resolve(repoRoot, mrCase.repoPath),
+    },
     model: plan.model,
     experimentRoot: plan.outputDir,
   };
@@ -217,17 +243,21 @@ async function judgeUnit(args: {
   readonly now: () => string;
 }): Promise<{ readonly counts: MatchCounts | null; readonly failures: readonly CampaignFailure[] }> {
   const { plan, unit, mrCase, record, deps, now } = args;
-  let counts: MatchCounts;
+  let outcome: JudgeOutcome;
   try {
-    counts = await deps.judge.judge({
-      campaignId: plan.campaignId,
-      arm: unit.arm,
-      rep: unit.rep,
-      mrCase,
-      record,
-    });
+    outcome = await withTimeout(
+      deps.judge.judge({
+        campaignId: plan.campaignId,
+        arm: unit.arm,
+        rep: unit.rep,
+        mrCase,
+        record,
+      }),
+      deps.judgeTimeoutMs,
+      "judge",
+    );
   } catch (error) {
-    // judge 调用失败：留痕并写 failed 记录；不自动重试（删留痕后重跑即重判）
+    // judge 调用失败：留痕并写 failed 记录；不自动重试（重跑整批重判）
     const failures: CampaignFailure[] = [
       makeFailure(plan.campaignId, unit, "judge", error, now()),
     ];
@@ -251,7 +281,8 @@ async function judgeUnit(args: {
     caseId: unit.caseId,
     arm: unit.arm,
     rep: unit.rep,
-    counts,
+    counts: outcome.counts,
+    anomalies: [...outcome.anomalies],
     completedAt: now(),
   };
   try {
@@ -264,7 +295,7 @@ async function judgeUnit(args: {
       failures: [makeFailure(plan.campaignId, unit, "record", error, now())],
     };
   }
-  return { counts, failures: [] };
+  return { counts: outcome.counts, failures: [] };
 }
 
 function failedUnit(
@@ -287,8 +318,7 @@ function makeFailure(
   stage: CampaignFailureStage,
   error: unknown,
   at: string,
-): CampaignFailure {
-  return {
+): CampaignFailure {  return {
     campaignId,
     source: unit.source,
     caseId: unit.caseId,
@@ -323,5 +353,38 @@ async function tryWriteJudgeFailure(
     return null;
   } catch (writeError) {
     return makeFailure(campaignId, unit, "record", writeError, now());
+  }
+}
+
+/**
+ * 单阶段有界等待（#40）：真实网络可能挂起，超时转成普通异常，由调用方按
+ * kernel / judge 阶段留痕并继续下一单元。
+ *
+ * 语义边界：超时不取消底层 promise（Promise 无取消语义）；真实 HTTP 客户端
+ * 自带 AbortSignal 超时与有界重试，因此超时后不会无限持有连接。测试路径
+ * （fake）缺省不设超时，行为与 #39 完全一致。
+ */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  stage: CampaignFailureStage,
+): Promise<T> {
+  if (timeoutMs === undefined) {
+    return await promise;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`campaign: ${stage} execution timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
   }
 }
