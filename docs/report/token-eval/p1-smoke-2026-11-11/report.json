@@ -1,0 +1,1034 @@
+{
+  "kind": "campaign-report",
+  "schemaVersion": 1,
+  "campaignId": "p1-smoke-2026-11-11",
+  "arms": {
+    "baseline": {
+      "kind": "run-record-analysis",
+      "schemaVersion": 1,
+      "runs": [
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-1",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:13:08.569Z",
+          "cost": {
+            "cachedInputTokens": 59392,
+            "uncachedInputTokens": 35605,
+            "cacheWriteTokens": null,
+            "outputTokens": 12262,
+            "totalInputTokens": 94997,
+            "totalTokens": 107259,
+            "cacheHitRate": 0.6251986904849627,
+            "toolCostTokens": 0,
+            "carc": 47867
+          },
+          "loop": {
+            "requests": 10,
+            "rounds": 1,
+            "attemptedToolCalls": 9,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 1,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-1",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:16:12.526Z",
+          "cost": {
+            "cachedInputTokens": 49920,
+            "uncachedInputTokens": 36034,
+            "cacheWriteTokens": null,
+            "outputTokens": 14216,
+            "totalInputTokens": 85954,
+            "totalTokens": 100170,
+            "cacheHitRate": 0.5807757637806269,
+            "toolCostTokens": 0,
+            "carc": 50250
+          },
+          "loop": {
+            "requests": 10,
+            "rounds": 1,
+            "attemptedToolCalls": 9,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 4,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 1,
+              "precision": 0.25,
+              "f1": 0.4
+            },
+            "judge": {
+              "recall": 1,
+              "precision": 0.25,
+              "f1": 0.4
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-12",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T08:57:19.991Z",
+          "cost": {
+            "cachedInputTokens": 47232,
+            "uncachedInputTokens": 39047,
+            "cacheWriteTokens": null,
+            "outputTokens": 19154,
+            "totalInputTokens": 86279,
+            "totalTokens": 105433,
+            "cacheHitRate": 0.5474333267654934,
+            "toolCostTokens": 0,
+            "carc": 58201
+          },
+          "loop": {
+            "requests": 11,
+            "rounds": 1,
+            "attemptedToolCalls": 11,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 2,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 1,
+              "precision": 0.5,
+              "f1": 0.6666666666666666
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-12",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T09:00:02.127Z",
+          "cost": {
+            "cachedInputTokens": 52224,
+            "uncachedInputTokens": 34501,
+            "cacheWriteTokens": null,
+            "outputTokens": 15108,
+            "totalInputTokens": 86725,
+            "totalTokens": 101833,
+            "cacheHitRate": 0.6021793023926203,
+            "toolCostTokens": 0,
+            "carc": 49609
+          },
+          "loop": {
+            "requests": 9,
+            "rounds": 1,
+            "attemptedToolCalls": 10,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 1,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 1,
+              "precision": 1,
+              "f1": 1
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-15",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:27:59.842Z",
+          "cost": {
+            "cachedInputTokens": 31744,
+            "uncachedInputTokens": 21894,
+            "cacheWriteTokens": null,
+            "outputTokens": 11263,
+            "totalInputTokens": 53638,
+            "totalTokens": 64901,
+            "cacheHitRate": 0.5918192326335807,
+            "toolCostTokens": 0,
+            "carc": 33157
+          },
+          "loop": {
+            "requests": 8,
+            "rounds": 1,
+            "attemptedToolCalls": 7,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.25,
+              "precision": 0.3333333333333333,
+              "f1": 0.28571428571428575
+            },
+            "judge": {
+              "recall": 0.25,
+              "precision": 0.3333333333333333,
+              "f1": 0.28571428571428575
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-15",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:31:45.847Z",
+          "cost": {
+            "cachedInputTokens": 56704,
+            "uncachedInputTokens": 40670,
+            "cacheWriteTokens": null,
+            "outputTokens": 13813,
+            "totalInputTokens": 97374,
+            "totalTokens": 111187,
+            "cacheHitRate": 0.5823320393534208,
+            "toolCostTokens": 0,
+            "carc": 54483
+          },
+          "loop": {
+            "requests": 10,
+            "rounds": 1,
+            "attemptedToolCalls": 12,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0.25,
+              "precision": 0.3333333333333333,
+              "f1": 0.28571428571428575
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-16",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:37:19.402Z",
+          "cost": {
+            "cachedInputTokens": 115968,
+            "uncachedInputTokens": 36249,
+            "cacheWriteTokens": null,
+            "outputTokens": 20042,
+            "totalInputTokens": 152217,
+            "totalTokens": 172259,
+            "cacheHitRate": 0.7618597134354245,
+            "toolCostTokens": 0,
+            "carc": 56291
+          },
+          "loop": {
+            "requests": 10,
+            "rounds": 1,
+            "attemptedToolCalls": 11,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.2,
+              "precision": 0.3333333333333333,
+              "f1": 0.25
+            },
+            "judge": {
+              "recall": 0.4,
+              "precision": 0.6666666666666666,
+              "f1": 0.5
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-16",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:41:25.150Z",
+          "cost": {
+            "cachedInputTokens": 115328,
+            "uncachedInputTokens": 38966,
+            "cacheWriteTokens": null,
+            "outputTokens": 16124,
+            "totalInputTokens": 154294,
+            "totalTokens": 170418,
+            "cacheHitRate": 0.7474561551324096,
+            "toolCostTokens": 0,
+            "carc": 55090
+          },
+          "loop": {
+            "requests": 12,
+            "rounds": 1,
+            "attemptedToolCalls": 15,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 2,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0.2,
+              "precision": 0.5,
+              "f1": 0.28571428571428575
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-21",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:44:29.467Z",
+          "cost": {
+            "cachedInputTokens": 65280,
+            "uncachedInputTokens": 42290,
+            "cacheWriteTokens": null,
+            "outputTokens": 16849,
+            "totalInputTokens": 107570,
+            "totalTokens": 124419,
+            "cacheHitRate": 0.6068606488797992,
+            "toolCostTokens": 0,
+            "carc": 59139
+          },
+          "loop": {
+            "requests": 9,
+            "rounds": 1,
+            "attemptedToolCalls": 12,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0.5,
+              "precision": 1,
+              "f1": 0.6666666666666666
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-21",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:48:52.820Z",
+          "cost": {
+            "cachedInputTokens": 89472,
+            "uncachedInputTokens": 35544,
+            "cacheWriteTokens": null,
+            "outputTokens": 12880,
+            "totalInputTokens": 125016,
+            "totalTokens": 137896,
+            "cacheHitRate": 0.715684392397773,
+            "toolCostTokens": 0,
+            "carc": 48424
+          },
+          "loop": {
+            "requests": 11,
+            "rounds": 1,
+            "attemptedToolCalls": 12,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-22",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:51:57.329Z",
+          "cost": {
+            "cachedInputTokens": 45056,
+            "uncachedInputTokens": 28880,
+            "cacheWriteTokens": null,
+            "outputTokens": 12980,
+            "totalInputTokens": 73936,
+            "totalTokens": 86916,
+            "cacheHitRate": 0.6093919065137416,
+            "toolCostTokens": 0,
+            "carc": 41860
+          },
+          "loop": {
+            "requests": 10,
+            "rounds": 1,
+            "attemptedToolCalls": 8,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 2,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0.3333333333333333,
+              "precision": 0.5,
+              "f1": 0.4
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-22",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:54:59.072Z",
+          "cost": {
+            "cachedInputTokens": 36864,
+            "uncachedInputTokens": 33581,
+            "cacheWriteTokens": null,
+            "outputTokens": 14325,
+            "totalInputTokens": 70445,
+            "totalTokens": 84770,
+            "cacheHitRate": 0.5233018667045213,
+            "toolCostTokens": 0,
+            "carc": 47906
+          },
+          "loop": {
+            "requests": 9,
+            "rounds": 1,
+            "attemptedToolCalls": 14,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0.6666666666666666,
+              "precision": 0.6666666666666666,
+              "f1": 0.6666666666666666
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-25",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T06:57:57.435Z",
+          "cost": {
+            "cachedInputTokens": 33152,
+            "uncachedInputTokens": 26091,
+            "cacheWriteTokens": null,
+            "outputTokens": 12344,
+            "totalInputTokens": 59243,
+            "totalTokens": 71587,
+            "cacheHitRate": 0.5595935384771197,
+            "toolCostTokens": 0,
+            "carc": 38435
+          },
+          "loop": {
+            "requests": 9,
+            "rounds": 1,
+            "attemptedToolCalls": 9,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 6,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.3333333333333333,
+              "precision": 0.16666666666666666,
+              "f1": 0.2222222222222222
+            },
+            "judge": {
+              "recall": 0.3333333333333333,
+              "precision": 0.16666666666666666,
+              "f1": 0.2222222222222222
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-25",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T07:02:44.999Z",
+          "cost": {
+            "cachedInputTokens": 40320,
+            "uncachedInputTokens": 30051,
+            "cacheWriteTokens": null,
+            "outputTokens": 18305,
+            "totalInputTokens": 70371,
+            "totalTokens": 88676,
+            "cacheHitRate": 0.5729632945389436,
+            "toolCostTokens": 0,
+            "carc": 48356
+          },
+          "loop": {
+            "requests": 9,
+            "rounds": 1,
+            "attemptedToolCalls": 13,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 5,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.3333333333333333,
+              "precision": 0.2,
+              "f1": 0.25
+            },
+            "judge": {
+              "recall": 0.3333333333333333,
+              "precision": 0.2,
+              "f1": 0.25
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-29",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T07:06:18.013Z",
+          "cost": {
+            "cachedInputTokens": 59392,
+            "uncachedInputTokens": 34685,
+            "cacheWriteTokens": null,
+            "outputTokens": 13859,
+            "totalInputTokens": 94077,
+            "totalTokens": 107936,
+            "cacheHitRate": 0.6313126481499197,
+            "toolCostTokens": 0,
+            "carc": 48544
+          },
+          "loop": {
+            "requests": 10,
+            "rounds": 1,
+            "attemptedToolCalls": 10,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.14285714285714285,
+              "precision": 0.3333333333333333,
+              "f1": 0.2
+            },
+            "judge": {
+              "recall": 0.14285714285714285,
+              "precision": 0.3333333333333333,
+              "f1": 0.2
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-29",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T07:09:23.109Z",
+          "cost": {
+            "cachedInputTokens": 137216,
+            "uncachedInputTokens": 31026,
+            "cacheWriteTokens": null,
+            "outputTokens": 15116,
+            "totalInputTokens": 168242,
+            "totalTokens": 183358,
+            "cacheHitRate": 0.815587071004862,
+            "toolCostTokens": 0,
+            "carc": 46142
+          },
+          "loop": {
+            "requests": 12,
+            "rounds": 1,
+            "attemptedToolCalls": 14,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 2,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.14285714285714285,
+              "precision": 0.5,
+              "f1": 0.22222222222222224
+            },
+            "judge": {
+              "recall": 0.14285714285714285,
+              "precision": 0.5,
+              "f1": 0.22222222222222224
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-30",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T09:02:41.500Z",
+          "cost": {
+            "cachedInputTokens": 51200,
+            "uncachedInputTokens": 34478,
+            "cacheWriteTokens": null,
+            "outputTokens": 14897,
+            "totalInputTokens": 85678,
+            "totalTokens": 100575,
+            "cacheHitRate": 0.5975863115385514,
+            "toolCostTokens": 0,
+            "carc": 49375
+          },
+          "loop": {
+            "requests": 8,
+            "rounds": 1,
+            "attemptedToolCalls": 8,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 2,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            },
+            "judge": {
+              "recall": 0,
+              "precision": 0,
+              "f1": 0
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-30",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T09:06:52.634Z",
+          "cost": {
+            "cachedInputTokens": 29440,
+            "uncachedInputTokens": 24650,
+            "cacheWriteTokens": null,
+            "outputTokens": 10367,
+            "totalInputTokens": 54090,
+            "totalTokens": 64457,
+            "cacheHitRate": 0.5442780550933629,
+            "toolCostTokens": 0,
+            "carc": 35017
+          },
+          "loop": {
+            "requests": 9,
+            "rounds": 1,
+            "attemptedToolCalls": 11,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 3,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 1,
+              "precision": 0.3333333333333333,
+              "f1": 0.5
+            },
+            "judge": {
+              "recall": 1,
+              "precision": 0.3333333333333333,
+              "f1": 0.5
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-33",
+          "configId": "E",
+          "rep": 1,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T09:10:39.506Z",
+          "cost": {
+            "cachedInputTokens": 67712,
+            "uncachedInputTokens": 39238,
+            "cacheWriteTokens": null,
+            "outputTokens": 15510,
+            "totalInputTokens": 106950,
+            "totalTokens": 122460,
+            "cacheHitRate": 0.6331182795698925,
+            "toolCostTokens": 0,
+            "carc": 54748
+          },
+          "loop": {
+            "requests": 9,
+            "rounds": 1,
+            "attemptedToolCalls": 12,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 2,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.3333333333333333,
+              "precision": 0.5,
+              "f1": 0.4
+            },
+            "judge": {
+              "recall": 0.3333333333333333,
+              "precision": 0.5,
+              "f1": 0.4
+            }
+          }
+        },
+        {
+          "source": "vul4j",
+          "caseId": "VUL4J-33",
+          "configId": "E",
+          "rep": 2,
+          "model": "deepseek-v4-flash",
+          "completedAt": "2026-11-11T09:13:48.757Z",
+          "cost": {
+            "cachedInputTokens": 43136,
+            "uncachedInputTokens": 35905,
+            "cacheWriteTokens": null,
+            "outputTokens": 14289,
+            "totalInputTokens": 79041,
+            "totalTokens": 93330,
+            "cacheHitRate": 0.5457420832226313,
+            "toolCostTokens": 0,
+            "carc": 50194
+          },
+          "loop": {
+            "requests": 8,
+            "rounds": 1,
+            "attemptedToolCalls": 11,
+            "executedToolCalls": 6,
+            "truncated": false,
+            "truncationReasons": [
+              "TOOL_BUDGET_EXHAUSTED"
+            ]
+          },
+          "quality": {
+            "findingCount": 2,
+            "zeroFindings": false,
+            "truth": "provided",
+            "rule": {
+              "recall": 0.3333333333333333,
+              "precision": 0.5,
+              "f1": 0.4
+            },
+            "judge": {
+              "recall": 0.3333333333333333,
+              "precision": 0.5,
+              "f1": 0.4
+            }
+          }
+        }
+      ],
+      "summary": {
+        "runCount": 20,
+        "caseCount": 10,
+        "cost": {
+          "cachedInputTokens": {
+            "count": 10,
+            "mean": 61337.6,
+            "std": 26962.653031348545
+          },
+          "uncachedInputTokens": {
+            "count": 10,
+            "mean": 33969.25,
+            "std": 3831.7595265679765
+          },
+          "cacheWriteTokens": null,
+          "outputTokens": {
+            "count": 10,
+            "mean": 14685.15,
+            "std": 1826.864558167597
+          },
+          "totalInputTokens": {
+            "count": 10,
+            "mean": 95306.85,
+            "std": 29236.75038186814
+          },
+          "totalTokens": {
+            "count": 10,
+            "mean": 109992,
+            "std": 30328.49909280415
+          },
+          "cacheHitRate": {
+            "count": 10,
+            "mean": 0.619723716003483,
+            "std": 0.06916970859529181
+          },
+          "toolCostTokens": {
+            "count": 10,
+            "mean": 0,
+            "std": 0
+          },
+          "carc": {
+            "count": 10,
+            "mean": 48654.4,
+            "std": 5019.672426231285
+          }
+        },
+        "loop": {
+          "requests": {
+            "count": 10,
+            "mean": 9.65,
+            "std": 0.9143911149563468
+          },
+          "rounds": {
+            "count": 10,
+            "mean": 1,
+            "std": 0
+          },
+          "attemptedToolCalls": {
+            "count": 10,
+            "mean": 10.9,
+            "std": 1.286683937707919
+          },
+          "executedToolCalls": {
+            "count": 10,
+            "mean": 6,
+            "std": 0
+          }
+        },
+        "truncation": {
+          "truncatedRuns": 0,
+          "reasons": {
+            "TOOL_BUDGET_EXHAUSTED": 20
+          }
+        }
+      },
+      "l1": {
+        "runCount": 20,
+        "caseCount": 10,
+        "rule": {
+          "runs": 20,
+          "recall": {
+            "count": 10,
+            "mean": 0.20345238095238094,
+            "std": 0.19841781739428344
+          },
+          "precision": {
+            "count": 10,
+            "mean": 0.1725,
+            "std": 0.16951501262771046
+          },
+          "f1": {
+            "count": 10,
+            "mean": 0.15650793650793648,
+            "std": 0.13076789420371868
+          }
+        },
+        "judge": {
+          "runs": 20,
+          "recall": {
+            "count": 10,
+            "mean": 0.4109523809523809,
+            "std": 0.24009530315717453
+          },
+          "precision": {
+            "count": 10,
+            "mean": 0.4141666666666667,
+            "std": 0.2080201349466197
+          },
+          "f1": {
+            "count": 10,
+            "mean": 0.3675793650793651,
+            "std": 0.19368928423818443
+          }
+        },
+        "zeroFinding": {
+          "runs": 20,
+          "zeroRuns": 0,
+          "rate": {
+            "count": 10,
+            "mean": 0,
+            "std": 0
+          }
+        },
+        "negativeControl": {
+          "cases": 0,
+          "runs": 0,
+          "fpPerCase": null
+        },
+        "evidenceGateRejections": {
+          "SCHEMA_INVALID": 0,
+          "NON_ENGLISH": 0,
+          "NO_EVIDENCE": 0,
+          "VERIFICATION_FAILED": 0,
+          "DUPLICATE_ID": 0
+        },
+        "coverage": {
+          "plannedCases": 10,
+          "executedCases": 10,
+          "ratio": 1
+        }
+      }
+    }
+  }
+}

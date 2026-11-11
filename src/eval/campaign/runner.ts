@@ -162,6 +162,10 @@ async function executeUnits(args: {
     for (const [key, counts] of outcome.judgeCounts) {
       judgeCounts.set(key, counts);
     }
+    // 失败留痕逐单元落盘（#40 冒烟事故）：进程被终止时不丢已发生单元的失败；
+    // 最终仍由 runCampaign 覆写一次完整快照。落盘失败按基础设施错误上抛
+    // （无法持久化失败痕迹的评测产物不可信）。
+    await writeJsonFile(campaignFailuresPath(args.plan.outputDir), failures);
   }
   return { records, failures, judgeCounts };
 }

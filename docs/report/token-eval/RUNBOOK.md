@@ -59,6 +59,12 @@ candidate: <commit>
    > 一致，异构约束不变）。实际 judge 模型以 `environment.json.judge.model`
    > 为准（网关不回显实际部署版本，`model.actualDeployment` 记 `null`）；
    > judge 版本变更后按 ADR-0017 §5 重做空对照校准。
+
+   > 已知风险（2026-11-11 冒烟）：单进程首跑曾在 judge 阶段挂起约 90 分钟，
+   > 单单元 20/30 分钟超时未触发（离线 fake 超时测试正常）。#41 双 arm 主跑
+   > 前必须复核真实网络挂起路径；失败留痕现已逐单元落盘，进程中断不丢已完成
+   > 单元的 `failures.json`。事故与续跑细节见
+   > [p1-smoke-2026-11-11/REPORT.md](p1-smoke-2026-11-11/REPORT.md)。
 4. **主跑**：30 case × 3 reps（Vul4J 30 案），同 case × rep 两臂相邻或按 case 随机化臂顺序；同一 ≤48h 窗口。
 5. **判定**：L1 质量门（judge Recall / Precision 非劣、零 finding 率、阴性对照 FP、coverage）+ L2 成本门（CARC 主门、uncached / output 分解、attemptedToolCalls / requests 有界性、可复现）。阈值 provisional，先跑空对照校准（ADR-0017 §5）。
 6. **归档**：报表写本目录（`docs/report/token-eval/<campaign-id>/`），原始 `runs/` / `audit/` / `wireBody` 外置；报告不得含 key。
