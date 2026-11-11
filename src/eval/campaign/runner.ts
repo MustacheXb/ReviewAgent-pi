@@ -25,6 +25,12 @@ import { expandUnits, parseCampaignCases, validateCampaignPlan } from "./plan.js
 import { toEvalRunRecord, unitKey } from "./records.js";
 import { buildCampaignReport } from "./report.js";
 import {
+  readCampaignRecords,
+  readFailures,
+  readJudgeCounts,
+  readOptionalJson,
+} from "./rebuild.js";
+import {
   campaignCasesPath,
   campaignEnvironmentPath,
   campaignFailuresPath,
@@ -72,15 +78,23 @@ export async function runCampaign(
   assertEnvironmentMatchesPlan(environment, plan);
   // 空对照校准身份校验前置（#42）：错配的 calibrationRef 在烧真实网关前 fail fast
   const identity = resolveCampaignIdentity(plan, environment);
+  const resume = options.resume === true;
 
   const casesText = await readTextFile(plan.casesFile);
   const cases = parseCampaignCases(casesText, `campaign: cases file ${plan.casesFile}`);
   const units = expandUnits(plan, cases);
   const caseById = new Map(cases.map((mrCase) => [mrCase.caseId, mrCase]));
+  const caseIds = new Set(caseById.keys());
   const resolvedRepoRoot = repoRoot ?? process.cwd();
   const ioTimeoutMs = deps.ioTimeoutMs ?? DEFAULT_IO_TIMEOUT_MS;
 
-  await resetCampaignOutput(plan.outputDir);
+  // 续跑（#42）：读回既有记录 / judge / 失败留痕，保留单元产物与时间窗起点
+  const resumeState = resume
+    ? await loadResumeState(plan, caseIds, casesText)
+    : null;
+  if (!resume) {
+    await resetCampaignOutput(plan.outputDir);
+  }
   await withTimeout(
     writeJsonFile(campaignPlanPath(plan.outputDir), plan),
     ioTimeoutMs,
@@ -91,10 +105,17 @@ export async function runCampaign(
     ioTimeoutMs,
     "cases write",
   );
-  emit(progress, `run-start campaign=${plan.campaignId} units=${units.length}`);
+  emit(
+    progress,
+    `run-start campaign=${plan.campaignId} units=${units.length}` +
+      (resumeState === null
+        ? ""
+        : ` resume=true loaded=${resumeState.records.length} ` +
+          `judged=${resumeState.judgeCounts.size} failures=${resumeState.failures.length}`),
+  );
 
   const now = deps.now ?? (() => new Date().toISOString());
-  const startedAt = now();
+  const startedAt = resumeState?.startedAt ?? now();
   const execution = await executeUnits({
     plan,
     units,
@@ -103,6 +124,7 @@ export async function runCampaign(
     now,
     repoRoot: resolvedRepoRoot,
     ioTimeoutMs,
+    ...(resumeState !== null ? { resumeState } : {}),
     ...(progress !== undefined ? { progress } : {}),
   });
   const endedAt = now();
@@ -213,6 +235,114 @@ function assertEnvironmentMatchesPlan(
   }
 }
 
+interface ResumeState {
+  readonly records: readonly EvalRunRecord[];
+  readonly judgeCounts: ReadonlyMap<string, MatchCounts>;
+  readonly failures: readonly CampaignFailure[];
+  /** 原批次开始时间（environment window.start 或最早记录 completedAt） */
+  readonly startedAt: string | null;
+}
+
+/**
+ * 续跑状态（#42）：既有记录 / judge 留痕必须能对上新 plan（campaign 身份、
+ * case、arm、rep）；对不上 fail fast，不拿旧批次冒充新结果。
+ */
+async function loadResumeState(
+  plan: CampaignPlan,
+  caseIds: ReadonlySet<string>,
+  casesText: string,
+): Promise<ResumeState> {
+  const existingPlan = await readOptionalJson(campaignPlanPath(plan.outputDir));
+  if (existingPlan !== null) {
+    assertSamePlan(existingPlan, plan);
+  }
+  const existingCases = await readOptionalText(campaignCasesPath(plan.outputDir));
+  if (existingCases !== null) {
+    const expected = hashCasesText(casesText);
+    const actual = hashCasesText(existingCases);
+    if (actual !== expected) {
+      throw new Error(
+        `campaign resume: cases.json hash ${actual} does not match current cases ` +
+          `${expected} — refusing to mix a different dataset into old records`,
+      );
+    }
+  }
+  const records = await readCampaignRecords(plan.outputDir, plan, caseIds, true);
+  const judgeCounts = await readJudgeCounts(plan.outputDir, plan, caseIds, records);
+  const failures = await readFailures(plan.outputDir, plan, caseIds);
+  const environment = await readOptionalJson(campaignEnvironmentPath(plan.outputDir));
+  let startedAt: string | null = null;
+  if (isRecord(environment)) {
+    if (environment.campaignId !== plan.campaignId) {
+      throw new Error(
+        `campaign resume: environment.json campaignId ${JSON.stringify(environment.campaignId)} ` +
+          `does not match plan.json ${JSON.stringify(plan.campaignId)}`,
+      );
+    }
+    const model = isRecord(environment.model) ? environment.model : null;
+    if (model !== null && model.requestedId !== plan.model) {
+      throw new Error(
+        `campaign resume: environment.json model ${JSON.stringify(model.requestedId)} ` +
+          `does not match plan.model ${JSON.stringify(plan.model)}`,
+      );
+    }
+    const window = isRecord(environment.window) ? environment.window : null;
+    if (window !== null && typeof window.start === "string") {
+      startedAt = window.start;
+    }
+  }
+  if (startedAt === null && records.length > 0) {
+    startedAt = records
+      .map((record) => record.completedAt)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))[0] ?? null;
+  }
+  return { records, judgeCounts, failures, startedAt };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertSamePlan(value: unknown, plan: CampaignPlan): void {
+  if (!isRecord(value)) {
+    throw new Error("campaign resume: plan.json must be an object");
+  }
+  for (const field of [
+    "campaignId",
+    "baselineRef",
+    "candidateRef",
+    "casesFile",
+    "reps",
+    "model",
+    "outputDir",
+  ] as const) {
+    if (value[field] !== plan[field]) {
+      throw new Error(
+        `campaign resume: plan.json ${field} ${JSON.stringify(value[field])} does not match ` +
+          `current plan ${JSON.stringify(plan[field])}`,
+      );
+    }
+  }
+  if (JSON.stringify(value.arms) !== JSON.stringify(plan.arms)) {
+    throw new Error("campaign resume: plan.json arms do not match current plan");
+  }
+}
+
+async function readOptionalText(file: string): Promise<string | null> {
+  try {
+    return await readTextFile(file);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 interface ExecutionResult {
   readonly records: readonly EvalRunRecord[];
   readonly failures: readonly CampaignFailure[];
@@ -227,39 +357,84 @@ async function executeUnits(args: {
   readonly now: () => string;
   readonly repoRoot: string;
   readonly ioTimeoutMs: number;
+  readonly resumeState?: ResumeState;
   readonly progress?: (event: string) => void;
 }): Promise<ExecutionResult> {
-  const records: EvalRunRecord[] = [];
-  const failures: CampaignFailure[] = [];
-  const judgeCounts = new Map<string, MatchCounts>();
+  const recordsByKey = new Map<string, EvalRunRecord>(
+    (args.resumeState?.records ?? []).map((record) => [unitKey(record), record]),
+  );
+  const judgeCounts = new Map<string, MatchCounts>(args.resumeState?.judgeCounts ?? []);
+  const failures: CampaignFailure[] = [...(args.resumeState?.failures ?? [])];
   for (const unit of args.units) {
+    const key = unitKey(unit);
+    // 重试单元：先清掉该单元的陈旧失败留痕，避免成功后仍被记失败
+    const withoutStale = failures.filter((failure) => unitKey(failure) !== key);
+    failures.length = 0;
+    failures.push(...withoutStale);
+
+    const existingRecord = recordsByKey.get(key);
+    if (existingRecord !== undefined && judgeCounts.has(key)) {
+      emit(args.progress, `resume-skip ${unit.caseId}/${unit.arm}/rep-${unit.rep}`);
+      continue;
+    }
     const mrCase = args.caseById.get(unit.caseId);
     if (mrCase === undefined) {
       // expandUnits 由同一 cases 数组派生，理论上不可达；fail fast 防静默错配
       throw new Error(`campaign: no case loaded for unit ${unit.caseId}`);
     }
-    const outcome = await executeUnit({
-      plan: args.plan,
-      unit,
-      mrCase,
-      deps: args.deps,
-      now: args.now,
-      repoRoot: args.repoRoot,
-      ioTimeoutMs: args.ioTimeoutMs,
-      ...(args.progress !== undefined ? { progress: args.progress } : {}),
-    });
-    records.push(...outcome.records);
-    failures.push(...outcome.failures);
-    for (const [key, counts] of outcome.judgeCounts) {
-      judgeCounts.set(key, counts);
+    if (existingRecord !== undefined) {
+      // 记录已落盘、judge 缺失：只补判，不重跑内核
+      emit(
+        args.progress,
+        `resume-judge ${unit.caseId}/${unit.arm}/rep-${unit.rep}`,
+      );
+      const judged = await judgeUnit({
+        plan: args.plan,
+        unit,
+        mrCase,
+        record: existingRecord,
+        deps: args.deps,
+        now: args.now,
+        ioTimeoutMs: args.ioTimeoutMs,
+        ...(args.progress !== undefined ? { progress: args.progress } : {}),
+      });
+      failures.push(...judged.failures);
+      if (judged.counts !== null) {
+        judgeCounts.set(key, judged.counts);
+      }
+      emit(
+        args.progress,
+        judged.failures.length === 0
+          ? `unit-done ${unit.caseId}/${unit.arm}/rep-${unit.rep}`
+          : `unit-failed ${unit.caseId}/${unit.arm}/rep-${unit.rep} ` +
+              `stages=${judged.failures.map((failure) => failure.stage).join(",")}`,
+      );
+    } else {
+      const outcome = await executeUnit({
+        plan: args.plan,
+        unit,
+        mrCase,
+        deps: args.deps,
+        now: args.now,
+        repoRoot: args.repoRoot,
+        ioTimeoutMs: args.ioTimeoutMs,
+        ...(args.progress !== undefined ? { progress: args.progress } : {}),
+      });
+      for (const record of outcome.records) {
+        recordsByKey.set(unitKey(record), record);
+      }
+      failures.push(...outcome.failures);
+      for (const [countsKey, counts] of outcome.judgeCounts) {
+        judgeCounts.set(countsKey, counts);
+      }
+      emit(
+        args.progress,
+        outcome.failures.length === 0
+          ? `unit-done ${unit.caseId}/${unit.arm}/rep-${unit.rep}`
+          : `unit-failed ${unit.caseId}/${unit.arm}/rep-${unit.rep} ` +
+              `stages=${outcome.failures.map((failure) => failure.stage).join(",")}`,
+      );
     }
-    emit(
-      args.progress,
-      outcome.failures.length === 0
-        ? `unit-done ${unit.caseId}/${unit.arm}/rep-${unit.rep}`
-        : `unit-failed ${unit.caseId}/${unit.arm}/rep-${unit.rep} ` +
-            `stages=${outcome.failures.map((failure) => failure.stage).join(",")}`,
-    );
     // 失败留痕逐单元落盘（#40 冒烟事故）：进程被终止时不丢已发生单元的失败；
     // 最终仍由 runCampaign 覆写一次完整快照。写盘自身也设界——留痕写盘挂起
     // 不得让整批静默停摆。
@@ -275,6 +450,10 @@ async function executeUnits(args: {
       emit(args.progress, `failures-write-failed ${failure.error}`);
     }
   }
+  // 记录按 plan 单元序返回（既有 + 本次），保证报告 / 配对统计确定性
+  const records = args.units
+    .map((unit) => recordsByKey.get(unitKey(unit)))
+    .filter((record): record is EvalRunRecord => record !== undefined);
   return { records, failures, judgeCounts };
 }
 

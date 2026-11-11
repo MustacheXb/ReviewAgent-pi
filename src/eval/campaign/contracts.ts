@@ -262,6 +262,12 @@ export interface RunCampaignOptions {
    * 它写 `progress.log` 并驱动无进度看门狗。
    */
   readonly progress?: (event: string) => void;
+  /**
+   * 续跑（#42 长跑恢复）：保留既有 runs / judge / audit，跳过「记录 + judge
+   * 均已完成」的单元；有记录但 judge 缺失的单元只补判；缺记录的单元重跑。
+   * 保留原批次开始时间（environment window.start / 最早记录）作时间窗起点。
+   */
+  readonly resume?: boolean;
 }
 
 /**

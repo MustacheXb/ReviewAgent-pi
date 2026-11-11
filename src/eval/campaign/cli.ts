@@ -47,6 +47,8 @@ export interface CampaignRunCliOptions extends Omit<CampaignPlan, "outputDir"> {
    * `--calibration-ref <id>` 供正式 campaign 引用已完成的校准；缺省 null。
    */
   readonly calibrationRef: string | null;
+  /** 续跑既有 campaign 输出目录（#42）：跳过已完成单元，不完全重跑 */
+  readonly resume: boolean;
 }
 
 /** report-only options（campaign id 可选，仅用于校验 plan.json） */
@@ -79,6 +81,7 @@ interface CampaignParseValues {
   reportOnly: boolean;
   calibration: boolean;
   calibrationRef: string | null;
+  resume: boolean;
 }
 
 const USAGE = `用法：
@@ -96,6 +99,8 @@ const USAGE = `用法：
   --calibration         空对照校准（#42）：要求 baseline-ref == candidate-ref、双臂；
                         自动记录 calibrationRef = campaign-id
   --calibration-ref     正式 campaign 引用的空对照校准 id（与 --calibration 互斥）
+  --resume              续跑既有输出目录：跳过已完成单元，只补缺记录 / judge
+                        （长跑中断恢复；校验 plan / cases hash 不变）
   --out                 campaign 输出目录（缺省 runs/eval/<campaign-id>）
   --report-only         只读已有记录重建报告（不执行内核 / judge）
   --fake                #39 骨架：注入 fake 内核 / judge（零网络；不是真实测量）`;
@@ -135,10 +140,12 @@ const CAMPAIGN_ARG_SPEC: CliArgSpec<CampaignParseValues, CampaignCliOptions> = {
     reportOnly: false,
     calibration: false,
     calibrationRef: null,
+    resume: false,
   }),
   booleanFlags: {
     "--report-only": { reportOnly: true },
     "--calibration": { calibration: true },
+    "--resume": { resume: true },
   },
   valueFlags: {
     "--campaign-id": singleValueFlag("--campaign-id"),
@@ -176,7 +183,8 @@ function finalizeReportOnly(
     values.model !== null ||
     values.arms !== null ||
     values.calibration ||
-    values.calibrationRef !== null
+    values.calibrationRef !== null ||
+    values.resume
   ) {
     return fail("--report-only only accepts --campaign-id and --out");
   }
@@ -246,6 +254,7 @@ function finalizeRun(
       arms,
       outDir: values.outDir ?? path.join("runs", "eval", campaignId),
       calibrationRef,
+      resume: values.resume,
     },
   };
 }
@@ -369,6 +378,7 @@ export async function runCampaignCommand(
       environment: environmentWithCalibration,
       ...(runtime.repoRoot !== undefined ? { repoRoot: runtime.repoRoot } : {}),
       ...(runtime.progress !== undefined ? { progress: runtime.progress } : {}),
+      ...(options.resume ? { resume: true } : {}),
     },
     deps,
   );

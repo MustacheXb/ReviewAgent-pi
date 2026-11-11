@@ -75,7 +75,7 @@ export async function rebuildCampaignReport(
 
   const environment = await verifyEnvironment(outDir, plan, cases, casesText);
 
-  const records = await readRecords(outDir, plan, caseIds);
+  const records = await readCampaignRecords(outDir, plan, caseIds);
   const judgeCounts = await readJudgeCounts(outDir, plan, caseIds, records);
   const failures = await readFailures(outDir, plan, caseIds);
   const report = buildCampaignReport({
@@ -173,7 +173,7 @@ function assertEnvironmentManifest(
  * 中断运行可能没有该文件）。在场时逐条校验 campaign 身份与形状（含
  * caseId 归属），防污染 coverage / 门判定。
  */
-async function readFailures(
+export async function readFailures(
   outDir: string,
   plan: CampaignPlan,
   caseIds: ReadonlySet<string>,
@@ -214,13 +214,21 @@ function assertCampaignFailure(
   }
 }
 
-async function readRecords(
+/**
+ * 读取并校验单元记录（`--resume` 与 `--report-only` 共用）。`allowEmpty`
+ * 用于续跑：尚无任何记录时等价全新运行。
+ */
+export async function readCampaignRecords(
   outDir: string,
   plan: CampaignPlan,
   caseIds: ReadonlySet<string>,
+  allowEmpty = false,
 ): Promise<readonly EvalRunRecord[]> {
   const files = await listJsonFiles(path.join(outDir, "runs"));
   if (files.length === 0) {
+    if (allowEmpty) {
+      return [];
+    }
     throw new Error(
       `campaign report-only: no unit records found under ${path.join(outDir, "runs")}`,
     );
@@ -240,7 +248,7 @@ async function readRecords(
   return records;
 }
 
-async function readJudgeCounts(
+export async function readJudgeCounts(
   outDir: string,
   plan: CampaignPlan,
   caseIds: ReadonlySet<string>,
@@ -394,7 +402,7 @@ function assertJudgeAnomalies(value: unknown, where: string): void {
   }
 }
 
-async function readOptionalJson(file: string): Promise<unknown | null> {
+export async function readOptionalJson(file: string): Promise<unknown | null> {
   try {
     return await readJsonFile(file);
   } catch (error) {

@@ -393,6 +393,87 @@ describe("runCampaign: repoPath 解析基准", () => {
   });
 });
 
+describe("runCampaign: --resume 续跑（长跑中断恢复）", () => {
+  it("跳过已完成单元，只重跑缺失 / 失败单元；报告覆盖全量", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1"), mrCase("VUL4J-2")]);
+    const outputDir = path.join(dir, "campaign");
+    const campaign = plan({ casesFile, outputDir, arms: ["baseline"] });
+
+    const first = await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model) },
+      {
+        kernel: fakeKernel({ failWhen: (_request, callIndex) => callIndex === 1 }),
+        judge: fakeJudge(),
+        now: () => NOW,
+      },
+    );
+    expect(first.records).toHaveLength(1);
+    expect(first.failures).toHaveLength(1);
+
+    const kernel = fakeKernel();
+    const judge = fakeJudge();
+    const resumed = await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model), resume: true },
+      { kernel, judge, now: () => NOW },
+    );
+
+    expect(resumed.records.map((record) => record.caseId)).toEqual(["VUL4J-1", "VUL4J-2"]);
+    expect(resumed.failures).toEqual([]);
+    expect(kernel.calls.map((call) => call.unit.caseId)).toEqual(["VUL4J-2"]);
+    expect(judge.calls.map((call) => call.record.caseId)).toEqual(["VUL4J-2"]);
+    expect(resumed.report.arms.baseline?.summary).toMatchObject({ runCount: 2, caseCount: 2 });
+  });
+
+  it("记录已落盘但 judge 失败：续跑只补判，不重跑内核", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);
+    const outputDir = path.join(dir, "campaign");
+    const campaign = plan({ casesFile, outputDir, arms: ["baseline"] });
+
+    const first = await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model) },
+      {
+        kernel: fakeKernel(),
+        judge: fakeJudge({ failWhen: () => true }),
+        now: () => NOW,
+      },
+    );
+    expect(first.records).toHaveLength(1);
+    expect(first.failures).toHaveLength(1);
+
+    const kernel = fakeKernel();
+    const judge = fakeJudge();
+    const resumed = await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model), resume: true },
+      { kernel, judge, now: () => NOW },
+    );
+
+    expect(kernel.calls).toEqual([]);
+    expect(judge.calls).toHaveLength(1);
+    expect(resumed.failures).toEqual([]);
+    expect(resumed.records).toHaveLength(1);
+    expect(resumed.report.arms.baseline?.l1.judge.runs).toBe(1);
+  });
+
+  it("无既有产物时 resume 等价全新运行", async () => {
+    const dir = await tempDirs.create();
+    const casesFile = await writeCases(dir, [mrCase("VUL4J-1")]);
+    const outputDir = path.join(dir, "campaign");
+    const campaign = plan({ casesFile, outputDir, arms: ["baseline"] });
+    const kernel = fakeKernel();
+
+    const resumed = await runCampaign(
+      { plan: campaign, environment: provenance(campaign.model), resume: true },
+      { kernel, judge: fakeJudge(), now: () => NOW },
+    );
+
+    expect(kernel.calls).toHaveLength(1);
+    expect(resumed.records).toHaveLength(1);
+    expect(resumed.failures).toEqual([]);
+  });
+});
+
 describe("runCampaign: 环境口径守卫", () => {
   it("environment 的被测模型必须与 plan.model 一致", async () => {
     const dir = await tempDirs.create();

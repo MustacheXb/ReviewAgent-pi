@@ -103,6 +103,7 @@ describe("parseCampaignArgs: run 模式", () => {
       arms: ["baseline", "candidate"],
       outDir: path.join("runs", "eval", "smoke-2026-11-11"),
       calibrationRef: null,
+      resume: false,
     });
   });
 
@@ -148,6 +149,15 @@ describe("parseCampaignArgs: run 模式", () => {
       }
       expect(parseError(argv)).toContain(flag);
     }
+  });
+
+  it("--resume 只对 run 模式有效；report-only 拒绝", () => {
+    const options = parsed([...RUN_FLAGS, "--resume"]);
+    if (options.reportOnly) {
+      throw new Error("expected run options");
+    }
+    expect(options.resume).toBe(true);
+    expect(parseError(["--report-only", "--out", "x", "--resume"])).toMatch(/--report-only/);
   });
 
   it("--help 与未知 flag 返回用法错误", () => {

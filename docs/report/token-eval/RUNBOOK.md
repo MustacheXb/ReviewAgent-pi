@@ -110,6 +110,14 @@ candidate: <commit>
    - 数据集：`data/vul4j/target-cases.json`（冻结 30 案；与 10 案冒烟集
      同序，冒烟集 = 前 10 案）。当前数据集无 clean MR 阴性对照，阴性对照
      阈值在噪声底报告中记 N/A。
+   - **中断续跑**：长跑（180 单元，约 8–10 小时）若进程中断 / 看门狗中止，
+     在原命令追加 `--resume` 即可：保留 `runs/` / `judge/` / `audit/`，跳过
+     「记录 + judge 均完成」的单元，有记录但 judge 缺失的只补判；plan /
+     cases hash 变化会 fail fast。`environment.json.window.start` 取原批次
+     起点（或最早记录 `completedAt`），不丢时间窗留痕。
+   - **主机睡眠会中止长跑**：看门狗按墙钟计算无进度时间，系统睡眠后恢复会
+     直接触发 40m 中止（单元超时定时器同样被挂起）。长跑期间须保持主机唤醒
+     （例如 Windows `SetThreadExecutionState` 保活），中断后按上条 `--resume` 续跑。
 
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s
