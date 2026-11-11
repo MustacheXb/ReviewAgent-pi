@@ -116,6 +116,7 @@ export function buildL2Report(args: BuildL2ReportArgs): L2Report {
     campaignId: args.plan.campaignId,
     campaignType: identity.campaignType,
     calibrationRef: identity.calibrationRef,
+    outputDir: args.plan.outputDir,
     baseline: { ref: args.plan.baselineRef, model: args.plan.model },
     candidate: { ref: args.plan.candidateRef, model: args.plan.model },
     dataset: {

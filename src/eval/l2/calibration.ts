@@ -1,15 +1,14 @@
 import type { EnvironmentManifest } from "../campaign/contracts.js";
 import type {
   L2ArmMetrics,
-  L2BootstrapMetadata,
   L2Coverage,
-  L2GateThresholds,
-  L2Gates,
   L2PairedMetrics,
   L2PairedSet,
   L2Report,
+  NoiseFloorReport,
   PairedDiff,
   PairedRatio,
+  ThresholdReview,
 } from "./contracts.js";
 import {
   NOISE_FLOOR_REPORT_KIND,
@@ -36,59 +35,11 @@ const Z_ONE_SIDED_95 = 1.645;
 /** CARC 主门的观测精度预算：目标 0.90 + 半宽 < CI 上界门 1.00 */
 const CARC_PRECISION_BUDGET = 0.1;
 
-export type ThresholdRecommendation = "keep" | "adjust" | "gather-more" | "n/a";
+/** CARC 空对照中心允许偏离 1.0 的告警带（系统臂/窗口偏差） */
+const CARC_CENTER_TOLERANCE = 0.02;
 
-/** 单项阈值的复核结果（建议不自动生效） */
-export interface ThresholdReview {
-  readonly gate: "cost" | "quality" | "boundedness" | "reproducibility";
-  readonly name: string;
-  readonly provisional: number;
-  readonly observed: number | null;
-  readonly recommendation: ThresholdRecommendation;
-  /** 建议阈值（recommendation = adjust 时给出） */
-  readonly suggested: number | null;
-  /** 建议样本量（recommendation = gather-more 且可估算时给出） */
-  readonly suggestedCases: number | null;
-  readonly rationale: string;
-}
-
-/** 噪声底报告的环境摘要（judge / 模型 / 时间窗 / git 身份） */
-export interface NoiseFloorEnvironment {
-  readonly git: EnvironmentManifest["git"];
-  readonly model: EnvironmentManifest["model"];
-  readonly judge: EnvironmentManifest["judge"];
-  readonly window: EnvironmentManifest["window"];
-}
-
-/** 机读噪声底报告（campaign 输出目录 `noise-floor.json`） */
-export interface NoiseFloorReport {
-  readonly kind: typeof NOISE_FLOOR_REPORT_KIND;
-  readonly schemaVersion: typeof NOISE_FLOOR_REPORT_SCHEMA_VERSION;
-  readonly campaignId: string;
-  readonly calibrationRef: string;
-  readonly campaignType: "calibration";
-  readonly baseline: { readonly ref: string; readonly model: string };
-  readonly candidate: { readonly ref: string; readonly model: string };
-  readonly dataset: L2Report["dataset"];
-  readonly sampling: L2Report["sampling"];
-  readonly coverage: L2Coverage;
-  readonly environment: NoiseFloorEnvironment;
-  readonly metrics: {
-    readonly baseline: L2ArmMetrics;
-    readonly candidate: L2ArmMetrics;
-    readonly paired: L2PairedMetrics;
-  };
-  readonly bounds: L2Report["bounds"];
-  readonly gates: L2Gates;
-  readonly thresholds: L2GateThresholds;
-  readonly thresholdReview: readonly ThresholdReview[];
-  readonly bootstrap: L2BootstrapMetadata;
-  readonly conclusion: {
-    readonly noiseFloorMeasured: true;
-    readonly claimsAllowed: false;
-    readonly note: string;
-  };
-}
+/** 有界性上界建议留出的空对照余量比例（下一轮等价跑不因噪声越界） */
+const BOUND_HEADROOM = 0.1;
 
 export interface BuildNoiseFloorReportArgs {
   readonly l2: L2Report;
@@ -110,6 +61,7 @@ export function buildNoiseFloorReport(args: BuildNoiseFloorReportArgs): NoiseFlo
     campaignId: l2.campaignId,
     calibrationRef: l2.calibrationRef,
     campaignType: "calibration",
+    outputDir: l2.outputDir,
     baseline: l2.baseline,
     candidate: l2.candidate,
     dataset: l2.dataset,
@@ -172,6 +124,11 @@ function reviewCarcTarget(
     return reviewNotApplicable("cost", "maxCarcRatio", provisional, "空对照 CARC 配对数据不足");
   }
   const halfWidth = (ratio.ci95[1] - ratio.ci95[0]) / 2;
+  const bias = ratio.mean - 1;
+  const biasNote =
+    Math.abs(bias) > CARC_CENTER_TOLERANCE
+      ? `；注意空对照中心偏离 1.0 达 ${fmtPp(bias)}，存在臂/窗口系统偏差，须排查后再信阈值`
+      : "";
   if (halfWidth < CARC_PRECISION_BUDGET) {
     return {
       gate: "cost",
@@ -183,7 +140,7 @@ function reviewCarcTarget(
       suggestedCases: null,
       rationale:
         `空对照 CARC 比率 ci95 半宽 ${fmt3(halfWidth)} < 10pp：` +
-        `${fmt3(provisional)} 目标 + 半宽 < 1.00，主门可达成`,
+        `${fmt3(provisional)} 目标 + 半宽 < 1.00，主门可达成${biasNote}`,
     };
   }
   const suggestedCases = Math.max(
@@ -424,17 +381,19 @@ function reviewBound(
     return reviewNotApplicable("boundedness", name, provisional, "无 run 观测");
   }
   if (observed > provisional) {
+    const suggested = observed + Math.max(1, Math.ceil(observed * BOUND_HEADROOM));
     return {
       gate: "boundedness",
       name,
       provisional,
       observed,
       recommendation: "adjust",
-      suggested: observed,
+      suggested,
       suggestedCases: null,
       rationale:
         `空对照实测最大 ${observed} > provisional ${provisional}：` +
-        `现阈值会让基线自身失败；建议上界至少 ${observed}（放宽为安全上限，不取消检查）`,
+        `现阈值会让基线自身失败；建议上界 ${suggested}（实测 + ~10% 余量，` +
+        `放宽为安全上限，不取消检查）`,
     };
   }
   return {
@@ -501,7 +460,8 @@ export function renderNoiseFloorMarkdown(report: NoiseFloorReport): string {
       `${report.environment.window.end ?? "N/A"}（${report.environment.window.timezone ?? "N/A"}） |`,
   );
   lines.push(
-    `| 数据集 | ${report.dataset.cases} 案 · clean MR ${report.dataset.negativeControl} · ` +
+    `| 数据集 | ${report.dataset.cases} 案 · clean MR ` +
+      `${report.dataset.negativeControl === 0 ? "N/A（无 clean MR）" : report.dataset.negativeControl} · ` +
       `sha256 \`${report.dataset.hash}\` |`,
   );
   lines.push(
@@ -576,7 +536,7 @@ export function renderNoiseFloorMarkdown(report: NoiseFloorReport): string {
       `工具 schema 变更后重做校准。`,
   );
   lines.push(
-    `- 复算（零网络）：\`pnpm campaign -- --report-only --out runs/eval/${report.campaignId}\``,
+    `- 复算（零网络）：\`pnpm campaign -- --report-only --out ${report.outputDir}\``,
   );
   lines.push("");
   return `${lines.join("\n")}`;

@@ -240,6 +240,8 @@ export interface L2Report {
    * 正式 campaign = 其引用的校准（可空 = 未校准）。
    */
   readonly calibrationRef: string | null;
+  /** campaign 输出目录（复算入口；与 plan.json 同值） */
+  readonly outputDir: string;
   readonly baseline: { readonly ref: string; readonly model: string };
   readonly candidate: { readonly ref: string; readonly model: string };
   readonly dataset: {
@@ -278,4 +280,78 @@ export interface L2Report {
   readonly claimsAllowed: boolean;
   readonly bootstrap: L2BootstrapMetadata;
   readonly thresholds: L2GateThresholds;
+}
+
+/** 阈值复核建议类别（#42） */
+export type ThresholdRecommendation = "keep" | "adjust" | "gather-more" | "n/a";
+
+/** 单项阈值的复核结果（建议不自动生效） */
+export interface ThresholdReview {
+  readonly gate: "cost" | "quality" | "boundedness" | "reproducibility";
+  readonly name: string;
+  readonly provisional: number;
+  readonly observed: number | null;
+  readonly recommendation: ThresholdRecommendation;
+  /** 建议阈值（recommendation = adjust 时给出） */
+  readonly suggested: number | null;
+  /** 建议样本量（recommendation = gather-more 且可估算时给出） */
+  readonly suggestedCases: number | null;
+  readonly rationale: string;
+}
+
+/** 噪声底报告的环境摘要（judge / 模型 / 时间窗 / git 身份） */
+export interface NoiseFloorEnvironment {
+  readonly git: {
+    readonly branch: string | null;
+    readonly commit: string | null;
+    readonly tag: string | null;
+  };
+  readonly model: {
+    readonly requestedId: string;
+    readonly actualDeployment: string | null;
+    readonly providerClass: string | null;
+    readonly baseUrlClass: string | null;
+  };
+  readonly judge: {
+    readonly model: string | null;
+    readonly promptVersion: string | null;
+    readonly temperature: number | null;
+    readonly topP: number | null;
+  };
+  readonly window: {
+    readonly start: string | null;
+    readonly end: string | null;
+    readonly timezone: string | null;
+  };
+}
+
+/** 机读噪声底报告（campaign 输出目录 `noise-floor.json`；#42） */
+export interface NoiseFloorReport {
+  readonly kind: typeof NOISE_FLOOR_REPORT_KIND;
+  readonly schemaVersion: typeof NOISE_FLOOR_REPORT_SCHEMA_VERSION;
+  readonly campaignId: string;
+  readonly calibrationRef: string;
+  readonly campaignType: "calibration";
+  readonly outputDir: string;
+  readonly baseline: { readonly ref: string; readonly model: string };
+  readonly candidate: { readonly ref: string; readonly model: string };
+  readonly dataset: L2Report["dataset"];
+  readonly sampling: L2Report["sampling"];
+  readonly coverage: L2Coverage;
+  readonly environment: NoiseFloorEnvironment;
+  readonly metrics: {
+    readonly baseline: L2ArmMetrics;
+    readonly candidate: L2ArmMetrics;
+    readonly paired: L2PairedMetrics;
+  };
+  readonly bounds: L2Report["bounds"];
+  readonly gates: L2Gates;
+  readonly thresholds: L2GateThresholds;
+  readonly thresholdReview: readonly ThresholdReview[];
+  readonly bootstrap: L2BootstrapMetadata;
+  readonly conclusion: {
+    readonly noiseFloorMeasured: true;
+    readonly claimsAllowed: false;
+    readonly note: string;
+  };
 }

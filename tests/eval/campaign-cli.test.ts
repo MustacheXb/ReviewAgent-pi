@@ -198,7 +198,7 @@ describe("parseCampaignArgs: 空对照校准（#42）", () => {
   ];
 
   it("--calibration 要求同 ref、双 arm，并自动写 calibrationRef = campaign-id", () => {
-    const options = parsed([...CALIBRATION_FLAGS, "--calibration"]);
+    const options = parsed([...CALIBRATION_FLAGS, "--reps", "3", "--calibration"]);
     if (options.reportOnly) {
       throw new Error("expected run options");
     }
@@ -206,13 +206,14 @@ describe("parseCampaignArgs: 空对照校准（#42）", () => {
     expect(options.arms).toEqual(["baseline", "candidate"]);
   });
 
-  it("--calibration 但 ref 不同 / 单 arm → 拒绝", () => {
+  it("--calibration 但 ref 不同 / 单 arm / reps<2 → 拒绝", () => {
     const differentRef = [...CALIBRATION_FLAGS];
     differentRef[differentRef.indexOf("--candidate-ref") + 1] = "0123456789abcdef";
     expect(parseError([...differentRef, "--calibration"])).toMatch(/baseline-ref.*candidate-ref/);
     expect(parseError([...CALIBRATION_FLAGS, "--arms", "baseline", "--calibration"])).toMatch(
       /arms/,
     );
+    expect(parseError([...CALIBRATION_FLAGS, "--reps", "1", "--calibration"])).toMatch(/reps/);
   });
 
   it("正式 campaign 可引用 --calibration-ref；与 --calibration 互斥", () => {

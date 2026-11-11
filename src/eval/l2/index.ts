@@ -16,10 +16,6 @@ export {
   buildNoiseFloorReport,
   renderNoiseFloorMarkdown,
   type BuildNoiseFloorReportArgs,
-  type NoiseFloorEnvironment,
-  type NoiseFloorReport,
-  type ThresholdRecommendation,
-  type ThresholdReview,
 } from "./calibration.js";
 export {
   DEFAULT_L2_GATE_THRESHOLDS,
@@ -48,8 +44,12 @@ export {
   type L2Report,
   type L2ReproSample,
   type L2RunSample,
+  type NoiseFloorEnvironment,
+  type NoiseFloorReport,
   type PairedDiff,
   type PairedRatio,
+  type ThresholdRecommendation,
+  type ThresholdReview,
 } from "./contracts.js";
 export { claimsAllowedOf, evaluateL2Gates } from "./gates.js";
 export { buildMetricSet, buildPairedSet } from "./metrics.js";

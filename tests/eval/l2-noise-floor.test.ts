@@ -158,6 +158,7 @@ export function l2ReportFixture(
     campaignType: overrides.campaignType ?? "calibration",
     calibrationRef:
       overrides.calibrationRef === undefined ? campaignId : overrides.calibrationRef,
+    outputDir: `runs/eval/${campaignId}`,
     baseline: { ref: "eval-e-baseline-2026-11-11", model: "deepseek-v4-flash" },
     candidate: { ref: "eval-e-baseline-2026-11-11", model: "deepseek-v4-flash" },
     dataset: {
@@ -268,6 +269,7 @@ describe("buildNoiseFloorReport", () => {
       campaignId: "p1-calibration-2026-11-11",
       calibrationRef: "p1-calibration-2026-11-11",
       campaignType: "calibration",
+      outputDir: "runs/eval/p1-calibration-2026-11-11",
       dataset: { cases: 30, negativeControl: 0 },
       sampling: { cases: 30, reps: 3, arms: 2, planned: 180 },
       environment: {
@@ -400,12 +402,12 @@ describe("buildNoiseFloorReport", () => {
     const byName = Object.fromEntries(report.thresholdReview.map((entry) => [entry.name, entry]));
     expect(byName["maxAttemptedToolCalls"]).toMatchObject({
       recommendation: "adjust",
-      suggested: 14,
+      suggested: 16,
     });
-    expect(byName["maxRequests"]).toMatchObject({ recommendation: "adjust", suggested: 30 });
+    expect(byName["maxRequests"]).toMatchObject({ recommendation: "adjust", suggested: 33 });
     expect(byName["maxOutputTokens"]).toMatchObject({
       recommendation: "adjust",
-      suggested: 60_000,
+      suggested: 66_000,
     });
   });
 
@@ -421,6 +423,8 @@ describe("buildNoiseFloorReport", () => {
     expect(first).toContain("# L2 空对照校准噪声底报告 p1-calibration-2026-11-11");
     expect(first).toContain("calibrationRef: `p1-calibration-2026-11-11`");
     expect(first).toContain("30 case × 3 reps × 2 arms");
+    expect(first).toContain("clean MR N/A");
+    expect(first).toContain("--out runs/eval/p1-calibration-2026-11-11");
     expect(first).toContain("2026-11-11T06:13:08.569Z");
     expect(first).toMatch(/不得.*宣称|not.*claim/i);
     expect(first).toContain("CARC ratio");

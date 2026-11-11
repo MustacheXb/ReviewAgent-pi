@@ -2,8 +2,7 @@ import type { RunRecord } from "review-pi";
 import type { ReviewKernel } from "../../gate/review-kernel.js";
 import type { MRCase } from "../../instrument/contracts/mr-case.js";
 import type { AnalysisReport, MatchCounts } from "../analysis/contracts.js";
-import type { L2Report } from "../l2/contracts.js";
-import type { NoiseFloorReport } from "../l2/calibration.js";
+import type { L2Report, NoiseFloorReport } from "../l2/contracts.js";
 
 /**
  * Campaign runner 契约（#39 P1 骨架，eval-only）：campaign plan、执行单元、

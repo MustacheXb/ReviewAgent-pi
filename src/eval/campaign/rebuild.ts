@@ -2,11 +2,10 @@ import type { Dirent } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { MatchCounts } from "../analysis/contracts.js";
-import type { L2Report } from "../l2/contracts.js";
+import type { L2Report, NoiseFloorReport } from "../l2/contracts.js";
 import {
   buildNoiseFloorReport,
   renderNoiseFloorMarkdown,
-  type NoiseFloorReport,
 } from "../l2/calibration.js";
 import { buildL2Report } from "../l2/report.js";
 import {

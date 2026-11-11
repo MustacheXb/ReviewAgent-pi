@@ -18,8 +18,7 @@ import {
   type CampaignReport,
   type CampaignRunResult,
 } from "./contracts.js";
-import type { L2Report } from "../l2/contracts.js";
-import type { NoiseFloorReport } from "../l2/calibration.js";
+import type { L2Report, NoiseFloorReport } from "../l2/contracts.js";
 import { rebuildCampaignReport } from "./rebuild.js";
 import { runCampaign } from "./runner.js";
 
@@ -222,7 +221,15 @@ function finalizeRun(
     return reps;
   }
   const arms = values.arms ?? [...CAMPAIGN_ARMS];
-  const calibrationRef = resolveCalibrationRef(values, campaignId, baselineRef, candidateRef, arms, fail);
+  const calibrationRef = resolveCalibrationRef(
+    values,
+    campaignId,
+    baselineRef,
+    candidateRef,
+    arms,
+    reps,
+    fail,
+  );
   if (typeof calibrationRef !== "string" && calibrationRef !== null) {
     return calibrationRef;
   }
@@ -254,6 +261,7 @@ function resolveCalibrationRef(
   baselineRef: string,
   candidateRef: string,
   arms: readonly CampaignArm[],
+  reps: number,
   fail: CampaignFail,
 ): string | null | CliParseResult<CampaignCliOptions> {
   if (values.calibration && values.calibrationRef !== null) {
@@ -270,6 +278,11 @@ function resolveCalibrationRef(
   }
   if (!arms.includes("baseline") || !arms.includes("candidate")) {
     return fail("--calibration requires both baseline and candidate arms");
+  }
+  if (reps < 2) {
+    return fail(
+      "--calibration requires --reps >= 2 (warm = rep2+ is the L2 main line; P1 uses 3)",
+    );
   }
   return campaignId;
 }

@@ -19,8 +19,7 @@ import {
   type CampaignRunResult,
 } from "./contracts.js";
 import { buildEnvironmentManifest, hashCasesText } from "./environment.js";
-import { buildNoiseFloorReport } from "../l2/calibration.js";
-import { renderNoiseFloorMarkdown } from "../l2/calibration.js";
+import { buildNoiseFloorReport, renderNoiseFloorMarkdown } from "../l2/calibration.js";
 import { buildL2Report, resolveCampaignIdentity } from "../l2/report.js";
 import { expandUnits, parseCampaignCases, validateCampaignPlan } from "./plan.js";
 import { toEvalRunRecord, unitKey } from "./records.js";
@@ -72,7 +71,7 @@ export async function runCampaign(
   validateCampaignPlan(plan);
   assertEnvironmentMatchesPlan(environment, plan);
   // 空对照校准身份校验前置（#42）：错配的 calibrationRef 在烧真实网关前 fail fast
-  resolveCampaignIdentity(plan, environment);
+  const identity = resolveCampaignIdentity(plan, environment);
 
   const casesText = await readTextFile(plan.casesFile);
   const cases = parseCampaignCases(casesText, `campaign: cases file ${plan.casesFile}`);
@@ -110,7 +109,15 @@ export async function runCampaign(
 
   const environmentManifest = buildEnvironmentManifest({
     campaignId: plan.campaignId,
-    provenance: environment,
+    // calibrationRef 单源 = 身份解析（#42）：同 ref 双 arm 缺省自指 campaignId，
+    // 保证 environment.json 与 l2-report.json 不出现一个 null 一个 id 的裂缝。
+    provenance: {
+      ...environment,
+      evaluation: {
+        ...environment.evaluation,
+        calibrationRef: identity.calibrationRef,
+      },
+    },
     dataset: {
       casesFile: plan.casesFile,
       caseCount: cases.length,

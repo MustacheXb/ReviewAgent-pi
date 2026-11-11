@@ -256,13 +256,18 @@ describe("runCampaign: L2 报告落盘", () => {
 
 describe("L2 报告：空对照校准标识（#42）", () => {
   it("同 ref 双 arm → campaignType = calibration，calibrationRef 自指 campaignId", async () => {
-    const { result } = await runDualArm({
+    const { result, outputDir } = await runDualArm({
       candidateRef: "eval-e-baseline-2026-11-11",
     });
 
     expect(result.l2.campaignType).toBe("calibration");
     expect(result.l2.calibrationRef).toBe("smoke-2026-11-11");
     expect(result.l2.baseline.ref).toBe(result.l2.candidate.ref);
+    // environment 与 l2 报告的 calibrationRef 必须一致（不留 null/id 裂缝）
+    const environment = readJson(path.join(outputDir, "environment.json")) as {
+      evaluation: { calibrationRef: string | null };
+    };
+    expect(environment.evaluation.calibrationRef).toBe("smoke-2026-11-11");
     // 空对照即使偶然出现成本下降也不得宣称收益
     expect(result.l2.claimsAllowed).toBe(false);
   });

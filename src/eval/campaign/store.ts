@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { L2_REPORT_FILE } from "../l2/contracts.js";
 import {
+  L2_REPORT_FILE,
   NOISE_FLOOR_MARKDOWN_FILE,
   NOISE_FLOOR_REPORT_FILE,
 } from "../l2/contracts.js";
