@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "kind": "e-baseline-snapshot",
+  "baselineId": "eval-e-baseline-2026-11-11",
+  "status": "live-baseline",
+  "notReproducible": false,
+  "created": "2026-11-11",
+  "git": {
+    "tag": "eval-e-baseline-2026-11-11",
+    "equivalentTag": "reviewagent-v1.0.0",
+    "commit": "e724958232e930698489b71440bb61d413592d77",
+    "baseDate": "2026-11-03",
+    "purpose": "L2 配对回归的 baseline 臂（ADR-0017 §3）；运行时与 reviewagent-v1.0.0 同一提交"
+  },
+  "runtime": {
+    "configId": "E",
+    "protocolVersion": 3,
+    "enginesNode": ">=22",
+    "packageManager": "pnpm@12.14.0",
+    "components": {
+      "@earendil-works/pi-ai": "0.85.1",
+      "@earendil-works/pi-agent-core": "0.85.1",
+      "@earendil-works/chord": "0.85.1",
+      "@earendil-works/pi-telemetry": "0.85.1",
+      "review-llm": "0.1.0",
+      "review-pi": "1.0.0",
+      "reviewagent": "1.0.0"
+    }
+  },
+  "model": {
+    "requestedId": "deepseek-v4-flash",
+    "actualDeployment": null,
+    "providerClass": "gateway",
+    "baseUrlClass": "OpenAI-compatible 企业内部网关（base URL 与 key 只在本地 .env.local，不落盘）"
+  },
+  "build": {
+    "lockfile": "pnpm-lock.yaml",
+    "environment": {
+      "node": "v24.13.0",
+      "os": "win32",
+      "packageManager": "pnpm@12.14.0"
+    },
+    "commands": [
+      "git checkout eval-e-baseline-2026-11-11",
+      "pnpm install --frozen-lockfile",
+      "pnpm build:pi",
+      "pnpm --filter review-llm build",
+      "pnpm --filter review-pi build",
+      "pnpm build:presentation",
+      "pnpm build:reviewagent"
+    ],
+    "verification": [
+      "pnpm typecheck",
+      "pnpm --filter review-pi test",
+      "pnpm test"
+    ],
+    "artifact": ".artifacts/reviewagent/reviewagent-1.0.0.tgz",
+    "reproducibility": "锁文件与组件版本下源码同一；tarball 字节不保证逐字节一致（esbuild 打包时间戳）"
+  }
+}

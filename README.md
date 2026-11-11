@@ -98,6 +98,7 @@ HTTP JSON-RPC 长驻（`POST /rpc` + `GET /healthz|/readyz|/v1/capabilities`）�
 - **artifact 保留窗**：succeeded 落定起算缺省 30 天（`--artifact-retention-days` 可配）；窗外 / 缺失 → 404 + `-32017`。
 - **SSE 纪律**：per-job 单调 seq + `Last-Event-ID` 断线续传（保留窗覆盖不到发 `reset` 帧重建）、20s 心跳、订阅上限 8/job + 32/租户、慢消费者 1 MiB 写积压断开。
 - **人工处置与 KPI**：`reviewagent disposition --run <record.json> --finding <id> --decision accept|reject|false-positive [--note <text>]`（append-only 落库，回溯锚与 RunRecord 对齐）；`--stats` 出人工接受率（accepted / totalDispositioned，空集 null 不冒充 0）。本地数据面：无网络、不解析凭据。
+- **评测基线（eval-only，不进生产运行时）**：L2 配对回归活基线 `eval-e-baseline-2026-11-11`（= `reviewagent-v1.0.0`）与历史数据 `NOT_REPRODUCIBLE` 口径见 [`docs/report/token-eval/RUNBOOK.md`](docs/report/token-eval/RUNBOOK.md)（ADR-0016 / ADR-0017）。
 
 ## 开发
 
@@ -110,7 +111,7 @@ packages/reviewagent/                  自包含产品包（reviewagent CLI；�
 packages/review-llm/                   LLM 接入共享缝（resolver / profile / reviewer）
 src/{gate,instrument,presentation}/    根面：模型迁移门 / 仪器契约 / 中文呈现投影
 scripts/                               迁移门与 demo 脚本入口（tsc 即编即跑，产物落 .tmp-gen/）
-docs/                                  ADR（0001–0015）/ 设计方案（docs/design，#34 回填）/ agent 协作约定
+docs/                                  ADR（0001–0017）/ 设计方案（docs/design，#34 回填）/ agent 协作约定
 GLOSSARY.md                            领域词汇表（术语唯一权威）
 ```
 
@@ -178,7 +179,7 @@ cd reference_project/pi && git checkout 6671c604   # 其余同理
 | 文档 | 内容 |
 |---|---|
 | [`GLOSSARY.md`](GLOSSARY.md) | 领域词汇表（活代码词汇唯一权威；研究词条已修剪，全量见 Demo 线） |
-| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0015（POC1 harness / 模型钉扎 / 零构建代码情报 / S 级判据 / DSH 迁移与内核形态 / 对齐门 v2 / 模型可换 / pi 内核从 0 重写 / 检视语言钉英文 / 切流 config E / stdio 长驻 / HTTP server 线 / 分支策略 / **协议 v3**） |
+| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0017（POC1 harness / 模型钉扎 / 零构建代码情报 / S 级判据 / DSH 迁移与内核形态 / 对齐门 v2 / 模型可换 / pi 内核从 0 重写 / 检视语言钉英文 / 切流 config E / stdio 长驻 / HTTP server 线 / 分支策略 / **协议 v3** / **评测面隔离** / **Token 优化判据**） |
 | [`docs/design/`](docs/design/README.md) | 设计方案 22 份——按架构 / Agent 设计 / 内核 / 接入 / 评测 / 项目策略分类（#34 自 Demo 线回填的工程参考副本 + 分支策略底稿恢复件，ADR-0014 补记） |
 | [`docs/agents/`](docs/agents/) | agent 协作约定（issue tracker / triage labels / domain docs） |
 

@@ -204,3 +204,7 @@ _Avoid_: 判级（生产语境）、跨 judge 版本混跑、把 judge 当生产
 **历史锚（Historical Anchor）**:
 ADR-0004 / ADR-0011 中作为 S/A/B 分母的 C；只作历史实验复算，不是活对照。
 _Avoid_: 活锚、把历史锚当未来评判标准
+
+**历史证据（Historical Evidence，`NOT_REPRODUCIBLE`）**:
+已补录来源 commit、可考时间窗、模型与 judge，但缺部署版本 / judge 提示词 pin / 缓存策略等可复现条件的历史运行数据；只作证据引用，不作活基线。
+_Avoid_: 活基线（历史数据不参与 L2 门）、把「数据可复算」当成「运行可复现」
