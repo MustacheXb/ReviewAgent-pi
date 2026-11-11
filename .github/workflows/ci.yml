@@ -66,6 +66,11 @@ jobs:
       - name: Typecheck (root)
         run: pnpm typecheck
 
+      # eval/bench（#39）：campaign 进程入口不在根 tsconfig include 内，单独
+      # 编译检查，防入口类型漂移在 CI 绿灯下合入。
+      - name: Typecheck (campaign entry)
+        run: pnpm typecheck:campaign
+
       - name: Typecheck (review-llm)
         run: pnpm --filter review-llm typecheck
 

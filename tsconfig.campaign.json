@@ -1,0 +1,18 @@
+{
+  // Campaign runner 脚本编译程序（#39，eval-only）：入口 scripts/run-campaign.ts
+  // + import 闭包（src/eval/campaign → src/eval/analysis；review-pi 仅 type-only）。
+  // 必须走 -p 而非内联 flags（同 tsconfig.migration-gate.json 先例）：内联
+  // flags 忽略 tsconfig → baseUrl/paths 失效 → review-pi 类型链解析回 vendored
+  // pi 源码而编译爆炸。产物 .tmp-gen/scripts/run-campaign.js 与 node 调用路径一致；
+  // rootDir 不钉——入口在 scripts/、闭包在 src/，公共根即仓库根。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": ".tmp-gen"
+  },
+  "files": ["scripts/run-campaign.ts"],
+  "include": [],
+  "exclude": ["node_modules", "dist", ".tmp-gen"]
+}

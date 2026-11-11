@@ -13,10 +13,12 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
+    "typecheck:campaign": "tsc -p tsconfig.campaign.json --noEmit",
     "build:pi": "pnpm --filter @earendil-works/pi-telemetry run build && pnpm --filter @earendil-works/chord run build && pnpm --filter @earendil-works/pi-ai run build && pnpm --filter @earendil-works/pi-agent-core run build",
     "build:reviewagent": "pnpm --filter reviewagent pack --pack-destination .artifacts/reviewagent",
     "build:presentation": "pnpm exec tsc -p tsconfig.presentation.json",
     "migration-gate": "pnpm exec tsc -p tsconfig.migration-gate.json && node .tmp-gen/scripts/run-migration-gate.js",
+    "campaign": "pnpm exec tsc -p tsconfig.campaign.json && node .tmp-gen/scripts/run-campaign.js",
     "demo:http-server": "pnpm --filter review-pi build && pnpm exec tsc -p tsconfig.demo-http-server.json && node .tmp-gen/scripts/demo-http-server.js"
   },
   "devDependencies": {

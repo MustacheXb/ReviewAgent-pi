@@ -149,6 +149,14 @@ _Avoid_: 画像当 endpoint 配置（「怎么说话」与「连到哪」两轴�
 承载对照实验、指标、判定链与定位报告的独立面；生产 `main` 只保留只读分析与报告消费，不执行评测配置。
 _Avoid_: 生产配置（评测面不是第二套生产配置）、研究线复活（评测面不是 A–D 矩阵的回归）
 
+**campaign（评测战役）**:
+一次按 plan 执行的评测运行：固定 baseline / candidate ref、case 集、reps、模型与对照臂；产物落 `runs/eval/<campaign-id>/`（plan / cases / environment / 单元记录 / judge 留痕 / failures / report）。记录带 `evalOnly: true`，不混入生产 `RunRecord`。
+_Avoid_: 把单次 run 当 campaign、把 campaign 产物当生产记录
+
+**对照臂（Arm）**:
+campaign 内按 `baseline` / `candidate` 分流的执行分支；同一 case / rep 的两臂相邻执行用于同窗口配对。arm 是评测词汇，不是 `ConfigId`。
+_Avoid_: 把 arm 当配置、把 baseline/candidate 当两套生产配置
+
 **E 基线快照（E Baseline Snapshot）**:
 某一冻结 tag / commit 的 E 运行时，作为 L2 配对回归的 baseline 臂。
 _Avoid_: 把 Claude Code 也叫 baseline、用历史 C 数字冒充 E 基线
