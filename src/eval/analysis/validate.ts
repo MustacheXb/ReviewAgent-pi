@@ -65,6 +65,16 @@ export function validateAnalysisInput(input: unknown): asserts input is Analysis
     validateJudge(run.judgeCounts, where);
     validateOptionalCost(run.retryCostTokens, "retryCostTokens", where);
     validateOptionalCost(run.summaryCostTokens, "summaryCostTokens", where);
+    validateWireBodies(run.wireBodies, where);
+  }
+}
+
+function validateWireBodies(value: unknown, where: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value) || value.some((body) => typeof body !== "string")) {
+    throw new Error(`${where}: field "wireBodies" must be an array of strings when provided`);
   }
 }
 

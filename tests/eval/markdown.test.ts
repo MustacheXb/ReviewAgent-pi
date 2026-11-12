@@ -112,6 +112,24 @@ describe("renderAnalysisMarkdown", () => {
     expect(text).toContain("- priceValidFrom: 2026-11-01T00:00:00Z");
   });
 
+  it("可复用前缀段：标注估算；缺 cacheRead 时 actual/gap 显示 N/A", () => {
+    const base = "x".repeat(8);
+    const report = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({ usage: { inputTokens: 10, outputTokens: 2 } }),
+          }),
+          wireBodies: [base, `${base}y`],
+        },
+      ],
+    });
+    const text = renderAnalysisMarkdown(report);
+    expect(text).toContain("## 可复用前缀（估算）");
+    expect(text).toContain("不冒充真实计费");
+    expect(text).toMatch(/\| VUL4J-1\/E\/rep-1 \| 2 \| 1 \| 2 \| N\/A \| N\/A \|/);
+  });
+
   it("同一报告两次渲染逐字节相同，且不含时间戳", () => {
     const report = twoRunReport();
     const first = renderAnalysisMarkdown(report);

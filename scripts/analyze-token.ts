@@ -8,7 +8,8 @@
  *
  * 输出（--out，缺省当前目录）：token-analysis.json / token-analysis.md。
  * 纯分析逻辑在 src/eval/analysis（零 fs / 零网络 / 零密钥）；本文件只读记录
- * 文件、写报告，不读环境变量、不发起网络请求。输出确定：记录按路径排序，
+ * 文件与记录指向的审计文件（#60：requests[].wireBody 供 reusable-prefix
+ * 预测），写报告，不读环境变量、不发起网络请求。输出确定：记录按路径排序，
  * 报告不含时间戳。
  *
  * 退出码：0 成功；1 读取 / 分析失败；2 用法错误。
@@ -133,7 +134,12 @@ export async function loadAnalyzeTokenInputs(
   }
   const inputs: AnalysisRunInput[] = [];
   for (const file of files) {
-    inputs.push({ record: await readRecordFile(file) });
+    const record = await readRecordFile(file);
+    const wireBodies = await readWireBodies(record, file);
+    inputs.push({
+      record,
+      ...(wireBodies !== undefined ? { wireBodies } : {}),
+    });
   }
   return inputs;
 }
@@ -185,6 +191,49 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 
 async function readRecordFile(file: string): Promise<RunRecord> {
   return (await readJsonFile(file)) as RunRecord;
+}
+
+/**
+ * 从记录指向的审计文件读取相邻请求 wireBody（#60）：只读本地文件、零网络、
+ * 零密钥。相对 auditPath 以记录文件目录为基准解析（记录搬迁后可移植）。
+ *
+ * N/A 纪律：审计缺失 / 不可读 / 无 requests / **任一 request 缺 wireBody**
+ * → undefined（报告省 reusablePrefix 键）。不允许丢弃个别请求后把原本不
+ * 相邻的两条当相邻比较（会高估预测且失真 requestCount）。
+ */
+async function readWireBodies(
+  record: RunRecord,
+  recordFile: string,
+): Promise<readonly string[] | undefined> {
+  const rawPath = record.baseline.auditPath;
+  if (typeof rawPath !== "string" || rawPath.length === 0) {
+    return undefined;
+  }
+  const auditPath = path.isAbsolute(rawPath)
+    ? rawPath
+    : path.resolve(path.dirname(recordFile), rawPath);
+  let audit: unknown;
+  try {
+    audit = await readJsonFile(auditPath);
+  } catch {
+    // 审计文件缺失/不可读：可选预测按 N/A 省略，不让整份报告失败
+    return undefined;
+  }
+  if (!isRecord(audit) || !Array.isArray(audit.requests)) {
+    return undefined;
+  }
+  const bodies: string[] = [];
+  for (const request of audit.requests) {
+    if (!isRecord(request) || typeof request.wireBody !== "string") {
+      return undefined;
+    }
+    bodies.push(request.wireBody);
+  }
+  return bodies.length === 0 ? undefined : bodies;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

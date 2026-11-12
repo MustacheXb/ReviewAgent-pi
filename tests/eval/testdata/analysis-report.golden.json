@@ -1,6 +1,6 @@
 {
   "kind": "run-record-analysis",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "currency": null,
   "priceValidFrom": null,
   "runs": [
@@ -110,6 +110,15 @@
       "rep": 3,
       "model": "deepseek-v4-flash",
       "completedAt": "2026-09-23T06:52:42.017Z",
+      "reusablePrefix": {
+        "estimated": true,
+        "estimateMethod": "chars/4",
+        "requestCount": 2,
+        "pairCount": 1,
+        "predictedReusableTokens": 2,
+        "actualCacheReadTokens": 600,
+        "gap": 598
+      },
       "cost": {
         "cachedInputTokens": 600,
         "uncachedInputTokens": 400,

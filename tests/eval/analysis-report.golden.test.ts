@@ -116,6 +116,8 @@ it("报告 schema golden：key 序 / N/A null 语义 / 汇总形状稳定", () =
           }),
         }),
         truth: null,
+        // #60：相邻 wireBody 供 reusable-prefix 预测（chars/4 估算）
+        wireBodies: [`${"x".repeat(8)}`, `${"x".repeat(8)}y`],
       },
     ],
   });

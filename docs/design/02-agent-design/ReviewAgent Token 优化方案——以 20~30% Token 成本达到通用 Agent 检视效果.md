@@ -1489,6 +1489,15 @@ flowchart TD
 - 分析：`computeRetryCostTokens` 取失败尝试 usage 之和；无 retry 键或任一失败 usage 缺失 → null（不按已知部分冒充完整成本）；显式 `retryCostTokens` 输入优先。`retryCostTokens` 仍独立于 CARC。
 - 测试缝：`provider/retrying-fetch.test.ts`（fake timers 锁定 500/1500、Retry-After、上限 2、Abort、2xx 不重试）、`run/retry.test.ts`（fake 适配器 429/耗尽全链留痕）、`tests/eval/analyze.test.ts`（成本派生与 N/A）。
 
+### P1-3：离线 reusable-prefix 预测
+
+**落地记录（#60，2026-11-12）**
+
+- 实现载体：`src/eval/analysis/reusable-prefix.ts` 纯函数（零文件系统 / 零网络 / 零密钥）。对相邻请求 `wireBody` 求最长公共前缀（UTF-16 code unit），按 `floor(LCP chars / 4)` 逐对求和得 `predictedReusableTokens`；`actualCacheReadTokens = usage.cacheReadTokens ?? null`；`gap = actual − predicted`（actual 缺失 → null）。
+- 报告：`RunAnalysis.reusablePrefix` 可选字段（schema v4，无输入省键），含 `estimated: true` / `estimateMethod: "chars/4"` / `requestCount` / `pairCount` / predicted / actual / gap；Markdown 单列「可复用前缀（估算）」并注明不冒充真实计费。单请求 predicted=0；空输入省键。
+- 输入面：分析器只消费调用方注入的 `wireBodies`；`analyze-token` 从 `record.baseline.auditPath` 的 `requests[].wireBody` 只读加载（相对路径以记录文件目录为基准），单记录 / experiment / runs-root 三种输入一致；审计缺失 / 不可读 / 任一 request 缺 wireBody → N/A 省略（不压缩相邻性、不用部分数据冒充 run 级预测），不阻塞报告。
+- 测试缝：`tests/eval/reusable-prefix.test.ts`（LCP / 估算 / gap / N/A / 确定性）、`analyze.test.ts`（报告字段与校验）、`analyze-cli.test.ts`（单记录与目录一致、审计缺失省键、无密钥无网络）。
+
 ## 15. P1/P2 路线
 
 ### P1

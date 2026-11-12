@@ -138,7 +138,7 @@ describe("analyze-token 进程级", () => {
       summary: { cost: { carc: { mean: number } } };
       runs: readonly { cost: { cachedInputTokens: number | null } }[];
     };
-    expect(report.schemaVersion).toBe(3);
+    expect(report.schemaVersion).toBe(4);
     expect(report.currency).toBeNull();
     expect(report.priceValidFrom).toBeNull();
     expect(report.runs[0]?.cost.cachedInputTokens).toBe(600);
@@ -226,6 +226,116 @@ describe("analyze-token 进程级", () => {
     expect(report.runs[0]?.cost.currencyCost).toBe(660);
     expect(report.summary.cost.currencyCost).toEqual({ count: 1, mean: 660, std: 0 });
     expect(readFileSync(path.join(out, "token-analysis.md"), "utf8")).toContain("currencyCost");
+  });
+
+  it("单 RunRecord / 目录输入均可计算 reusablePrefix（读取审计 wireBody）", () => {
+    const root = makeTempDir("analyze-token-prefix-");
+    const auditPath = path.join(root, "audit.json");
+    const base = "x".repeat(8);
+    writeFileSync(
+      auditPath,
+      JSON.stringify({ requests: [{ wireBody: base }, { wireBody: `${base}y` }] }),
+      "utf8",
+    );
+    const recordFile = writeRecordFile(root, "VUL4J-5", "E", 1, {
+      baseline: snapshot({
+        usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 5 },
+        auditPath,
+      }),
+    });
+    const singleOut = path.join(root, "out-single");
+    const expOut = path.join(root, "out-experiment");
+    expect(runCli(["--record", recordFile, "--out", singleOut]).status).toBe(0);
+    expect(runCli(["--experiment", root, "--out", expOut]).status).toBe(0);
+
+    const singleJson = readFileSync(path.join(singleOut, "token-analysis.json"), "utf8");
+    const expJson = readFileSync(path.join(expOut, "token-analysis.json"), "utf8");
+    expect(singleJson).toBe(expJson);
+
+    const report = JSON.parse(singleJson) as {
+      runs: readonly {
+        reusablePrefix?: {
+          estimated: boolean;
+          estimateMethod: string;
+          predictedReusableTokens: number;
+          actualCacheReadTokens: number | null;
+          gap: number | null;
+        };
+      }[];
+    };
+    expect(report.runs[0]?.reusablePrefix).toEqual({
+      estimated: true,
+      estimateMethod: "chars/4",
+      requestCount: 2,
+      pairCount: 1,
+      predictedReusableTokens: 2,
+      actualCacheReadTokens: 5,
+      gap: 3,
+    });
+    const markdown = readFileSync(path.join(singleOut, "token-analysis.md"), "utf8");
+    expect(markdown).toContain("## 可复用前缀（估算）");
+    expect(markdown).toContain("不冒充真实计费");
+  });
+
+  it("审计文件缺失时 reusablePrefix 省键，不阻塞报告", () => {
+    const root = makeTempDir("analyze-token-no-audit-");
+    const recordFile = writeRecordFile(root, "VUL4J-6", "E", 1, {
+      baseline: snapshot({
+        usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 5 },
+        auditPath: path.join(root, "missing-audit.json"),
+      }),
+    });
+    const out = path.join(root, "out");
+    expect(runCli(["--record", recordFile, "--out", out]).status).toBe(0);
+    const report = JSON.parse(readFileSync(path.join(out, "token-analysis.json"), "utf8")) as {
+      runs: readonly Record<string, unknown>[];
+    };
+    expect("reusablePrefix" in (report.runs[0] ?? {})).toBe(false);
+  });
+
+  it("审计任一条 request 缺 wireBody → reusablePrefix 省键（不压缩相邻性）", () => {
+    const root = makeTempDir("analyze-token-partial-wire-");
+    const auditPath = path.join(root, "audit.json");
+    const base = "x".repeat(8);
+    writeFileSync(
+      auditPath,
+      JSON.stringify({ requests: [{ wireBody: base }, { notWireBody: true }] }),
+      "utf8",
+    );
+    const recordFile = writeRecordFile(root, "VUL4J-7", "E", 1, {
+      baseline: snapshot({
+        usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 5 },
+        auditPath,
+      }),
+    });
+    const out = path.join(root, "out");
+    expect(runCli(["--record", recordFile, "--out", out]).status).toBe(0);
+    const report = JSON.parse(readFileSync(path.join(out, "token-analysis.json"), "utf8")) as {
+      runs: readonly Record<string, unknown>[];
+    };
+    expect("reusablePrefix" in (report.runs[0] ?? {})).toBe(false);
+  });
+
+  it("相对 auditPath 以记录文件目录为基准解析", () => {
+    const root = makeTempDir("analyze-token-relative-audit-");
+    const recordFile = writeRecordFile(root, "VUL4J-8", "E", 1, {
+      baseline: snapshot({
+        usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 5 },
+        auditPath: "audit.json",
+      }),
+    });
+    const base = "x".repeat(8);
+    writeFileSync(
+      path.join(path.dirname(recordFile), "audit.json"),
+      JSON.stringify({ requests: [{ wireBody: base }, { wireBody: `${base}y` }] }),
+      "utf8",
+    );
+    const out = path.join(root, "out");
+    expect(runCli(["--record", recordFile, "--out", out]).status).toBe(0);
+    const report = JSON.parse(readFileSync(path.join(out, "token-analysis.json"), "utf8")) as {
+      runs: readonly { reusablePrefix?: { predictedReusableTokens: number } }[];
+    };
+    expect(report.runs[0]?.reusablePrefix?.predictedReusableTokens).toBe(2);
   });
 
   it("不读密钥、不发起网络：哨兵环境变量不出现在任何输出面", () => {

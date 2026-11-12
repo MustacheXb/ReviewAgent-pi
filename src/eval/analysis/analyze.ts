@@ -14,6 +14,7 @@ import {
   type ToolCostPricing,
 } from "./contracts.js";
 import { computePrf } from "./quality.js";
+import { computeReusablePrefix } from "./reusable-prefix.js";
 import { screenFindings } from "./screening.js";
 import { computeRunCost, computeToolCostTokens, computeRetryCostTokens } from "./tokens.js";
 import { truthKindOf } from "./truth-kind.js";
@@ -90,6 +91,7 @@ function analyzeRun(
   const attemptedToolCalls = baseline.audit.toolCallLog.length;
   const executedToolCalls = baseline.toolCalls;
   const cacheContract = contractWithPrices(baseline.audit.cacheContract, priceTable);
+  const reusablePrefix = computeReusablePrefix(run.wireBodies ?? [], baseline.usage);
   const retryCostTokens =
     run.retryCostTokens !== undefined
       ? run.retryCostTokens
@@ -102,6 +104,7 @@ function analyzeRun(
     model: record.model,
     completedAt: record.completedAt,
     ...(cacheContract !== undefined ? { cacheContract } : {}),
+    ...(reusablePrefix !== undefined ? { reusablePrefix } : {}),
     cost: computeRunCost(
       baseline.usage,
       toolCostTokens,

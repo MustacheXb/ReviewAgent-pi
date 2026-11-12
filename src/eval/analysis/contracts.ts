@@ -15,14 +15,15 @@ export const ANALYSIS_REPORT_KIND = "run-record-analysis";
 
 /**
  * 报告 schema 版本（golden 测试锁定；v2 = #51 增加 currency / priceValidFrom /
- * retry / summary / skipped；v3 = #58 增加 currencyCost 与 cacheContract）。
+ * retry / summary / skipped；v3 = #58 增加 currencyCost 与 cacheContract；
+ * v4 = #60 增加可选的 reusablePrefix）。
  *
  * 与 #49「新字段可选、缺省省键」的差异：#51 验收明确要求缺 retry / summary
  * 成本时字段为 null、缺价目时 currency 为 null，故这些新字段是 present-null
- * 而非省键；v2 标记读取方需要容忍这些键。v3 的 `cacheContract` 仍按「缺省
- * 省键」处理（历史记录无此键）。
+ * 而非省键；v2 标记读取方需要容忍这些键。v3 的 `cacheContract` 与 v4 的
+ * `reusablePrefix` 仍按「缺省省键」处理（历史记录无此键）。
  */
-export const ANALYSIS_REPORT_SCHEMA_VERSION = 3;
+export const ANALYSIS_REPORT_SCHEMA_VERSION = 4;
 
 /** 分析输入：一条 run 记录 + 可选真值 / judge 结果 */
 export interface AnalysisRunInput {
@@ -35,6 +36,26 @@ export interface AnalysisRunInput {
   readonly retryCostTokens?: number | null;
   /** 摘要 / compaction 成本（token 口径）；undefined / null = 无摘要机制（N/A） */
   readonly summaryCostTokens?: number | null;
+  /**
+   * 相邻请求的 wireBody 原文（#60；由 CLI 从审计文件 requests[].wireBody
+   * 只读注入）。纯分析器不读文件、不联网；缺省 → 报告省 reusablePrefix 键。
+   */
+  readonly wireBodies?: readonly string[];
+}
+
+/** 可复用前缀估算（#60；estimated 显式标注，不冒充真实计费） */
+export interface ReusablePrefixMetrics {
+  /** 恒 true：token 数为 chars/4 估算 */
+  readonly estimated: true;
+  readonly estimateMethod: "chars/4";
+  readonly requestCount: number;
+  readonly pairCount: number;
+  /** 相邻对 floor(LCP chars / 4) 之和 */
+  readonly predictedReusableTokens: number;
+  /** run 级 usage.cacheReadTokens（非逐对）；缺失 → null（N/A） */
+  readonly actualCacheReadTokens: number | null;
+  /** actual − predicted（run 级对账）；actual 缺失 → null */
+  readonly gap: number | null;
 }
 
 /** 价目表（静态 JSON；缺失时 currency / priceValidFrom 记 null，不按固定折扣假设） */
@@ -168,6 +189,8 @@ export interface RunAnalysis {
   readonly completedAt: string;
   /** 缓存合同（#58；历史记录无此键 → 省键） */
   readonly cacheContract?: CacheContract;
+  /** 可复用前缀预测（#60；缺 wireBody 输入 → 省键） */
+  readonly reusablePrefix?: ReusablePrefixMetrics;
   readonly cost: RunCostMetrics;
   readonly loop: RunLoopMetrics;
   readonly quality: RunQualityMetrics;

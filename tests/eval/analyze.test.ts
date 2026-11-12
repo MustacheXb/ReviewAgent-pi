@@ -384,6 +384,58 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
     expect(overridden.runs[0]?.cost.retryCostTokens).toBe(7);
   });
 
+  it("wireBodies → reusablePrefix（估算标注 + actual / gap）；缺省省键", () => {
+    const base = "x".repeat(8);
+    const withBodies = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({
+              usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 5 },
+            }),
+          }),
+          wireBodies: [base, `${base}y`],
+        },
+      ],
+    });
+    expect(withBodies.runs[0]?.reusablePrefix).toEqual({
+      estimated: true,
+      estimateMethod: "chars/4",
+      requestCount: 2,
+      pairCount: 1,
+      predictedReusableTokens: 2,
+      actualCacheReadTokens: 5,
+      gap: 3,
+    });
+
+    const without = analyzeRuns({ runs: [{ record: record() }] });
+    expect("reusablePrefix" in (without.runs[0] ?? {})).toBe(false);
+
+    // 缺 cacheRead（历史记录）→ actual / gap 为 null，predicted 仍可算
+    const noActual = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({ usage: { inputTokens: 100, outputTokens: 10 } }),
+          }),
+          wireBodies: [base, `${base}y`],
+        },
+      ],
+    });
+    expect(noActual.runs[0]?.reusablePrefix).toMatchObject({
+      predictedReusableTokens: 2,
+      actualCacheReadTokens: null,
+      gap: null,
+    });
+  });
+
+  it("wireBodies 形态非法时 fail fast", () => {
+    const input = {
+      runs: [{ record: record(), wireBodies: [1, 2] }],
+    };
+    expect(() => validateAnalysisInput(input)).toThrow(/wireBodies/);
+  });
+
   it("价目表字段非法时 fail fast", () => {
     expect(() =>
       analyzeRuns({

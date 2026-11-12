@@ -38,6 +38,7 @@ export {
   type RunCostMetrics,
   type RunLoopMetrics,
   type RunQualityMetrics,
+  type ReusablePrefixMetrics,
   type Stat,
   type ToolCostPricing,
   type TruncationSummary,

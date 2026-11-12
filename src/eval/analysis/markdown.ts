@@ -40,7 +40,7 @@ export function renderAnalysisMarkdown(report: AnalysisReport): string {
     lines.push("| run | provider | endpoint | requested | responded | usage fields | metering |", "|---|---|---|---|---|---|---|");
     for (const { run, contract } of contracted) {
       lines.push(
-        `| ${run.caseId}/${run.configId}/rep-${run.rep} | ${contract.provider} | ${contract.endpointKind} | ` +
+        `| ${runLabel(run)} | ${contract.provider} | ${contract.endpointKind} | ` +
           `${contract.requestedModel} | ${contract.respondedModel} | ${contract.usageFieldFamily} | ${String(contract.cacheMetering)} |`,
       );
     }
@@ -61,6 +61,29 @@ export function renderAnalysisMarkdown(report: AnalysisReport): string {
     lines.push(`- ${reason}: ${count}`);
   }
   lines.push("");
+
+  const prefixed = report.runs.flatMap((run) =>
+    run.reusablePrefix === undefined ? [] : [{ run, prefix: run.reusablePrefix }],
+  );
+  if (prefixed.length > 0) {
+    lines.push("## 可复用前缀（估算）", "");
+    lines.push(
+      "> predictedReusableTokens 为相邻请求 wireBody 最长公共前缀的 chars/4 估算（estimated=true），不冒充真实计费；" +
+        "只覆盖请求 2..N 的相邻对。actual cacheRead 为 run 级 usage（含请求 1 与 provider 缓存门限 / 块对齐效应），gap = actual − predicted。",
+      "",
+    );
+    lines.push(
+      "| run | requests | pairs | predicted | actual cacheRead | gap |",
+      "|---|---:|---:|---:|---:|---:|",
+    );
+    for (const { run, prefix } of prefixed) {
+      lines.push(
+        `| ${runLabel(run)} | ${prefix.requestCount} | ${prefix.pairCount} | ` +
+          `${prefix.predictedReusableTokens} | ${nullable(prefix.actualCacheReadTokens)} | ${nullable(prefix.gap)} |`,
+      );
+    }
+    lines.push("");
+  }
 
   lines.push("## 逐 run", "");
   lines.push(
@@ -84,7 +107,7 @@ function statRow(label: string, stat: Stat | null): string {
 
 function runRow(run: RunAnalysis): string {
   const cells = [
-    `${run.caseId}/${run.configId}/rep-${run.rep}`,
+    runLabel(run),
     nullable(run.cost.cachedInputTokens),
     formatNumber(run.cost.uncachedInputTokens),
     formatNumber(run.cost.outputTokens),
@@ -101,6 +124,11 @@ function runRow(run: RunAnalysis): string {
 
 function nullable(value: number | null): string {
   return value === null ? N_A : formatNumber(value);
+}
+
+/** run 展示标签（case/config/rep；表格单源） */
+function runLabel(run: RunAnalysis): string {
+  return `${run.caseId}/${run.configId}/rep-${run.rep}`;
 }
 
 function formatNumber(value: number): string {
