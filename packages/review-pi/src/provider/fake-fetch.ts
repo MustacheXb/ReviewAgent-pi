@@ -23,6 +23,17 @@ export interface FakeToolCall {
   readonly arguments: Record<string, unknown>;
 }
 
+/** 脚本化传输失败（#59 首字节前重试测试：网络错误 / 429 / 5xx） */
+export type FakeTransportFailure =
+  | { readonly kind: "network"; readonly message?: string }
+  | {
+      readonly kind: "http";
+      readonly status: number;
+      readonly retryAfter?: string;
+      /** 错误响应体（可携带 usage，用于失败尝试成本留痕） */
+      readonly body?: string;
+    };
+
 export interface FakeReply {
   /** 回复文本（工具调用回复可缺省） */
   readonly text?: string;
@@ -36,6 +47,8 @@ export interface FakeReply {
   readonly rawUsage?: Record<string, unknown>;
   /** 省略 usage 帧（模拟响应不报 usage；#58 未知字段路径） */
   readonly omitUsage?: boolean;
+  /** 传输失败脚本（#59）：网络错误 / HTTP 错误响应；成功回复忽略该字段 */
+  readonly failWith?: FakeTransportFailure;
   /** 缺省：有 toolCalls 即 "tool_calls"，否则 "stop"；错误路径脚本用（如 "content_filter"） */
   readonly finishReason?: string;
 }
@@ -64,6 +77,20 @@ export function fakeFetch(replies: readonly FakeReply[]): FakeFetchScript {
       throw new Error(
         `fake adapter: no scripted reply for request ${calls} (scripted ${replies.length} replies)`,
       );
+    }
+    if (reply.failWith?.kind === "network") {
+      throw new TypeError(reply.failWith.message ?? "fake adapter: network failure");
+    }
+    if (reply.failWith?.kind === "http") {
+      return new Response(reply.failWith.body ?? "", {
+        status: reply.failWith.status,
+        headers: {
+          "content-type": "application/json",
+          ...(reply.failWith.retryAfter !== undefined
+            ? { "retry-after": reply.failWith.retryAfter }
+            : {}),
+        },
+      });
     }
     return sseResponse(sseBody(reply));
   };

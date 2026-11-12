@@ -33,6 +33,12 @@ export {
   endpointKindOf,
   modelEchoOf,
 } from "./contracts/cache-contract.js";
+// #59 / ADR-0018 §7：首字节前重试留痕类型（审计 / 分析器消费）
+export type {
+  RetryAttemptRecord,
+  RetryReason,
+  RetryRecord,
+} from "./contracts/retry.js";
 export type {
   AuditLight,
   RunRecord,

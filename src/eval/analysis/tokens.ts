@@ -1,4 +1,4 @@
-import type { RunRecord } from "review-pi";
+import type { RetryRecord, RunRecord } from "review-pi";
 import type { AnalysisPriceTable, RunCostMetrics, ToolCostPricing } from "./contracts.js";
 
 /** 记录里的 usage 形状（RunRecord.baseline.usage 的结构投影） */
@@ -14,6 +14,34 @@ export function computeToolCostTokens(
 ): number {
   const resultChars = toolCallLog.reduce((sum, call) => sum + call.resultSummary.length, 0);
   return pricing.fixedCostPerCall * toolCallLog.length + pricing.costPerResultChar * resultChars;
+}
+
+/**
+ * 重试成本（token 口径；#59）：失败尝试 usage 之和。
+ * - 无 retry 键（历史记录 / 无重试机制）→ null（N/A）；
+ * - 任一失败尝试 usage 缺失 → null（不按已知部分冒充完整成本）；
+ * - 有 retry 键但零失败记录（理论不可达）→ 0。
+ * 不计入 CARC（ADR-0017：独立成本字段）。
+ */
+export function computeRetryCostTokens(retry: RetryRecord | undefined): number | null {
+  if (retry === undefined) {
+    return null;
+  }
+  if (retry.records.length === 0) {
+    return 0;
+  }
+  let total = 0;
+  for (const record of retry.records) {
+    if (record.usage === undefined) {
+      return null;
+    }
+    total +=
+      record.usage.inputTokens +
+      record.usage.outputTokens +
+      (record.usage.cacheReadTokens ?? 0) +
+      (record.usage.cacheWriteTokens ?? 0);
+  }
+  return total;
 }
 
 /**

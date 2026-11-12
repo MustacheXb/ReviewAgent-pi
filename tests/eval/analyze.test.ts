@@ -314,6 +314,76 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
     expect("cacheContract" in (without.runs[0] ?? {})).toBe(false);
   });
 
+  it("retryCostTokens：从 audit.retry 失败尝试 usage 派生；缺失记 null；显式输入优先", () => {
+    const retry = {
+      retries: 1,
+      failedAttempts: 2,
+      exhausted: false,
+      records: [
+        {
+          request: 1,
+          attempt: 1,
+          reason: "network" as const,
+          delayMs: 500,
+          retried: true,
+          usage: { inputTokens: 80, outputTokens: 5, cacheReadTokens: 20 },
+        },
+        {
+          request: 1,
+          attempt: 2,
+          reason: "http_5xx" as const,
+          status: 500,
+          delayMs: 0,
+          retried: false,
+          usage: { inputTokens: 10, outputTokens: 1 },
+        },
+      ],
+    };
+    const retried = record({
+      baseline: snapshot({
+        audit: {
+          toolCallLog: [],
+          phaseLog: [],
+          rejections: [],
+          truncated: false,
+          truncationReasons: [],
+          retry,
+        },
+      }),
+    });
+    const report = analyzeRuns({ runs: [{ record: retried }] });
+    // 80+5+20 + 10+1 = 116
+    expect(report.runs[0]?.cost.retryCostTokens).toBe(116);
+    expect(report.summary.cost.retryCostTokens).toEqual({ count: 1, mean: 116, std: 0 });
+
+    // 失败尝试 usage 缺失 → null（不按已知部分冒充完整成本）
+    const missingUsage = record({
+      baseline: snapshot({
+        audit: {
+          toolCallLog: [],
+          phaseLog: [],
+          rejections: [],
+          truncated: false,
+          truncationReasons: [],
+          retry: {
+            ...retry,
+            records: [
+              { request: 1, attempt: 1, reason: "network", delayMs: 500, retried: true },
+            ],
+          },
+        },
+      }),
+    });
+    expect(analyzeRuns({ runs: [{ record: missingUsage }] }).runs[0]?.cost.retryCostTokens).toBeNull();
+
+    // 历史记录无 retry 键 → null（N/A）
+    expect(analyzeRuns({ runs: [{ record: record() }] }).runs[0]?.cost.retryCostTokens).toBeNull();
+
+    // 显式输入优先（评测线可注入已复算成本）
+    const overridden = analyzeRuns({ runs: [{ record: retried, retryCostTokens: 7 }] });
+    expect(overridden.runs[0]?.cost.retryCostTokens).toBe(7);
+  });
+
   it("价目表字段非法时 fail fast", () => {
     expect(() =>
       analyzeRuns({

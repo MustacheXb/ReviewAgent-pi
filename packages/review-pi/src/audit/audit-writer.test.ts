@@ -135,6 +135,59 @@ describe("buildAuditFileContent", () => {
     ]);
   });
 
+  test("retry（#59）：可选尾键追加在 cacheContract 之后", () => {
+    const withRetry = buildAuditFileContent({
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
+      caseId: "VUL4J-1",
+      configId: CONFIG_E,
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 0,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: {
+        ...EMPTY_AUDIT,
+        cacheContract: {
+          provider: "deepseek",
+          endpointKind: "chat-completions",
+          requestedModel: "deepseek-v4-flash",
+          respondedModel: "deepseek-v4-flash",
+          deploymentVersion: "unknown",
+          usageFieldFamily: "deepseek-native",
+          cacheMetering: true,
+          cacheBlockTokens: "unknown",
+          cacheWarmupMs: "unknown",
+          providerAffinityRequired: "unknown",
+          measuredAt: "2026-11-12T00:00:00.000Z",
+        },
+        retry: {
+          retries: 1,
+          failedAttempts: 1,
+          exhausted: false,
+          records: [
+            {
+              request: 1,
+              attempt: 1,
+              reason: "http_429",
+              status: 429,
+              delayMs: 500,
+              retried: true,
+            },
+          ],
+        },
+      },
+    });
+    expect(Object.keys(withRetry)).toEqual([
+      ...AUDIT_PREFIX_KEYS,
+      "stopReason",
+      "cacheContract",
+      "retry",
+    ]);
+  });
+
   test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序在 stopReason 之前（ledger 之后）", () => {
     // 界内（不传 mrBoundary）：键缺席——护栏零介入的投影面证明
     const bare = contentFixture();

@@ -146,6 +146,7 @@ measuredAt
 - **wire 不新增预算手段**：不在 wire 上新增 `max_tokens` 或其他改变请求字节的预算手段。
 - **质量验证归评测线**：主线只设非行为门；L1/L2 判定与阈值按 ADR-0016 / ADR-0017 在 `eval/bench` 执行。ADR-0004 的 S/A/B 判据保留为历史 A–E 矩阵实验口径，本 ADR 不恢复 C 锚；ADR-0011 的上线门与人工接受率 KPI 仍是生产运营口径，质量非劣与收益判定只在评测线执行。
 - **回滚路径**：只有 `ReviewBudget` 与 `toolProfileOverride` 两个内核内部旋钮；其余机制默认开启，回滚 = revert 对应批次 PR，不引入双实现与开关组合。
+- **落地口径（#59，2026-11-12）**：实现载体 `provider/retrying-fetch.ts` + `contracts/retry.ts`。FetchFunction 包装只对网络错误 / 429 / 5xx 重试，最多 2 次（硬上限，不开放覆盖旋钮）；退避 500ms / 1500ms ±20%（随机源可注入，测试 fake timers），`Retry-After`（秒或 HTTP-date）按服务端值且不叠加抖动；退避等待可被 signal 中止（取消不必等退避结束）；AbortError / signal 中止不重试；2xx 原样返回（输出已开始）后不再重试。网络错误判定收窄为原生 fetch 的 TypeError（排除非法 URL 等编程错误）或 Node / undici 网络错误码。重试包装在缓存合同采集之内（合同只观测最终响应）；失败响应 usage 由重试层克隆解析，原响应体在重试前 cancel。审计 `retry` 为可选尾键（追加在 `cacheContract` 之后；无失败尝试省键），含 `retries / failedAttempts / exhausted / records[]`（每次失败的 `request / attempt` 归属、原因、状态码、实际退避、是否重试、失败 usage）；run 因重试耗尽失败且无法落盘时，同一留痕挂到错误 message / `cause.retry`（非耗尽错误原样透传，不张冠李戴）。分析器 `computeRetryCostTokens` 取失败尝试 usage 之和（无 retry 键或任一失败 usage 缺失 → null；显式输入优先），独立于 CARC。
 
 ## Options（为什么不是别的）
 

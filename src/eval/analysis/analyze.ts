@@ -15,7 +15,7 @@ import {
 } from "./contracts.js";
 import { computePrf } from "./quality.js";
 import { screenFindings } from "./screening.js";
-import { computeRunCost, computeToolCostTokens } from "./tokens.js";
+import { computeRunCost, computeToolCostTokens, computeRetryCostTokens } from "./tokens.js";
 import { truthKindOf } from "./truth-kind.js";
 import { ANALYSIS_CONFIG_IDS, validateAnalysisInput } from "./validate.js";
 
@@ -90,6 +90,10 @@ function analyzeRun(
   const attemptedToolCalls = baseline.audit.toolCallLog.length;
   const executedToolCalls = baseline.toolCalls;
   const cacheContract = contractWithPrices(baseline.audit.cacheContract, priceTable);
+  const retryCostTokens =
+    run.retryCostTokens !== undefined
+      ? run.retryCostTokens
+      : computeRetryCostTokens(baseline.audit.retry);
   return {
     source: record.source,
     caseId: record.caseId,
@@ -101,7 +105,7 @@ function analyzeRun(
     cost: computeRunCost(
       baseline.usage,
       toolCostTokens,
-      run.retryCostTokens ?? null,
+      retryCostTokens,
       run.summaryCostTokens ?? null,
       priceTable,
     ),

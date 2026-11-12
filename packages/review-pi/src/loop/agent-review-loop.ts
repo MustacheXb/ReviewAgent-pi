@@ -14,6 +14,7 @@ import {
   type ToolCallRecord,
   type WireRequest,
 } from "../contracts/run.js";
+import type { RetryRecord } from "../contracts/retry.js";
 import { applyCandidateGate } from "../gate/candidate-gate.js";
 import {
   assistantText,
@@ -22,6 +23,7 @@ import {
   reviewModelOf,
 } from "../provider/pi-client.js";
 import { createCacheContractCollector } from "../provider/cache-contract.js";
+import { createRetryingFetch } from "../provider/retrying-fetch.js";
 import { addUsage, piUsageToLlmUsage, ZERO_USAGE } from "../provider/usage-map.js";
 import { classifyCacheBreaks } from "./cache-break.js";
 import {
@@ -199,7 +201,10 @@ export async function runAgentReviewLoop(
   // 缓存合同旁路采集（#58）：包装注入的 fetch，响应副本异步解析；原
   // Response 原样返回，未观察到的字段在合同里记 unknown。
   const cacheContractCollector = createCacheContractCollector();
-  const observedFetch = cacheContractCollector.wrap(inputs.fetch ?? globalThis.fetch);
+  // 首字节前薄重试（#59）在缓存合同采集之内：重试只发生在传输层，
+  // 缓存合同只观测最终返回的响应。
+  const retryingFetch = createRetryingFetch(inputs.fetch ?? globalThis.fetch);
+  const observedFetch = cacheContractCollector.wrap(retryingFetch.fetch);
   const model = reviewModelOf(inputs.modelId, inputs.baseUrl);
 
   const streamFn: StreamFn = (model, context, options) =>
@@ -347,6 +352,9 @@ export async function runAgentReviewLoop(
   inputs.signal?.addEventListener("abort", onAbort, { once: true });
   try {
     await agent.prompt(phaseInstruction(0));
+  } catch (error) {
+    // 网络重试耗尽等传输失败：错误携带重试留痕（审计无法落盘的失败路径）
+    throw withRetryTrace(error, retryingFetch.summary(), inputs.signal);
   } finally {
     inputs.signal?.removeEventListener("abort", onAbort);
   }
@@ -364,14 +372,19 @@ export async function runAgentReviewLoop(
       message.role === "assistant" && message.stopReason === "error",
   );
   if (failed !== undefined) {
-    throw new Error(
-      `review turn failed: ${failed.errorMessage ?? "provider returned an error stop reason"}`,
+    throw withRetryTrace(
+      new Error(
+        `review turn failed: ${failed.errorMessage ?? "provider returned an error stop reason"}`,
+      ),
+      retryingFetch.summary(),
+      inputs.signal,
     );
   }
 
   // 缓存合同观测落定（#58）：等待所有响应副本解析完成；观测失败只影响
   // unknown 字段，不击穿主链。
   await cacheContractCollector.settle();
+  const retrySummary = retryingFetch.summary();
 
   // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）；
   // 命中统计只在确有账本查询时落键（零工具 run 审计字节不变，#56）。
@@ -396,6 +409,8 @@ export async function runAgentReviewLoop(
       requestedModel: model.id,
       measuredAt: new Date().toISOString(),
     }),
+    // 首字节前重试留痕（#59）：无重试省键
+    ...(retrySummary !== undefined ? { retry: retrySummary } : {}),
   };
   return { findings, usage, rounds: round, toolCalls: executedToolCalls, complete, audit };
 
@@ -652,4 +667,30 @@ function appendReason(reasons: string[], reason: string): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 失败路径的重试留痕（#59）：run 失败时审计无法落盘，把 retry 摘要挂到
+ * 错误 message 与 cause 上（取消 / AbortError 原样透传，不改语义）。
+ */
+function withRetryTrace(
+  error: unknown,
+  retry: RetryRecord | undefined,
+  signal: AbortSignal | undefined,
+): Error {
+  const original = error instanceof Error ? error : new Error(String(error));
+  if (
+    signal?.aborted === true ||
+    (error instanceof Error && error.name === "AbortError") ||
+    retry === undefined ||
+    !retry.exhausted
+  ) {
+    // 只给「重试耗尽导致的失败」挂留痕；其余错误原样透传（不张冠李戴）
+    return original;
+  }
+  return new Error(
+    `${original.message} (retry: ${retry.retries} retries, ` +
+      `${retry.failedAttempts} failed attempt(s), exhausted=${String(retry.exhausted)})`,
+    { cause: { retry, error: original } },
+  );
 }

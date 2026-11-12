@@ -5,6 +5,7 @@ import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
+import type { RetryRecord } from "../contracts/retry.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
@@ -69,6 +70,8 @@ export interface AuditFileContent {
    * 事实与 unknown，不含任何密钥，可外发。
    */
   readonly cacheContract?: CacheContract;
+  /** 首字节前重试留痕（#59）：可选尾键，无重试省键 */
+  readonly retry?: RetryRecord;
 }
 
 /** runId：毫秒时间戳 + 配置 + 用例，文件名安全 */
@@ -123,6 +126,7 @@ export function buildAuditFileContent(args: {
     ...(args.audit.cacheContract !== undefined
       ? { cacheContract: args.audit.cacheContract }
       : {}),
+    ...(args.audit.retry !== undefined ? { retry: args.audit.retry } : {}),
   };
 }
 

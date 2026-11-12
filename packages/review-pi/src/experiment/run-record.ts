@@ -5,6 +5,7 @@ import type { HistoricalConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
+import type { RetryRecord } from "../contracts/retry.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
@@ -50,6 +51,8 @@ export interface AuditLight {
   readonly stopReason?: StopReason;
   /** 缓存合同（#58 / ADR-0018 §6）：新记录恒写；历史记录缺键兼容，无密钥 */
   readonly cacheContract?: CacheContract;
+  /** 首字节前重试留痕（#59）：无重试省键 */
+  readonly retry?: RetryRecord;
 }
 
 /** RunResult 快照（audit 以轻量投影落盘） */
@@ -112,6 +115,7 @@ export function toAuditLight(audit: RunAudit): AuditLight {
     ...(audit.ledgerStats !== undefined ? { ledgerStats: audit.ledgerStats } : {}),
     ...(audit.stopReason !== undefined ? { stopReason: audit.stopReason } : {}),
     ...(audit.cacheContract !== undefined ? { cacheContract: audit.cacheContract } : {}),
+    ...(audit.retry !== undefined ? { retry: audit.retry } : {}),
   };
 }
 

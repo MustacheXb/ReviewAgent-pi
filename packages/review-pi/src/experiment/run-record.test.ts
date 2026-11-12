@@ -164,6 +164,34 @@ describe("toAuditLight", () => {
     expect(Object.keys(light).at(-2)).toBe("stopReason");
     expect(Object.keys(light).at(-1)).toBe("cacheContract");
   });
+
+  test("retry（#59）：可选尾键追加在 cacheContract 之后", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      cacheContract: {
+        provider: "deepseek",
+        endpointKind: "chat-completions",
+        requestedModel: "deepseek-v4-flash",
+        respondedModel: "deepseek-v4-flash",
+        deploymentVersion: "unknown",
+        usageFieldFamily: "deepseek-native",
+        cacheMetering: true,
+        cacheBlockTokens: "unknown",
+        cacheWarmupMs: "unknown",
+        providerAffinityRequired: "unknown",
+        measuredAt: "2026-11-12T00:00:00.000Z",
+      },
+      retry: {
+        retries: 1,
+        failedAttempts: 1,
+        exhausted: false,
+        records: [{ request: 1, attempt: 1, reason: "network", delayMs: 500, retried: true }],
+      },
+    });
+    expect(Object.keys(light).at(-3)).toBe("stopReason");
+    expect(Object.keys(light).at(-2)).toBe("cacheContract");
+    expect(Object.keys(light).at(-1)).toBe("retry");
+  });
 });
 
 describe("toRunSnapshot", () => {

@@ -1479,6 +1479,16 @@ flowchart TD
 - 主动探针：`scripts/probe-gateway-cache.ts` + `docs/runbooks/cache-contract-probe.md`，`pnpm probe:gateway-cache` 手动执行；不进 CI、不进产品 bin、不进 review-pi CLI。观测项：health、usage 字段族、模型回显、warmup、块对齐、路由亲和；结论只标 observed / unknown。
 - 测试缝：`run/cache-contract.test.ts`（fake 响应推导字段族 / 模型回显 / 缺字段 unknown / 无密钥）、`tests/eval/analyze.test.ts`（货币成本与 N/A）、`tests/instrument/cache-probe-runbook.test.ts`（探针边界护栏）。
 
+### P1-5：首字节前薄重试
+
+**落地记录（#59，2026-11-12）**
+
+- 实现载体：`packages/review-pi/src/provider/retrying-fetch.ts`（FetchFunction 包装）+ `contracts/retry.ts`（`RetryRecord`）。只对网络错误 / 429 / 5xx 重试，最多 2 次（硬上限）；退避 500ms / 1500ms + ±20% 抖动，`Retry-After`（秒或 HTTP-date）按服务端值优先；退避等待可被 signal 中止；Abort / signal 中止不重试；2xx 原样返回（输出已开始）后不再重试。网络错误收窄为原生 fetch TypeError（非法 URL 除外）或 Node / undici 网络错误码。
+- 接线顺序：重试包装在缓存合同采集之内（前缀记录最终响应）；失败响应的 usage 由重试层克隆解析并随记录留痕（input 与主账同口径扣除 cacheRead/cacheWrite），原响应体在重试前 cancel。
+- 审计：`RunAudit` / `AuditFileContent` / `AuditLight` 新增可选 `retry` 尾键（追加在 `cacheContract` 之后；无失败尝试省键），含 `retries / failedAttempts / exhausted / records[]`（`request / attempt` 归属、原因、状态码、实际退避、是否重试、失败 usage）。run 因重试耗尽失败无法落盘时，错误 message 与 `cause.retry` 携带同一留痕；非耗尽错误原样透传。
+- 分析：`computeRetryCostTokens` 取失败尝试 usage 之和；无 retry 键或任一失败 usage 缺失 → null（不按已知部分冒充完整成本）；显式 `retryCostTokens` 输入优先。`retryCostTokens` 仍独立于 CARC。
+- 测试缝：`provider/retrying-fetch.test.ts`（fake timers 锁定 500/1500、Retry-After、上限 2、Abort、2xx 不重试）、`run/retry.test.ts`（fake 适配器 429/耗尽全链留痕）、`tests/eval/analyze.test.ts`（成本派生与 N/A）。
+
 ## 15. P1/P2 路线
 
 ### P1

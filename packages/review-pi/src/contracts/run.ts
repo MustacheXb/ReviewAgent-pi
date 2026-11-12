@@ -3,6 +3,7 @@
 
 import type { CacheContract } from "./cache-contract.js";
 import type { Finding } from "./finding.js";
+import type { RetryRecord } from "./retry.js";
 import type { LedgerEntry, LedgerStats } from "./ledger.js";
 import type { LlmUsage, ToolSchema, WireMessage } from "./llm.js";
 
@@ -130,6 +131,8 @@ export interface RunAudit {
    * 不含任何密钥。
    */
   readonly cacheContract?: CacheContract;
+  /** 首字节前重试留痕（#59 / ADR-0018 §7）：无重试省键；失败尝试 usage 随记录 */
+  readonly retry?: RetryRecord;
 }
 
 /**
