@@ -1,6 +1,6 @@
 # 0017. Token 优化判据——L1/L2/L3 三层门
 
-**状态**：已接受（2026-11-10，盘问收口；L2 阈值 provisional，待 P1 空对照校准后补记）
+**状态**：已接受（2026-11-10，盘问收口；L2 阈值 provisional，2026-11-12 P1 空对照校准后已补记——仅有界性安全上界按实测更新，成本 / 质量 / 分解守卫保留）
 **决策基线**：`main`（生产主线）+ 长期 `eval/bench`（评测面，ADR-0016）
 **关联**：ADR-0004（S 级判据）、ADR-0008（模型可替换与指标）、ADR-0011（上线门口径）、ADR-0014（分支策略）、ADR-0015（协议 v3）、ADR-0016（评测面隔离）、[ReviewAgent Token 优化评测基准方案](<../design/05-evaluation/ReviewAgent Token 优化评测基准方案——三层对照体系与 Claude Code 外部参照.md>)
 **适用范围**：本仓主线 `MustacheXb/ReviewAgent-pi`
@@ -86,3 +86,67 @@
 - L2 阈值仍为 provisional，待 P1 空对照校准后按 §5 补记。
 
 跨线限定语纪律：本 ADR 为主线序列 0017；Demo 线 ADR 独立编号，引用须写「Demo 线 ADR-XXXX」。
+
+## 补记（2026-11-12）：P1 空对照校准与 provisional 阈值更新
+
+**校准 campaign**：`p1-calibration-2026-11-12`（`calibrationRef = p1-calibration-2026-11-12`）
+· baseline / candidate 同为 `eval-e-baseline-2026-11-11` · 30 case × 3 reps ×
+2 arms = 180 单元 · 数据集 `data/vul4j/target-cases.json`（sha256
+`fd752f5…315d36`）· `deepseek-v4-flash` @ volcengine · judge `glm-5.2`
+（prompt `mcr-bench-llm-hit-judge-2026-09-03+poc1-ext-1`，temperature 0.2 /
+top_p 0.95）· 时间窗 2026-11-11T23:42:45Z → 2026-11-12T12:26:12Z
+（Asia/Shanghai；两次主机睡眠中断后以 `--resume` 续跑）· 180/180 executed、
+179/180 judged（1 条 `VUL4J-75/baseline/rep-1` judge 非法 JSON）· coverage 0.994
+· bootstrap 10,000 次 / seed 20261111 / 95% CI。**运行代码等价性**：
+`e724958`（基线 tag）→ `c4e5e5f`（本次 checkout）的 `packages/` +
+`src/gate` + `src/instrument` 仅 `THIRD-PARTY-NOTICES.md` 1 行差异，pi 内核
+运行时字节一致；空对照两臂使用同一 checkout。报告与机读快照见
+[`docs/report/token-eval/p1-calibration-2026-11-12/`](../report/token-eval/p1-calibration-2026-11-12/REPORT.md)。
+
+**噪声底（warm = rep2+，按 case 配对）**：CARC ratio **1.045**，ci95
+**[0.937, 1.174]**（半宽 11.8pp）；uncached 1.063 [0.951, 1.199]；output
+1.001 [0.888, 1.136]；attempts 1.026 [0.957, 1.105]；requests 1.052
+[0.993, 1.129]；judge Recall diff **−3.6pp [−11.8, +5.0]**；judge Precision
+diff **−7.6pp [−15.8, +0.4]**；zero-finding +1.7pp [−6.7, +10.0]；cacheHit
++0.8pp。观测上界：attemptedToolCalls 21 / requests 41 / outputTokens 59,491。
+空对照中心在本轮偏向 candidate（CARC +4.5%、judge 略低）；两臂同代码，
+方向一致性提示臂序 / 时段漂移，计入噪声底，不作为收益。
+
+**阈值决定（`DEFAULT_L2_GATE_THRESHOLDS`）**：只更新有确凿数据支撑、且不削弱
+政策门的有界性安全上界；成本 / 质量 / 分解守卫保留，因为空对照说明的是
+**样本功效不足**，不是阈值定错：
+
+| 阈值 | 校准前 | 校准后 | 决定 |
+|---|---:|---:|---|
+| `maxCarcRatio` / `maxCarcRatioCiUpper` | 0.90 / 1.00 | 0.90 / 1.00 | **保留**；半宽 11.8pp，需约 43 案 |
+| `maxUncachedRatio` | 1.00 | 1.00 | 保留（噪声包线建议 1.20，不采纳：会削弱缓存游戏防护） |
+| `maxOutputRatio` | 1.05 | 1.05 | 保留（建议 1.12，不采纳） |
+| `maxAttemptsRatio` | 1.00 | 1.00 | 保留（建议 1.10，不采纳） |
+| `maxRequestsRatio` | 1.00 | 1.00 | 保留（建议 1.13，不采纳） |
+| `qualityNonInferiorityPp` | 0.03 | 0.03 | **保留**（建议 0.16，不采纳：§3 质量非劣不可豁免；3pp 需约 220 案） |
+| `maxZeroFindingRateIncreasePp` | 0.02 | 0.02 | 保留（门按均值判定，空对照 +1.7pp） |
+| `maxNegativeControlFpSigma` | 1 | 1 | 保留（本次 N/A：数据集无 clean MR） |
+| `minCoverage` | 0.95 | 0.95 | 保留（实测 0.994） |
+| `maxAttemptedToolCalls` / `maxRequests` / `maxOutputTokens` | 12 / 24 / 48,000 | **24 / 46 / 65,441** | 按实测最大 + ~10% 余量更新 |
+
+**样本功效**：CARC 0.90 + CI 上界 <1.00 需约 **43 案**；质量 3pp 非劣需约
+**220 案**（precision 半宽 8.1pp；recall 约 235 案）。因此 **30 案不是 L2
+硬门的可用样本量**——扩样与臂序随机化之前，L2 成本 / 质量门只能作为
+「已知功效不足」的诊断，不能作为合并放行依据。
+
+**更新后空对照复核**：以最终代码 `--report-only` 重建，
+`cost=FAIL quality=FAIL boundedness=PASS reproducibility=PASS`
+（coverage 180/180 executed、179/180 judged = 0.994；`claimsAllowed=false`）。
+成本 / 质量仍失败是校准应有的结论：空对照没有优化收益，且 30 案无法支撑
+3pp 质量非劣 / 10pp CARC 目标；有界性上界修正后不再误杀基线。连续两次重建
+`l2-report.json` / `noise-floor.json` / `NOISE-FLOOR.md` 字节一致；报告中的
+`outputDir` / `dataset.casesFile` 由代码投影为仓库相对路径。
+
+**限制**：30 案统计功效不足（CARC 约需 43 案、质量 3pp 约需 220 案）；
+固定臂序 baseline→candidate 可能引入顺序偏差（本次空对照 CARC +4.5%、
+Precision −7.6pp 方向一致），后续校准 / L2 主跑应随机化臂序；ADR-0017 §6
+要求首版含 clean-MR 阴性对照，本次数据集没有，`maxNegativeControlFpSigma`
+记 N/A，属显式偏差，需补数后重校准；1/180 judge 持久非法 JSON
+（`VUL4J-75/baseline/rep-1`），不插补；judge 版本变更后按 §5 重做校准。
+空对照结果只用于阈值复核，不用于判定优化收益；对外宣称仍按 §4 执行。
+

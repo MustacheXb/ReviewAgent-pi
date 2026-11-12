@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CampaignEnvironmentInput, EnvironmentManifest } from "./contracts.js";
+import { portableRepoPath } from "./paths.js";
 
 /**
  * `environment.json` 构造（#39，附录 B.3 骨架）：固定 key 序，未知字段一律
@@ -78,7 +79,7 @@ export function buildEnvironmentManifest(args: EnvironmentManifestArgs): Environ
       timezone: provenance.window.timezone,
     },
     dataset: {
-      casesFile: args.dataset.casesFile,
+      casesFile: portableRepoPath(args.dataset.casesFile),
       caseCount: args.dataset.caseCount,
       hash: args.dataset.hash,
     },

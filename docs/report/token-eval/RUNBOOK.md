@@ -119,6 +119,29 @@ candidate: <commit>
      直接触发 40m 中止（单元超时定时器同样被挂起）。长跑期间须保持主机唤醒
      （例如 Windows `SetThreadExecutionState` 保活），中断后按上条 `--resume` 续跑。
 
+   ### 2.2 P1 校准结果（2026-11-12）
+
+   已完成 `p1-calibration-2026-11-12`（30×3×2，同 ref 双 arm）：180/180
+   executed、179/180 judged、coverage 0.994。报告与机读快照：
+   [`p1-calibration-2026-11-12/`](p1-calibration-2026-11-12/REPORT.md)。
+   噪声底（warm）：CARC ratio 1.045 [0.937, 1.174]；judge Recall −3.6pp
+   [−11.8, +5.0]、Precision −7.6pp [−15.8, +0.4]。阈值按 ADR-0017 补记：
+   **仅更新有界性安全上界**（24 / 46 / 65,441）；CARC 0.90、分解守卫、
+   质量非劣 3pp 全部保留——30 案功效不足（CARC 约需 43 案、质量 3pp 约需
+   220 案），不能靠放宽质量门替代扩样。正式 campaign 引用本次校准：
+
+   ```text
+   --calibration-ref p1-calibration-2026-11-12
+   ```
+
+   已知限制：数据集无 clean MR（阴性对照阈值 N/A）；固定臂序
+   baseline→candidate 可能引入顺序偏差，后续主跑建议随机化臂序；judge
+   `VUL4J-75/baseline/rep-1` 持续非法 JSON（已留痕，不插补）。
+
+   已知限制：数据集无 clean MR（阴性对照阈值 N/A）；固定臂序
+   baseline→candidate 可能引入顺序偏差，后续主跑建议随机化臂序；judge
+   `VUL4J-75/baseline/rep-1` 持续非法 JSON（已留痕，不插补）。
+
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s
    > 超时重试），`glm-5.3-flash` 返回非法 JSON。当前缺省用 `glm-5.2`

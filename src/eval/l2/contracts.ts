@@ -164,7 +164,17 @@ export interface L2GateThresholds {
   readonly maxOutputTokens: number;
 }
 
-/** 初始 provisional 阈值（ADR-0017 §3 / 评测方案 §6.4；#42 校准后更新） */
+/**
+ * L2 门阈值。2026-11-12 空对照校准（`p1-calibration-2026-11-12`，30×3×2）
+ * 后按 ADR-0017 补记：
+ * - 仅更新有界性安全上界（实测最大 + ~10% 余量：21→24 / 41→46 / 59,491→65,441）。
+ * - **CARC 主目标 0.90 / CI 上界 1.00、分解守卫 1.00/1.05/1.00/1.00、
+ *   质量非劣 3pp 全部保留**：空对照 ci95 半宽 11.8pp、judge CI 下界
+ *   −15.8pp，30 案下这些门统计功效不足；放宽成本守卫会削弱缓存游戏防护，
+ *   放宽质量门会架空 ADR §3「质量非劣不可豁免」。校准结论是**扩样 +
+ *   随机化臂序**，不是放水。
+ * - 零 finding 2pp、阴性对照 1σ（本次无 clean MR，N/A）、coverage 0.95 保留。
+ */
 export const DEFAULT_L2_GATE_THRESHOLDS: L2GateThresholds = {
   maxCarcRatio: 0.9,
   maxCarcRatioCiUpper: 1.0,
@@ -176,9 +186,9 @@ export const DEFAULT_L2_GATE_THRESHOLDS: L2GateThresholds = {
   maxZeroFindingRateIncreasePp: 0.02,
   maxNegativeControlFpSigma: 1,
   minCoverage: 0.95,
-  maxAttemptedToolCalls: 12,
-  maxRequests: 24,
-  maxOutputTokens: 48_000,
+  maxAttemptedToolCalls: 24,
+  maxRequests: 46,
+  maxOutputTokens: 65_441,
 };
 
 /** 单个门的判定（pass/fail；detail 说明失败原因 / N/A 口径） */

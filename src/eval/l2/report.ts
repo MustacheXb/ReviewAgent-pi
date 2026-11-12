@@ -1,4 +1,5 @@
 import type { RunAnalysis } from "../analysis/contracts.js";
+import { portableRepoPath } from "../campaign/paths.js";
 import {
   ENVIRONMENT_REF,
   type CampaignPlan,
@@ -116,7 +117,7 @@ export function buildL2Report(args: BuildL2ReportArgs): L2Report {
     campaignId: args.plan.campaignId,
     campaignType: identity.campaignType,
     calibrationRef: identity.calibrationRef,
-    outputDir: args.plan.outputDir,
+    outputDir: portableRepoPath(args.plan.outputDir),
     baseline: { ref: args.plan.baselineRef, model: args.plan.model },
     candidate: { ref: args.plan.candidateRef, model: args.plan.model },
     dataset: {

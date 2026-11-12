@@ -1,0 +1,12 @@
+[
+  {
+    "campaignId": "p1-calibration-2026-11-12",
+    "source": "vul4j",
+    "caseId": "VUL4J-75",
+    "arm": "baseline",
+    "rep": 1,
+    "stage": "judge",
+    "error": "judge response is not valid JSON: {\", \"}\")` usage). The ground truth defects are at specific lines corresponding to changes in this diff, all in the conte…",
+    "at": "2026-11-12T12:24:08.571Z"
+  }
+]

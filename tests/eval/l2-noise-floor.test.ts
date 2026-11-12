@@ -10,6 +10,7 @@ import {
   DEFAULT_L2_GATE_THRESHOLDS,
   L2_REPORT_KIND,
   L2_REPORT_SCHEMA_VERSION,
+  type L2GateThresholds,
 } from "../../src/eval/l2/contracts.js";
 import {
   buildNoiseFloorReport,
@@ -21,6 +22,27 @@ import type { EnvironmentManifest } from "../../src/eval/campaign/contracts.js";
  * 噪声底报告（#42）：从 `L2Report + environment.json` 生成机读 JSON 与确定性
  * Markdown；只用于复核 provisional 阈值，不判定优化收益（claimsAllowed 恒 false）。
  */
+
+/**
+ * 校准生成时的 provisional 阈值快照（2026-11-12 更新前）。噪声底报告的
+ * 「保留 / 调整」建议针对**当时的 provisional**；当前默认值已按校准结果更新，
+ * 由 l2-gates 的默认阈值回归锁覆盖。
+ */
+const CALIBRATION_TIME_THRESHOLDS: L2GateThresholds = {
+  maxCarcRatio: 0.9,
+  maxCarcRatioCiUpper: 1.0,
+  maxUncachedRatio: 1.0,
+  maxOutputRatio: 1.05,
+  maxAttemptsRatio: 1.0,
+  maxRequestsRatio: 1.0,
+  qualityNonInferiorityPp: 0.03,
+  maxZeroFindingRateIncreasePp: 0.02,
+  maxNegativeControlFpSigma: 1,
+  minCoverage: 0.95,
+  maxAttemptedToolCalls: 12,
+  maxRequests: 24,
+  maxOutputTokens: 48_000,
+};
 
 function stat(mean: number, std = 0, count = 30): Stat {
   return { count, mean, std };
@@ -140,6 +162,7 @@ export function l2ReportFixture(
     readonly campaignId?: string;
     readonly campaignType?: "calibration" | "formal";
     readonly calibrationRef?: string | null;
+    readonly outputDir?: string;
     readonly paired?: L2PairedSet;
     readonly coldPaired?: L2PairedSet;
     readonly bounds?: Partial<L2Report["bounds"]>;
@@ -158,7 +181,7 @@ export function l2ReportFixture(
     campaignType: overrides.campaignType ?? "calibration",
     calibrationRef:
       overrides.calibrationRef === undefined ? campaignId : overrides.calibrationRef,
-    outputDir: `runs/eval/${campaignId}`,
+    outputDir: overrides.outputDir ?? `runs/eval/${campaignId}`,
     baseline: { ref: "eval-e-baseline-2026-11-11", model: "deepseek-v4-flash" },
     candidate: { ref: "eval-e-baseline-2026-11-11", model: "deepseek-v4-flash" },
     dataset: {
@@ -197,7 +220,7 @@ export function l2ReportFixture(
     },
     claimsAllowed: false,
     bootstrap: { iterations: 10_000, seed: 20_261_111, confidence: 0.95 },
-    thresholds: { ...DEFAULT_L2_GATE_THRESHOLDS, ...overrides.thresholds },
+    thresholds: { ...CALIBRATION_TIME_THRESHOLDS, ...overrides.thresholds },
   };
 }
 
@@ -430,5 +453,18 @@ describe("buildNoiseFloorReport", () => {
     expect(first).toContain("CARC ratio");
     expect(first).toContain("judgeRecall");
     expect(first).toContain("阈值复核建议");
+  });
+
+  it("绝对 outputDir 在 Markdown 复算命令中投影为仓库相对 runs/eval 路径（报告入库不泄露本机路径）", () => {
+    const report = buildNoiseFloorReport({
+      l2: l2ReportFixture({
+        outputDir: "D:\\repo\\ReviewAgent-pi\\runs\\eval\\p1-calibration-2026-11-11",
+      }),
+      environment: environmentFixture(),
+    });
+    const markdown = renderNoiseFloorMarkdown(report);
+
+    expect(markdown).toContain("--out runs/eval/p1-calibration-2026-11-11");
+    expect(markdown).not.toContain("D:\\repo");
   });
 });

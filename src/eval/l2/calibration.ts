@@ -26,7 +26,8 @@ import {
  *   调用即 fail fast；
  * - 纯函数：零网络、零文件系统、无时钟；Markdown 字节稳定（`--report-only`
  *   可复算）；
- * - 建议不自动落为阈值：阈值变更须按 ADR-0017 §5 以补记固化。
+ * - 建议本身不自动改阈值：阈值变更须按 ADR-0017 §5 以补记固化（2026-11-12
+ *   的 P1 校准已据此更新 `DEFAULT_L2_GATE_THRESHOLDS`）。
  */
 
 /** 单侧 95% 正态分位（比率守卫的空对照上界） */
@@ -536,7 +537,7 @@ export function renderNoiseFloorMarkdown(report: NoiseFloorReport): string {
       `工具 schema 变更后重做校准。`,
   );
   lines.push(
-    `- 复算（零网络）：\`pnpm campaign -- --report-only --out ${report.outputDir}\``,
+    `- 复算（零网络）：\`pnpm campaign -- --report-only --out ${replayOutputDir(report.outputDir)}\``,
   );
   lines.push("");
   return `${lines.join("\n")}`;
@@ -677,4 +678,15 @@ function fmtPp(value: number): string {
 /** 向上取整到精度步长（确定性阈值建议） */
 function roundUpTo(value: number, step: number): number {
   return Math.ceil(value / step - 1e-9) * step;
+}
+
+/**
+ * 复算命令用可移植路径：本机绝对输出目录投影为 `runs/eval/<id>`（报告入库 /
+ * 跨机器复算不泄露本机路径）；非标准目录保持原样。
+ */
+function replayOutputDir(outputDir: string): string {
+  const normalized = outputDir.replaceAll("\\", "/");
+  const marker = "runs/eval/";
+  const index = normalized.indexOf(marker);
+  return index >= 0 ? normalized.slice(index) : outputDir;
 }

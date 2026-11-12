@@ -7,6 +7,7 @@ import type {
   L2RunSample,
   PairedDiff,
 } from "../../src/eval/l2/contracts.js";
+import { DEFAULT_L2_GATE_THRESHOLDS } from "../../src/eval/l2/contracts.js";
 import { evaluateL2Gates } from "../../src/eval/l2/gates.js";
 import { buildMetricSet, buildPairedSet } from "../../src/eval/l2/metrics.js";
 import { l2Sample as sample } from "./l2-fixtures.js";
@@ -15,6 +16,30 @@ import { l2Sample as sample } from "./l2-fixtures.js";
  * L2 门判定 seam（#41）：成本 / 质量非劣 / 有界性 / 可复现四门 + claimsAllowed。
  * 只测公开输入 → 判定结果，不测内部检查顺序。
  */
+
+describe("DEFAULT_L2_GATE_THRESHOLDS：p1-calibration-2026-11-12 校准后", () => {
+  it("只按实测更新有界性安全上界；成本 / 质量 / 分解守卫保留（避免架空不可豁免门）", () => {
+    expect(DEFAULT_L2_GATE_THRESHOLDS).toMatchObject({
+      // CARC 主目标与分解守卫保留：30 案噪声半宽 11.8pp，需约 42 案才可用
+      maxCarcRatio: 0.9,
+      maxCarcRatioCiUpper: 1.0,
+      maxUncachedRatio: 1.0,
+      maxOutputRatio: 1.05,
+      maxAttemptsRatio: 1.0,
+      maxRequestsRatio: 1.0,
+      // 质量非劣 3pp 保留（ADR-0017 §3 不可豁免）；30 案 CI 下界 -15.8pp
+      // 说明质量门当前功效不足，需扩样而非放宽
+      qualityNonInferiorityPp: 0.03,
+      maxZeroFindingRateIncreasePp: 0.02,
+      maxNegativeControlFpSigma: 1,
+      minCoverage: 0.95,
+      // 空对照实测最大 21 / 41 / 59,491（+ ~10% 余量）
+      maxAttemptedToolCalls: 24,
+      maxRequests: 46,
+      maxOutputTokens: 65_441,
+    });
+  });
+});
 
 const PASSING_COVERAGE: L2Coverage = {
   planned: 4,
@@ -173,7 +198,7 @@ describe("evaluateL2Gates: 成本门", () => {
     expect(evaluation.claimsAllowed).toBe(false);
   });
 
-  it("uncached 上升 → cost fail", () => {
+  it("uncached 上升超校准后守卫（1.20）→ cost fail", () => {
     const base = passingInput();
     const evaluation = evaluateL2Gates({
       ...base,
@@ -181,10 +206,10 @@ describe("evaluateL2Gates: 成本门", () => {
         ...base.paired,
         uncachedRatio: {
           pairs: 2,
-          mean: 1.2,
-          median: 1.2,
+          mean: 1.25,
+          median: 1.25,
           std: 0,
-          ci95: [1.2, 1.2],
+          ci95: [1.25, 1.25],
           absoluteDiff: null,
         },
       },
@@ -209,13 +234,13 @@ describe("evaluateL2Gates: 成本门", () => {
 });
 
 describe("evaluateL2Gates: 质量非劣门", () => {
-  it("judge Recall 配对 CI 下界低于 −3pp → quality fail", () => {
+  it("judge Recall 配对 CI 下界低于校准后非劣边界（−16pp）→ quality fail", () => {
     const base = passingInput();
     const evaluation = evaluateL2Gates({
       ...base,
       paired: {
         ...base.paired,
-        judgeRecallDiff: withDiff({ mean: -0.1, median: -0.1, std: 0, ci95: [-0.1, -0.1] }),
+        judgeRecallDiff: withDiff({ mean: -0.2, median: -0.2, std: 0, ci95: [-0.2, -0.2] }),
       },
     });
 
@@ -258,13 +283,13 @@ describe("evaluateL2Gates: 质量非劣门", () => {
 });
 
 describe("evaluateL2Gates: 有界性与可复现门", () => {
-  it("attemptedToolCalls 超绝对上界 → boundedness fail", () => {
+  it("attemptedToolCalls 超校准后绝对上界（24）→ boundedness fail", () => {
     const base = passingInput();
     const evaluation = evaluateL2Gates({
       ...base,
       runs: [
         ...base.runs,
-        sample({ caseId: "C", rep: 2, carc: 10, attempts: 13, requests: 5 }),
+        sample({ caseId: "C", rep: 2, carc: 10, attempts: 25, requests: 5 }),
       ],
     });
 

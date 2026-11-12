@@ -1,0 +1,54 @@
+{
+  "campaignId": "p1-calibration-2026-11-12",
+  "evaluation": {
+    "branch": "eval/bench",
+    "campaign": "p1-calibration-2026-11-12",
+    "calibrationRef": "p1-calibration-2026-11-12"
+  },
+  "git": {
+    "branch": "eval/bench",
+    "commit": "c4e5e5f8f595079b26738ac788163496fd32853d",
+    "tag": null
+  },
+  "runtime": {
+    "node": "v24.13.0",
+    "os": "win32-x64",
+    "machine": "GDD-ITTools-XA"
+  },
+  "model": {
+    "requestedId": "deepseek-v4-flash",
+    "actualDeployment": null,
+    "providerClass": "volcengine",
+    "baseUrlClass": "gateway-endpoint"
+  },
+  "gateway": {
+    "cacheProbeBefore": null,
+    "cacheProbeAfter": null
+  },
+  "judge": {
+    "model": "glm-5.2",
+    "promptVersion": "mcr-bench-llm-hit-judge-2026-09-03+poc1-ext-1",
+    "temperature": 0.2,
+    "topP": 0.95
+  },
+  "prompts": {
+    "zoneA": null,
+    "toolsSchema": null
+  },
+  "claudeCode": {
+    "cliVersion": null,
+    "requestedModel": null,
+    "actualModels": null,
+    "maxTurns": null
+  },
+  "window": {
+    "start": "2026-11-11T23:42:45.782Z",
+    "end": "2026-11-12T12:26:11.950Z",
+    "timezone": "Asia/Shanghai"
+  },
+  "dataset": {
+    "casesFile": "data/vul4j/target-cases.json",
+    "caseCount": 30,
+    "hash": "fd752f54082c87ad704d0463b18e7e8bf1a28ed2342138800b3289fba1315d36"
+  }
+}
