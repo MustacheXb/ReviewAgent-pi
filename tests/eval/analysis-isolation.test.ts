@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
  * - campaign runner 零网络、零真实执行入口（只经注入的 ReviewKernel /
  *   JudgeClient 缝；真实网关 / judge 装配在 src/eval/assembly，fake 默认离线）；
  * - 真实装配面（eval/judge + eval/assembly）由进程入口在环境变量门控后调用；
+ * - C_ref 全仓参照（eval/ref）零网络 / 零真实内核，只经注入的 baseKernel；
  * - 生产入口（root src 非 eval 区 + review-pi 包）不得 import 任何评测面。
  *
  * 这是确定性 CI 的一部分：边界漂移在这里变红，而不是等评测面泄漏进生产。
@@ -20,6 +21,7 @@ const CAMPAIGN_DIR = path.join(EVAL_DIR, "campaign");
 const L2_DIR = path.join(EVAL_DIR, "l2");
 const JUDGE_DIR = path.join(EVAL_DIR, "judge");
 const ASSEMBLY_DIR = path.join(EVAL_DIR, "assembly");
+const REF_DIR = path.join(EVAL_DIR, "ref");
 
 const FORBIDDEN_ANALYSIS_RUNTIME = [
   "node:http",
@@ -39,6 +41,22 @@ const FORBIDDEN_ANALYSIS_RUNTIME = [
 
 /** campaign 需要 fs / crypto 落盘；仍禁止网络与真实执行入口 */
 const FORBIDDEN_CAMPAIGN_RUNTIME = [
+  "node:http",
+  "node:https",
+  "node:net",
+  "node:dns",
+  "node:child_process",
+  "XMLHttpRequest",
+  "fetch(",
+  "import(",
+  "runReview",
+  "judgeRun",
+  "review-llm",
+  "pi-kernel",
+];
+
+/** C_ref 全仓注入需要 fs 读取；仍禁止网络、LLM 与真实内核入口 */
+const FORBIDDEN_REF_RUNTIME = [
   "node:http",
   "node:https",
   "node:net",
@@ -121,6 +139,14 @@ describe("评测面边界", () => {
     assertImportShape(L2_DIR, false);
   });
 
+  it("C_ref 全仓参照零网络 / 零真实内核入口（fs 读取除外）", () => {
+    assertNoRuntime(REF_DIR, FORBIDDEN_REF_RUNTIME);
+  });
+
+  it("C_ref 全仓参照 import 只允许相对模块、node 内置与 review-pi type-only", () => {
+    assertImportShape(REF_DIR, true);
+  });
+
   it("campaign 核心不得 import judge / assembly（真实装配只在进程入口）", () => {
     const specifierPattern = /(?:from|import)\s+"([^"]+)"/g;
     for (const file of listTsFiles(CAMPAIGN_DIR)) {
@@ -163,6 +189,7 @@ describe("评测面边界", () => {
           "eval/l2",
           "eval/judge",
           "eval/assembly",
+          "eval/ref",
         ]) {
           expect(source, `${relative} imports ${plane}`).not.toContain(plane);
         }

@@ -1,0 +1,25 @@
+Full repository context (C_ref, eval-only). Deterministically injected from the repository snapshot
+(zero-build, no LLM). Java source files are listed in sorted path order; budget truncation is explicit.
+
+## File: src/main/java/com/example/Alpha.java (5 lines)
+package com.example;
+
+public class Alpha {
+    int value = 1;
+}
+
+## File: src/main/java/com/example/Beta.java (5 lines)
+package com.example;
+
+public class Beta {
+    String name = "beta";
+}
+
+## File: src/main/java/com/example/nested/Gamma.java (7 lines)
+package com.example.nested;
+
+public final class Gamma {
+    static int answer() {
+        return 42;
+    }
+}

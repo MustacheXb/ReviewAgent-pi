@@ -168,12 +168,17 @@ candidate: <commit>
 | `main` `src/eval/analysis/` | 只读 `RunRecord → cached / uncached / output / CARC` 分析器（零网络、零 LLM） |
 | `eval/bench` `src/eval/campaign/` | campaign harness（plan / 单元执行 / 记录 / 报告；零网络，依赖注入） |
 | `eval/bench` `src/eval/l2/` | L2 配对统计 + bootstrap + 四门判定 + `l2-report.json` 装配（纯函数） |
+| `eval/bench` `src/eval/ref/` | C_ref eval-only 全仓注入（80k 预算 / 排序 / 行级截断）+ kernel 适配 + fullRepo sidecar（#43；不写生产 `RunAudit.fullRepo`） |
 | `eval/bench` `src/eval/judge/` | LLM-as-judge 链（prompt / parse / resolve / HTTP 客户端；离线可测） |
 | `eval/bench` `src/eval/assembly/` | 真实装配（pi 内核 + judge + `environment.json` provenance；`CAMPAIGN_REAL=1` 门控） |
 | `eval/bench` | campaign harness、judge 链、`C_ref`、Claude Code 参照、空对照校准、配对统计 |
 | 本机 / 外置存储 | 原始 `runs/`、`audit/`、`wireBody`（gitignored，不入库） |
 
 生产入口（`src/cli` / `src/rpc` / `src/server` / `src/run`）不得 import 评测面（ADR-0016 §4，测试守卫）。
+
+C_ref（#43）当前为 eval-only 模块（`src/eval/ref/`）：全仓注入 + kernel 包装；
+`fullRepo` 记账写 `<campaign-dir>/eval-sidecar/full-repo/<case>/C/rep-<n>.json`，
+不写生产 `RunAudit.fullRepo`。真实单案跑在臂序复核结束后执行。
 
 ## 4. 何时重新冻结基线 / 重做校准
 
