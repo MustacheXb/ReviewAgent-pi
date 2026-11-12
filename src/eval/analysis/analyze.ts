@@ -28,6 +28,8 @@ export function analyzeRuns(input: AnalysisInput): AnalysisReport {
   return {
     kind: ANALYSIS_REPORT_KIND,
     schemaVersion: ANALYSIS_REPORT_SCHEMA_VERSION,
+    currency: input.priceTable?.currency ?? null,
+    priceValidFrom: input.priceTable?.priceValidFrom ?? null,
     runs,
     summary: buildSummary(runs),
     l1: buildL1(runs, inputs, input.plannedCases),
@@ -73,6 +75,8 @@ function analyzeRun(run: AnalysisRunInput, pricing: ToolCostPricing): RunAnalysi
       : computePrf(screenFindings(baseline.findings, run.truth));
   const judge = run.judgeCounts === undefined ? null : computePrf(run.judgeCounts);
   const toolCostTokens = computeToolCostTokens(baseline.audit.toolCallLog, pricing);
+  const attemptedToolCalls = baseline.audit.toolCallLog.length;
+  const executedToolCalls = baseline.toolCalls;
   return {
     source: record.source,
     caseId: record.caseId,
@@ -80,12 +84,18 @@ function analyzeRun(run: AnalysisRunInput, pricing: ToolCostPricing): RunAnalysi
     rep: record.rep,
     model: record.model,
     completedAt: record.completedAt,
-    cost: computeRunCost(baseline.usage, toolCostTokens),
+    cost: computeRunCost(
+      baseline.usage,
+      toolCostTokens,
+      run.retryCostTokens ?? null,
+      run.summaryCostTokens ?? null,
+    ),
     loop: {
       requests,
       rounds: baseline.rounds,
-      attemptedToolCalls: baseline.audit.toolCallLog.length,
-      executedToolCalls: baseline.toolCalls,
+      attemptedToolCalls,
+      executedToolCalls,
+      skippedToolCalls: Math.max(0, attemptedToolCalls - executedToolCalls),
       truncated: baseline.audit.truncated,
       truncationReasons: [...baseline.audit.truncationReasons],
     },

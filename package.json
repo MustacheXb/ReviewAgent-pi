@@ -17,6 +17,7 @@
     "build:reviewagent": "pnpm --filter reviewagent pack --pack-destination .artifacts/reviewagent",
     "build:presentation": "pnpm exec tsc -p tsconfig.presentation.json",
     "migration-gate": "pnpm exec tsc -p tsconfig.migration-gate.json && node .tmp-gen/scripts/run-migration-gate.js",
+    "analyze:token": "pnpm exec tsc -p tsconfig.analyze-token.json && node .tmp-gen/scripts/analyze-token.js",
     "demo:http-server": "pnpm --filter review-pi build && pnpm exec tsc -p tsconfig.demo-http-server.json && node .tmp-gen/scripts/demo-http-server.js"
   },
   "devDependencies": {

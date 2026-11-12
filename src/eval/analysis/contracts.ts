@@ -13,8 +13,14 @@ import type { RunRecord } from "review-pi";
 /** 报告 kind（机读标识；schema 变更时同步版本号） */
 export const ANALYSIS_REPORT_KIND = "run-record-analysis";
 
-/** 报告 schema 版本（golden 测试锁定） */
-export const ANALYSIS_REPORT_SCHEMA_VERSION = 1;
+/**
+ * 报告 schema 版本（golden 测试锁定；v2 = #51 增加 currency / priceValidFrom / retry / summary / skipped）。
+ *
+ * 与 #49「新字段可选、缺省省键」的差异：#51 验收明确要求缺 retry / summary
+ * 成本时字段为 null、缺价目时 currency 为 null，故这些新字段是 present-null
+ * 而非省键；v2 标记读取方需要容忍这些键。
+ */
+export const ANALYSIS_REPORT_SCHEMA_VERSION = 2;
 
 /** 分析输入：一条 run 记录 + 可选真值 / judge 结果 */
 export interface AnalysisRunInput {
@@ -23,6 +29,21 @@ export interface AnalysisRunInput {
   readonly truth?: AnalysisTruth | null;
   /** judge 行级计数；undefined = 未判（N/A） */
   readonly judgeCounts?: MatchCounts;
+  /** 重试成本（token 口径）；undefined / null = 尚无重试机制或未计量（N/A） */
+  readonly retryCostTokens?: number | null;
+  /** 摘要 / compaction 成本（token 口径）；undefined / null = 无摘要机制（N/A） */
+  readonly summaryCostTokens?: number | null;
+}
+
+/** 价目表（静态 JSON；缺失时 currency / priceValidFrom 记 null，不按固定折扣假设） */
+export interface AnalysisPriceTable {
+  readonly currency: string;
+  readonly priceValidFrom: string;
+  /** 三种价格在批 1 只校验并随 CLI 读取；货币口径成本在批 4（缓存合同）接线 */
+  readonly cacheHitPrice: number;
+  readonly cacheMissPrice: number;
+  readonly cacheWritePrice?: number;
+  readonly outputPrice: number;
 }
 
 /** 工具成本计价（token 口径；默认 0 = 不计价，与历史记录口径一致） */
@@ -45,6 +66,8 @@ export interface AnalysisInput {
   readonly plannedCases?: number;
   /** 工具成本计价；缺省全 0（历史记录口径） */
   readonly toolCost?: ToolCostPricing;
+  /** 价目表；缺省 → currency / priceValidFrom 记 null（N/A） */
+  readonly priceTable?: AnalysisPriceTable;
 }
 
 /** 真值位置（与 MRCase.truth.locations 形状对齐） */
@@ -84,7 +107,11 @@ export interface RunCostMetrics {
   readonly cacheHitRate: number | null;
   /** 工具成本（token 口径；默认计价 0） */
   readonly toolCostTokens: number;
-  /** CARC = uncachedInput + cacheWrite + output + toolCost */
+  /** 重试成本；null = 无重试机制 / 未计量（N/A，不记 0；独立报告，不计入 CARC） */
+  readonly retryCostTokens: number | null;
+  /** 摘要 / compaction 成本；null = 无摘要机制（N/A，不记 0；独立报告，不计入 CARC） */
+  readonly summaryCostTokens: number | null;
+  /** CARC = uncachedInput + cacheWrite + output + toolCost（ADR-0017 口径） */
   readonly carc: number;
 }
 
@@ -97,6 +124,8 @@ export interface RunLoopMetrics {
   readonly attemptedToolCalls: number;
   /** 实际执行的工具调用数（内核 RunSnapshot.toolCalls） */
   readonly executedToolCalls: number;
+  /** 超预算 / 未进入执行的工具调用数 = max(0, attempted − executed)；当前日志可区分即预算拒绝 */
+  readonly skippedToolCalls: number;
   readonly truncated: boolean;
   readonly truncationReasons: readonly string[];
 }
@@ -152,6 +181,8 @@ export interface CostStats {
   readonly totalTokens: Stat | null;
   readonly cacheHitRate: Stat | null;
   readonly toolCostTokens: Stat | null;
+  readonly retryCostTokens: Stat | null;
+  readonly summaryCostTokens: Stat | null;
   readonly carc: Stat | null;
 }
 
@@ -161,6 +192,7 @@ export interface LoopStats {
   readonly rounds: Stat | null;
   readonly attemptedToolCalls: Stat | null;
   readonly executedToolCalls: Stat | null;
+  readonly skippedToolCalls: Stat | null;
 }
 
 /** 截断汇总：截断 run 数与原因计数（键按字典序） */
@@ -242,6 +274,10 @@ export interface L1Report {
 export interface AnalysisReport {
   readonly kind: typeof ANALYSIS_REPORT_KIND;
   readonly schemaVersion: typeof ANALYSIS_REPORT_SCHEMA_VERSION;
+  /** 价目币种；无价目表 → null（N/A，不冒充真实账单） */
+  readonly currency: string | null;
+  /** 价目生效时间；无价目表 → null（N/A） */
+  readonly priceValidFrom: string | null;
   readonly runs: readonly RunAnalysis[];
   readonly summary: AnalysisSummary;
   readonly l1: L1Report;

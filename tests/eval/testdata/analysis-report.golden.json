@@ -1,6 +1,8 @@
 {
   "kind": "run-record-analysis",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "currency": null,
+  "priceValidFrom": null,
   "runs": [
     {
       "source": "vul4j",
@@ -18,6 +20,8 @@
         "totalTokens": null,
         "cacheHitRate": null,
         "toolCostTokens": 0,
+        "retryCostTokens": null,
+        "summaryCostTokens": null,
         "carc": 18850
       },
       "loop": {
@@ -25,6 +29,7 @@
         "rounds": 1,
         "attemptedToolCalls": 0,
         "executedToolCalls": 0,
+        "skippedToolCalls": 0,
         "truncated": false,
         "truncationReasons": []
       },
@@ -60,6 +65,8 @@
         "totalTokens": 1100,
         "cacheHitRate": 0.6,
         "toolCostTokens": 0,
+        "retryCostTokens": null,
+        "summaryCostTokens": null,
         "carc": 500
       },
       "loop": {
@@ -67,6 +74,7 @@
         "rounds": 2,
         "attemptedToolCalls": 3,
         "executedToolCalls": 2,
+        "skippedToolCalls": 1,
         "truncated": false,
         "truncationReasons": [
           "TOOL_BUDGET_EXHAUSTED"
@@ -96,6 +104,8 @@
         "totalTokens": 1100,
         "cacheHitRate": 0.6,
         "toolCostTokens": 0,
+        "retryCostTokens": null,
+        "summaryCostTokens": null,
         "carc": 500
       },
       "loop": {
@@ -103,6 +113,7 @@
         "rounds": 1,
         "attemptedToolCalls": 0,
         "executedToolCalls": 0,
+        "skippedToolCalls": 0,
         "truncated": true,
         "truncationReasons": [
           "MAX_ROUNDS_REACHED"
@@ -161,6 +172,8 @@
         "mean": 0,
         "std": 0
       },
+      "retryCostTokens": null,
+      "summaryCostTokens": null,
       "carc": {
         "count": 2,
         "mean": 9675,
@@ -187,6 +200,11 @@
         "count": 2,
         "mean": 0.5,
         "std": 0.7071067811865476
+      },
+      "skippedToolCalls": {
+        "count": 2,
+        "mean": 0.25,
+        "std": 0.3535533905932738
       }
     },
     "truncation": {

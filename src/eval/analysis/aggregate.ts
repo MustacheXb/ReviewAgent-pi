@@ -28,6 +28,8 @@ export function buildSummary(runs: readonly RunAnalysis[]): AnalysisSummary {
       totalTokens: costStat(runs, (run) => run.cost.totalTokens),
       cacheHitRate: costStat(runs, (run) => run.cost.cacheHitRate),
       toolCostTokens: costStat(runs, (run) => run.cost.toolCostTokens),
+      retryCostTokens: costStat(runs, (run) => run.cost.retryCostTokens),
+      summaryCostTokens: costStat(runs, (run) => run.cost.summaryCostTokens),
       carc: costStat(runs, (run) => run.cost.carc),
     } satisfies CostStats,
     loop: {
@@ -35,6 +37,7 @@ export function buildSummary(runs: readonly RunAnalysis[]): AnalysisSummary {
       rounds: costStat(runs, (run) => run.loop.rounds),
       attemptedToolCalls: costStat(runs, (run) => run.loop.attemptedToolCalls),
       executedToolCalls: costStat(runs, (run) => run.loop.executedToolCalls),
+      skippedToolCalls: costStat(runs, (run) => run.loop.skippedToolCalls),
     } satisfies LoopStats,
     truncation: {
       truncatedRuns: runs.filter((run) => run.loop.truncated).length,

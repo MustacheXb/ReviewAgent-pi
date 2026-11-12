@@ -1,0 +1,18 @@
+{
+  // Token 账本单命令编译程序（#51）：入口 scripts/analyze-token.ts + import
+  // 闭包（src/eval/analysis 纯分析器 + src/instrument/cli-args）。产物
+  // .tmp-gen/scripts/analyze-token.js。
+  // 必须走 -p 而非内联 flags：内联 flags 忽略 tsconfig → baseUrl/paths 失效
+  // （同 tsconfig.migration-gate.json 先例）。files + include 覆盖只编入口
+  // 及其闭包；rootDir 不钉——入口在 scripts/、闭包在 src/，公共根即仓库根。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": ".tmp-gen"
+  },
+  "files": ["scripts/analyze-token.ts"],
+  "include": [],
+  "exclude": ["node_modules", "dist", ".tmp-gen"]
+}

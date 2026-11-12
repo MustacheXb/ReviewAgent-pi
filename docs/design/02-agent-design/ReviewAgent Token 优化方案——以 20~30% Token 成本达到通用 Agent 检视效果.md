@@ -233,7 +233,7 @@ CARC
 ```text
 totalTokens
 cacheHitRate
-requestCount
+requests
 executedToolCalls
 attemptedToolCalls
 skippedToolCalls
@@ -251,9 +251,9 @@ CARC = uncachedInputTokens
      + cacheWriteTokens
      + outputTokens
      + toolCostTokens
-     + retryCostTokens
-     + summaryCostTokens
 ```
+
+retry / summary 成本独立报告（字段缺失记 null）；是否纳入 CARC 需先修订 ADR-0017 的 L2 主指标定义，不随本方案默认改变。
 
 若提供价目表，再输出货币口径：
 
@@ -270,13 +270,10 @@ outputCost = outputTokens × outputPrice
 ```mermaid
 flowchart LR
   A[RunRecord] --> C[Record Loader]
-  B[Audit wireBody / toolCallLog] --> C
+  B[Audit toolCallLog / phaseLog] --> C
   C --> D[Normalize Metrics]
   D --> E[Group by case/config/rep]
-  E --> F[Cold rep1]
-  E --> G[Hot rep2+]
-  F --> H[JSON / Markdown / CSV]
-  G --> H
+  E --> H[JSON / Markdown]
 ```
 
 设计要求：
@@ -284,8 +281,8 @@ flowchart LR
 - 单命令可从 RunRecord / Audit 复算；
 - 不读取 API key，不发起网络请求；
 - 输出确定性，不依赖当前时间或文件遍历顺序；
-- 同时输出请求数、工具尝试数和截断原因；
-- 冷 rep1 与热 rep2+ 分开。
+- 同时输出请求数、工具尝试数、执行数、跳过数与截断原因；
+- 冷热分层（rep1 冷口径 vs rep2+ 热口径）属评测 campaign，不在主线分析器实现（#49 §1）。
 
 ### 3.4 Provider 缓存合同
 
@@ -1038,7 +1035,7 @@ flowchart LR
 
 执行顺序：
 
-1. 先做 P0-1 / P0-2，建立统一账本；
+1. 先做 P0-1 / P0-2，建立统一成本报告；
 2. 并行做 P0-7 的网关口径调查；
 3. 再做 P0-3、P0-4、P0-5、P0-6 的行为改造；
 4. 最后用同一套报告和质量门做联合消融。
@@ -1049,7 +1046,7 @@ flowchart LR
 
 | 编号 | 事项 | 目标 | 验收门 |
 |---|---|---|---|
-| P0-1 | 恢复只读 Token 分析脚本 | usage → cached/uncached/output/CARC/冷热分层 | 单命令从 RunRecord 复算 |
+| P0-1 | 恢复只读 Token 分析脚本 | usage → cached/uncached/output/CARC/请求与工具计数 | 单命令从 RunRecord 复算 |
 | P0-2 | 报告改为四行主表 | 区分真正省钱的项 | cacheHit 不再单独作为结论 |
 | P0-3 | 增加请求 / 尝试 / 输出硬上界 | 防止 attempts 继续膨胀 | attempts 不越界，截断显式 |
 | P0-4 | 处理空知识工具 | 保留或删除均需证据 | 空语料调用大幅下降 |
@@ -1061,16 +1058,16 @@ flowchart LR
 
 **问题**
 
-主线只有 RunRecord 和 Audit，没有一键复算 Token、请求数、工具尝试数和冷热分层的脚本。
+主线只有 RunRecord 和 Audit，没有一键复算 Token、请求数、工具尝试数与执行/跳过数的脚本。
 
 **设计**
 
-建议落位：
+建议落位（#51 落地；替换本节早期草案的 `src/metrics/` 设想）：
 
 ```text
-scripts/analyze-token.ts
-src/metrics/token-analysis.ts
-src/metrics/token-analysis.test.ts
+scripts/analyze-token.ts          # 单命令入口（I/O 薄壳；pnpm analyze:token）
+src/eval/analysis/                # 纯分析器（#37：零 fs / 零网络 / 零密钥）
+tests/eval/analyze-cli.test.ts    # 进程级与确定性测试
 ```
 
 输入支持：
@@ -1082,27 +1079,23 @@ src/metrics/token-analysis.test.ts
 输出：
 
 - `token-analysis.json`；
-- `token-analysis.md`；
-- 可选 CSV。
+- `token-analysis.md`。
 
 ```mermaid
 flowchart LR
   A[RunRecord] --> C[Record Loader]
-  B[Audit wireBody / toolCallLog] --> C
+  B[Audit toolCallLog / phaseLog] --> C
   C --> D[Normalize Metrics]
   D --> E[Group by case/config/rep]
-  E --> F[Cold rep1]
-  E --> G[Hot rep2+]
-  F --> H[JSON / Markdown / CSV]
-  G --> H
+  E --> H[JSON / Markdown]
 ```
 
 **验收门**
 
-- 单命令可从现有 `runs/phase2-pi` 复算 dashboard 的 E 均值；
+- 单命令可从单条 RunRecord、实验目录、`runs` 根 + experimentId 三种输入复算；本机无历史 `runs/` 数据，验收以离线夹具 + 进程级确定性测试为准（#49）；
 - usage 与审计一致；
-- executed / attempted 分开输出；
-- 冷热分层可筛选；
+- executed / attempted / skipped 分开输出；
+- 冷热分层不在主线分析器（属评测 campaign，见 #49 §1）；
 - 输出确定；
 - 不读 key，不联网。
 
@@ -1132,16 +1125,22 @@ CARC
 ```text
 totalTokens
 cacheHitRate
+requests
+attemptedToolCalls
+executedToolCalls
+skippedToolCalls
 toolCostTokens
 retryCostTokens
 summaryCostTokens
 ```
 
+缺价目表时 `currency` 为 null（N/A）；`retryCostTokens` / `summaryCostTokens` 在对应机制落地前恒 null（N/A，不记 0）。
+
 ```mermaid
 flowchart LR
   A[Token Metrics] --> D[Cost Calculator]
   B[PricingProfile] --> D
-  C[Tool / Retry / Summary Usage] --> D
+  C[Tool Usage] --> D
   D --> E[cached / uncached / output / CARC]
   D --> F[totalTokens / cacheHitRate]
   E --> G[Markdown Report]
@@ -1153,7 +1152,7 @@ flowchart LR
 - 任一机制能回答“省的是 cached、uncached、output 还是工具次数”；
 - 高 cacheHit + 高 totalTokens 不会被误判为成本优化；
 - 无缓存计量时输出 N/A；
-- 重试、摘要、子调用成本独立；
+- 重试、摘要、子调用成本独立（机制未落地前记 N/A）；
 - 缺价目表时标记 currency unavailable。
 
 **回滚**

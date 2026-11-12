@@ -30,6 +30,8 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
       totalTokens: 1100,
       cacheHitRate: 0.6,
       toolCostTokens: 0,
+      retryCostTokens: null,
+      summaryCostTokens: null,
       carc: 500,
     });
   });
@@ -55,6 +57,8 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
       totalTokens: null,
       cacheHitRate: null,
       toolCostTokens: 0,
+      retryCostTokens: null,
+      summaryCostTokens: null,
       carc: 18850,
     });
   });
@@ -86,6 +90,102 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
 
     expect(report.runs[0]?.cost.toolCostTokens).toBe(7);
     expect(report.runs[0]?.cost.carc).toBe(117);
+  });
+  it("retry / summary 成本缺省为 null（N/A）；提供时独立报告，不改变 CARC", () => {
+    const base = {
+      record: record({
+        baseline: snapshot({ usage: { inputTokens: 100, outputTokens: 10 } }),
+      }),
+    };
+
+    const missing = analyzeRuns({ runs: [base] });
+    expect(missing.runs[0]?.cost.retryCostTokens).toBeNull();
+    expect(missing.runs[0]?.cost.summaryCostTokens).toBeNull();
+    expect(missing.runs[0]?.cost.carc).toBe(110);
+
+    const provided = analyzeRuns({
+      runs: [{ ...base, retryCostTokens: 7, summaryCostTokens: 3 }],
+    });
+    expect(provided.runs[0]?.cost.retryCostTokens).toBe(7);
+    expect(provided.runs[0]?.cost.summaryCostTokens).toBe(3);
+    expect(provided.runs[0]?.cost.carc).toBe(110);
+  });
+
+  it("skippedToolCalls = attempted − executed（历史记录缺字段仍可读，不为负）", () => {
+    const report = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({
+              usage: { inputTokens: 1, outputTokens: 1 },
+              toolCalls: 2,
+              audit: {
+                toolCallLog: [
+                  { name: "review.get_file", argumentsJson: "{}", resultSummary: "a" },
+                  { name: "review.get_file", argumentsJson: "{}", resultSummary: "b" },
+                  { name: "review.get_file", argumentsJson: "{}", resultSummary: "budget" },
+                ],
+                phaseLog: [],
+                rejections: [],
+                truncated: false,
+                truncationReasons: [],
+              },
+            }),
+          }),
+        },
+      ],
+    });
+
+    expect(report.runs[0]?.loop.skippedToolCalls).toBe(1);
+    expect(report.summary.loop.skippedToolCalls).toEqual({ count: 1, mean: 1, std: 0 });
+  });
+
+  it("缺价目表时 currency / priceValidFrom 为 null；提供时回显", () => {
+    const runs = [{ record: record() }];
+
+    const missing = analyzeRuns({ runs });
+    expect(missing.currency).toBeNull();
+    expect(missing.priceValidFrom).toBeNull();
+
+    const priced = analyzeRuns({
+      runs,
+      priceTable: {
+        currency: "CNY",
+        priceValidFrom: "2026-11-01T00:00:00Z",
+        cacheHitPrice: 0.1,
+        cacheMissPrice: 1,
+        outputPrice: 2,
+      },
+    });
+    expect(priced.currency).toBe("CNY");
+    expect(priced.priceValidFrom).toBe("2026-11-01T00:00:00Z");
+  });
+
+  it("价目表字段非法时 fail fast", () => {
+    expect(() =>
+      analyzeRuns({
+        runs: [{ record: record() }],
+        priceTable: {
+          currency: "",
+          priceValidFrom: "2026-11-01",
+          cacheHitPrice: 0,
+          cacheMissPrice: 0,
+          outputPrice: 0,
+        },
+      }),
+    ).toThrow(/currency/);
+    expect(() =>
+      analyzeRuns({
+        runs: [{ record: record() }],
+        priceTable: {
+          currency: "CNY",
+          priceValidFrom: "2026-11-01",
+          cacheHitPrice: -1,
+          cacheMissPrice: 0,
+          outputPrice: 0,
+        },
+      }),
+    ).toThrow(/cacheHitPrice/);
   });
 });
 
@@ -562,6 +662,7 @@ describe("analyzeRuns: 工具 / 截断指标", () => {
       rounds: 1,
       attemptedToolCalls: 3,
       executedToolCalls: 2,
+      skippedToolCalls: 1,
       truncated: false,
       truncationReasons: ["TOOL_BUDGET_EXHAUSTED"],
     });

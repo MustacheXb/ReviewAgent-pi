@@ -127,6 +127,7 @@ GLOSSARY.md                            领域词汇表（术语唯一权威）
 | `pnpm --filter review-pi build` | review-pi dist 构建 |
 | `pnpm build:reviewagent` | 产品包自包含 bundle + tarball（→ `.artifacts/`） |
 | `pnpm migration-gate -- --model <id>` | 模型迁移门（换模型/网关安全前置） |
+| `pnpm analyze:token -- --record <file>` | Token 分析报告（也支持 `--experiment <dir>` / `--runs-root <dir> --experiment-id <id>`；四行主表 + 循环计数，零网络零密钥） |
 | `pnpm build:presentation` | 中文呈现引擎构建（改 `src/presentation` 后） |
 
 CI（push / PR，零网络）：pi 四包 + review-llm + review-pi dist 前置构建 → 三面 typecheck → 三面测试。E 全链与协议 v3 契约在 CI 常开真跑；真实 E 产物闭环依赖 gitignored 本机快照（skipIf 守卫）；pack 冒烟与真网关探针走本地按需执行（`pnpm --filter review-pi test:e2e` / `reviewagent smoke`）。
