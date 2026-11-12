@@ -94,6 +94,7 @@ TOOL_ATTEMPTS_EXHAUSTED | OUTPUT_BUDGET_EXHAUSTED | PHASE_FORCED_INCOMPLETE
 - **引用文本**必须包含：引用 id、请求范围、实际送达范围、`complete` 标记。
 - Ledger 覆盖全部七个工具（现状即如此），不新增工具面。
 - 审计增加 `ledgerHits / ledgerMisses / savedCharsEstimate`；正常未命中路径的 wire 输出不变。
+- **落地口径（#56，2026-11-12）**：实现载体 `contracts/ledger.ts` + `tools/ledger.ts`。命中桶按 `resourceKey`（工具名 + 决定资源内容的参数，不含请求范围）分组——整读（`file`）与子区间读（`range`）必须在同一桶内做覆盖判定；`kind` 只进条目身份键与审计。覆盖判定为 `deliveredRange ⊇ requestedRange`（`endLine = null` 表示到文件 / 结果结尾），范围类工具另记 `totalLines`：请求起点或终点越过资源总行数一律不覆盖（越界 clamp 不算覆盖），只有覆盖才返回引用并累计 `hitCount / lastHitAt`；截断整文件等未覆盖请求一律未命中并登记新条目。条目记录 `key / kind / description / requestedRange / deliveredRange / complete / contentHash / contentVersion / charCount / totalLines / hitCount / lastHitAt`；内容哈希与版本进入条目身份键但不参与预读查询（查询发生在读取前，且 run 内快照内容不变）；`runId / toolCallId / messageId` 暂不在内核缝落位（Agent 桥接后续可追加，缺席省键）。引用文本单行：`Already loaded: ctx#NNN (<请求回显>; delivered <送达范围> of requested <请求范围>; complete=<bool>)`，其中 `complete` 描述**条目自身送达**是否完整（截断 / clamp 即 false）——是否可引用由覆盖关系单独保证。审计新增可选尾键 `ledgerStats: { ledgerHits, ledgerMisses, savedCharsEstimate }`（有账本查询时在场，零工具 run 省键）；`savedCharsEstimate` 对精确重复取送达字符数，对覆盖子区间按请求 / 送达行数比例折算（`endLine = null` 时用 `totalLines` 折算，不按 100% 计）。正常未命中路径的渲染层未改动，工具输出逐字节不变。
 
 ### 5. 截断选择
 

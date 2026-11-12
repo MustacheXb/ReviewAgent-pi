@@ -1337,6 +1337,14 @@ flowchart TD
 
 新旧 Ledger 双实现，由实验开关选择。
 
+**落地记录（#56，2026-11-12）**
+
+- 实现载体：契约 `packages/review-pi/src/contracts/ledger.ts`、实现 `packages/review-pi/src/tools/ledger.ts`。命中桶按 `resourceKey`（工具名 + 决定资源内容的参数，不含请求范围）分组——整读与子区间读同桶才能做覆盖判定；`kind` 只进条目身份键。`requestedRange / deliveredRange` 为 1-based 闭区间（`endLine = null` 表示到结尾），整结果工具 `requestedRange` 为 null、完整送达时 `deliveredRange` 为 null。
+- 覆盖命中：只有 `deliveredRange ⊇ requestedRange` 才返回引用。范围工具另记 `totalLines`：起点 / 终点越过文件总行数一律不覆盖；整文件完整送达后子区间命中；截断整文件（delivered 1-N）不覆盖整文件请求，重复整读会重跑并登记新条目；`get_file` 的 `endLine` 越界 clamp 同样 `complete=false`、未覆盖原请求。不做部分命中拼接。
+- 条目字段：`key / kind / description / requestedRange / deliveredRange / complete / contentHash / contentVersion / charCount / totalLines / hitCount / lastHitAt`；内容哈希与版本进入身份键但不参与预读查询；`runId / toolCallId / messageId` 暂不落位（Agent 桥接可后续追加）。引用单行：`Already loaded: ctx#NNN (<请求回显>; delivered <送达范围> of requested <请求范围>; complete=<bool>)`，`complete` 描述条目自身送达完整性，是否可引用由覆盖关系单独保证。
+- 审计新增可选尾键 `ledgerStats: { ledgerHits, ledgerMisses, savedCharsEstimate }`（有账本查询时在场，零工具 run 省键）。`savedCharsEstimate`：精确重复取送达字符数，覆盖子区间按请求/送达行数比例折算（`endLine = null` 用 `totalLines` 折算）。
+- 正常未命中路径渲染层未改：七工具输出逐字节不变（`toolkit.test.ts` 渲染断言与全链黄金不变）；行为缝见 `tools/ledger.test.ts`、`tools/toolkit.test.ts` 与 run 级 `review-run.test.ts`。
+
 ### P0-6：截断提示与检索结果语义修正
 
 **问题**

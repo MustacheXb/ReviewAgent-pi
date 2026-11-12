@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
-import type { LedgerEntry } from "../contracts/ledger.js";
+import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
 import type {
   CacheBreakRecord,
@@ -50,6 +50,8 @@ export interface AuditFileContent {
   readonly toolCallLog: readonly ToolCallRecord[];
   /** Context Ledger 快照（恒投影；DSH 真源键序在 toolCallLog 尾段） */
   readonly ledger?: readonly LedgerEntry[];
+  /** Context Ledger 命中统计（#56；有账本查询时在场，零工具省键） */
+  readonly ledgerStats?: LedgerStats;
   /**
    * MR 边界护栏降级留痕（#12：度量值 + 降级决策；界内缺省省键）。
    * 键序纪律：pi 线新增可选尾键，只加在 AuditFileContent 尾部
@@ -107,6 +109,7 @@ export function buildAuditFileContent(args: {
     requests: args.audit.requests,
     toolCallLog: args.audit.toolCallLog,
     ...(args.ledger !== undefined ? { ledger: args.ledger } : {}),
+    ...(args.audit.ledgerStats !== undefined ? { ledgerStats: args.audit.ledgerStats } : {}),
     ...(args.mrBoundary !== undefined ? { mrBoundary: args.mrBoundary } : {}),
     // RunAudit.stopReason 为必填（新 run 恒写）——无需条件 spread
     stopReason: args.audit.stopReason,

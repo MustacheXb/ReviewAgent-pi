@@ -132,6 +132,40 @@ describe("buildAuditFileContent", () => {
     });
   });
 
+  test("ledgerStats（#56）：有账本查询时在场，键序在 ledger 之后、mrBoundary 之前", () => {
+    const content = buildAuditFileContent({
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
+      caseId: "VUL4J-1",
+      configId: CONFIG_E,
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 1,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: {
+        ...EMPTY_AUDIT,
+        ledgerStats: { ledgerHits: 1, ledgerMisses: 2, savedCharsEstimate: 30 },
+      },
+      ledger: [],
+      mrBoundary: { files: 11, changedLines: 22, degraded: true, reason: "too-many-files" },
+    });
+    expect(Object.keys(content)).toEqual([
+      ...AUDIT_PREFIX_KEYS,
+      "ledger",
+      "ledgerStats",
+      "mrBoundary",
+      "stopReason",
+    ]);
+    expect(content.ledgerStats).toEqual({
+      ledgerHits: 1,
+      ledgerMisses: 2,
+      savedCharsEstimate: 30,
+    });
+  });
+
   test("元数据换算：ISO 时间戳与 durationMs", () => {
     const content = contentFixture();
     expect(content.startedAt).toBe("2026-09-14T18:08:46.922Z");

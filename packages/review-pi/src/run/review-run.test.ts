@@ -290,8 +290,22 @@ test("工具轮:review.get_diff 执行记账 + recall 请求(工具结果进上�
   ]);
   // 工具调用恒进 Context Ledger(读取成功后登记;E 功能态账本)
   expect(record.baseline.audit.ledger).toEqual([
-    { id: "ctx#001", kind: "evidence", description: "review.get_diff" },
+    expect.objectContaining({
+      id: "ctx#001",
+      kind: "evidence",
+      description: "review.get_diff",
+      requestedRange: null,
+      deliveredRange: null,
+      complete: true,
+      hitCount: 0,
+    }),
   ]);
+  // 一次真实读取 = 一次未命中（账本统计随审计落盘，#56）
+  expect(record.baseline.audit.ledgerStats).toEqual({
+    ledgerHits: 0,
+    ledgerMisses: 1,
+    savedCharsEstimate: 0,
+  });
 
   // recall 请求 = 上一请求 + assistant(伴随文本 + tool_calls) + tool 应答
   const audit = readAudit(auditPath);
@@ -316,6 +330,69 @@ test("工具轮:review.get_diff 执行记账 + recall 请求(工具结果进上�
     role: "tool",
     tool_call_id: "call-diff-1",
     content: ["MR unified diff:", ...diff.split("\n")].join("\n"),
+  });
+}, 120_000);
+
+test("Ledger 命中：同 run 重复 get_diff 返回引用，审计可读 ledgerStats 与命中条目", async () => {
+  const diff = goldenFixture("vul4j-1.diff");
+  const firstDiffResult = ["MR unified diff:", ...diff.split("\n")].join("\n");
+  const script = fakeFetch([
+    { text: "ok", usage: ZERO },
+    {
+      text: "Checking the diff.",
+      toolCalls: [{ id: "call-diff-1", name: "review_get_diff", arguments: {} }],
+      usage: ZERO,
+    },
+    { text: "ok", usage: ZERO },
+    {
+      text: "Checking the diff again.",
+      toolCalls: [{ id: "call-diff-2", name: "review_get_diff", arguments: {} }],
+      usage: ZERO,
+    },
+    { text: "ok", usage: ZERO },
+    { text: "ok", usage: ZERO },
+    { text: '{"candidates":[]}', usage: ZERO },
+    { text: '{"verdicts":[],"complete":true}', usage: ZERO },
+  ]);
+  const { record, auditPath } = await runReview({
+    caseId: "VUL4J-1",
+    repoPath: repoFixturePath("sample"),
+    diff,
+    issueDescription: "Ledger hit MR under review.",
+    apiKey: "offline-test",
+    fetch: script.fetch,
+    runsRoot: tempRunsRoot(),
+    experimentId: "phase2-smoke",
+    rep: 1,
+  });
+
+  // 首次真实读取 + 第二次引用：1 miss / 1 hit；节省字符 = 首次送达长度
+  expect(record.baseline.audit.ledgerStats).toEqual({
+    ledgerHits: 1,
+    ledgerMisses: 1,
+    savedCharsEstimate: firstDiffResult.length,
+  });
+  const entries = record.baseline.audit.ledger ?? [];
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({
+    id: "ctx#001",
+    kind: "evidence",
+    description: "review.get_diff",
+    requestedRange: null,
+    deliveredRange: null,
+    complete: true,
+    hitCount: 1,
+    charCount: firstDiffResult.length,
+  });
+  expect(entries[0]?.lastHitAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  expect(record.baseline.audit.toolCallLog[1]?.resultSummary).toBe(
+    "Already loaded: ctx#001 (review.get_diff; delivered whole result of requested whole result; complete=true)",
+  );
+  // 审计文件与 RunRecord 同源
+  expect(readAudit(auditPath).ledgerStats).toEqual({
+    ledgerHits: 1,
+    ledgerMisses: 1,
+    savedCharsEstimate: firstDiffResult.length,
   });
 }, 120_000);
 

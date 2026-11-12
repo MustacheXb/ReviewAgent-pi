@@ -38,8 +38,8 @@ test("get_diff：diff 原文带 header 行返回", async () => {
 });
 
 test("get_file：整读带行号前缀；区间读取带 Lines 头", async () => {
-  const tk = toolkit();
-  const whole = await tk.executeTool("review.get_file", {
+  // 渲染路径断言用独立 toolkit（同一账本内整读后子区间会命中引用，#56）
+  const whole = await toolkit().executeTool("review.get_file", {
     path: "src/main/java/com/example/Alpha.java",
   });
   const lines = whole.split("\n");
@@ -48,7 +48,7 @@ test("get_file：整读带行号前缀；区间读取带 Lines 头", async () =>
   expect(lines[2]).toBe(" 1 | package com.example;");
   expect(lines.at(-1)).toMatch(/^18 | \}$/);
 
-  const slice = await tk.executeTool("review.get_file", {
+  const slice = await toolkit().executeTool("review.get_file", {
     path: "src/main/java/com/example/Alpha.java",
     startLine: 11,
     endLine: 13,
@@ -212,14 +212,14 @@ test("预算：默认 8000 字符；超预算行边界截断并留痕", async ()
   expect(lines.slice(0, -1).every((line) => original.includes(line))).toBe(true);
 });
 
-test("Ledger 功能态：精确重复命中引用、不同请求不命中、失败不登记", async () => {
+test("Ledger 送达感知：精确重复命中引用、不同请求不命中、失败不登记", async () => {
   const tk = toolkit();
   const args = { path: "src/main/java/com/example/Alpha.java", startLine: 11, endLine: 13 };
   const first = await tk.executeTool("review.get_file", args);
   expect(first).toContain("Lines 11-13 of 18");
-  // 精确重复（规范化请求标识相同）→ 引用而非原文
+  // 精确重复（规范化请求标识相同）→ 引用而非原文（含请求/送达范围与 complete）
   await expect(tk.executeTool("review.get_file", args)).resolves.toBe(
-    "Already loaded: ctx#001 (review.get_file src/main/java/com/example/Alpha.java:11-13)",
+    "Already loaded: ctx#001 (review.get_file src/main/java/com/example/Alpha.java:11-13; delivered lines 11-13 of requested lines 11-13; complete=true)",
   );
   // 不同区间（即使内容重叠）不命中——新登记
   const second = await tk.executeTool("review.get_file", {
@@ -234,7 +234,9 @@ test("Ledger 功能态：精确重复命中引用、不同请求不命中、失�
       startLine: 11,
       endLine: 14,
     }),
-  ).resolves.toBe("Already loaded: ctx#002 (review.get_file src/main/java/com/example/Alpha.java:11-14)");
+  ).resolves.toBe(
+    "Already loaded: ctx#002 (review.get_file src/main/java/com/example/Alpha.java:11-14; delivered lines 11-14 of requested lines 11-14; complete=true)",
+  );
   // 读取失败不登记（重试仍走真实读取路径，错误形态不变）
   await expect(tk.executeTool("review.get_file", { path: "no/such/file.java" })).rejects.toThrow(
     /cannot be read/,
@@ -242,19 +244,112 @@ test("Ledger 功能态：精确重复命中引用、不同请求不命中、失�
   await expect(tk.executeTool("review.get_file", { path: "no/such/file.java" })).rejects.toThrow(
     /cannot be read/,
   );
-  // 快照形态（审计留痕口径）
-  expect(tk.ledger.snapshot()).toEqual([
+  // 快照形态（审计留痕口径：请求/送达范围 + complete + 命中计数）
+  expect(
+    tk.ledger.snapshot().map((entry) => ({
+      id: entry.id,
+      kind: entry.kind,
+      description: entry.description,
+      requestedRange: entry.requestedRange,
+      deliveredRange: entry.deliveredRange,
+      complete: entry.complete,
+      hitCount: entry.hitCount,
+    })),
+  ).toEqual([
     {
       id: "ctx#001",
       kind: "range",
       description: "review.get_file src/main/java/com/example/Alpha.java:11-13",
+      requestedRange: { startLine: 11, endLine: 13 },
+      deliveredRange: { startLine: 11, endLine: 13 },
+      complete: true,
+      hitCount: 1,
     },
     {
       id: "ctx#002",
       kind: "range",
       description: "review.get_file src/main/java/com/example/Alpha.java:11-14",
+      requestedRange: { startLine: 11, endLine: 14 },
+      deliveredRange: { startLine: 11, endLine: 14 },
+      complete: true,
+      hitCount: 1,
     },
   ]);
+  // 命中统计：2 次命中；未命中 = 2 次首读 + 2 次失败读取
+  const stats = tk.ledger.stats();
+  expect(stats.ledgerHits).toBe(2);
+  expect(stats.ledgerMisses).toBe(4);
+  expect(stats.savedCharsEstimate).toBeGreaterThan(0);
+});
+
+test("Ledger 送达感知：整文件完整送达后子区间命中并标注覆盖关系", async () => {
+  const tk = toolkit();
+  const whole = { path: "src/main/java/com/example/Alpha.java" };
+  await tk.executeTool("review.get_file", whole);
+  await expect(
+    tk.executeTool("review.get_file", { ...whole, startLine: 11, endLine: 13 }),
+  ).resolves.toBe(
+    "Already loaded: ctx#001 (review.get_file src/main/java/com/example/Alpha.java:11-13; delivered lines 1-end of requested lines 11-13; complete=true)",
+  );
+  // 起点越过文件尾：整文件送达不覆盖 → 未命中，真实读取照常报 beyond end of file
+  await expect(
+    tk.executeTool("review.get_file", { ...whole, startLine: 999 }),
+  ).rejects.toThrow(/requested start line 999 is beyond end of file/);
+});
+
+test("Ledger 送达感知：endLine 越界 clamp 不覆盖原请求；实际送达子区间命中且 complete=false", async () => {
+  const tk = toolkit();
+  const clampedArgs = { path: "src/main/java/com/example/Alpha.java", startLine: 15, endLine: 99 };
+  const clamped = await tk.executeTool("review.get_file", clampedArgs);
+  expect(clamped).toContain("(requested end line 99 clamped to end of file)");
+  // 同一 clamp 请求未被覆盖 → 未命中，重读同字节
+  await expect(tk.executeTool("review.get_file", clampedArgs)).resolves.toBe(clamped);
+  // 实际送达区间（15-18）命中，引用如实标注 complete=false
+  await expect(
+    tk.executeTool("review.get_file", {
+      path: "src/main/java/com/example/Alpha.java",
+      startLine: 15,
+      endLine: 18,
+    }),
+  ).resolves.toBe(
+    "Already loaded: ctx#001 (review.get_file src/main/java/com/example/Alpha.java:15-18; delivered lines 15-18 of requested lines 15-18; complete=false)",
+  );
+});
+
+test("Ledger 送达感知：截断读取不冒充整文件；已送达子区间命中且 complete=false", async () => {
+  const tk = toolkit({ resultBudgetChars: 100 });
+  const whole = { path: "src/main/java/com/example/Alpha.java" };
+  const truncated = await tk.executeTool("review.get_file", whole);
+  expect(truncated).toContain("Tool result truncated");
+  const entry = tk.ledger.snapshot()[0];
+  expect(entry?.complete).toBe(false);
+  const deliveredEnd = entry?.deliveredRange?.endLine;
+  if (deliveredEnd === undefined || deliveredEnd === null) {
+    throw new Error("expected a concrete delivered range on the truncated read");
+  }
+  expect(deliveredEnd).toBeLessThan(18);
+
+  // 整文件请求未被完整覆盖 → 未命中，重新执行（输出与首次逐字节一致）
+  await expect(tk.executeTool("review.get_file", whole)).resolves.toBe(truncated);
+  // 已送达前缀内的子区间 → 命中；引用如实标注 complete=false
+  await expect(
+    tk.executeTool("review.get_file", { ...whole, startLine: 1, endLine: deliveredEnd }),
+  ).resolves.toBe(
+    `Already loaded: ctx#001 (review.get_file src/main/java/com/example/Alpha.java:1-${deliveredEnd}; delivered lines 1-${deliveredEnd} of requested lines 1-${deliveredEnd}; complete=false)`,
+  );
+});
+
+test("Ledger 送达感知：整结果工具完整送达命中；截断结果不命中且重读字节不变", async () => {
+  const tk = toolkit();
+  await tk.executeTool("review.get_diff", {});
+  await expect(tk.executeTool("review.get_diff", {})).resolves.toBe(
+    "Already loaded: ctx#001 (review.get_diff; delivered whole result of requested whole result; complete=true)",
+  );
+
+  const small = toolkit({ resultBudgetChars: 20 });
+  const truncated = await small.executeTool("review.get_diff", {});
+  expect(truncated).toContain("Tool result truncated");
+  await expect(small.executeTool("review.get_diff", {})).resolves.toBe(truncated);
 });
 
 test("Ledger 功能态：整读（file）与区间读（range）分属不同登记；get_diff 登记为 evidence", async () => {
@@ -262,16 +357,29 @@ test("Ledger 功能态：整读（file）与区间读（range）分属不同登�
   await tk.executeTool("review.get_file", { path: "src/main/java/com/example/Alpha.java" });
   await tk.executeTool("review.get_diff", {});
   await expect(tk.executeTool("review.get_diff", {})).resolves.toBe(
-    "Already loaded: ctx#002 (review.get_diff)",
+    "Already loaded: ctx#002 (review.get_diff; delivered whole result of requested whole result; complete=true)",
   );
   expect(tk.ledger.snapshot().map((entry) => entry.kind)).toEqual(["file", "evidence"]);
+  expect(tk.ledger.snapshot()[0]?.deliveredRange).toEqual({ startLine: 1, endLine: null });
 });
 
-test("Ledger 原语：未登记不命中；register 后命中引用格式（去重单源）", async () => {
-  const functional = createContextLedger();
-  expect(functional.referenceIfLoaded("file", "x")).toBeUndefined();
-  functional.register("file", "x");
-  expect(functional.referenceIfLoaded("file", "x")).toBe("Already loaded: ctx#001 (x)");
+test("Ledger 原语：未登记不命中；register 后命中引用格式（去重单源）", () => {
+  const ledger = createContextLedger();
+  const request = {
+    kind: "file",
+    resourceKey: "review.get_file x",
+    description: "review.get_file x",
+    requestedRange: { startLine: 1, endLine: null },
+  } as const;
+  expect(ledger.referenceIfLoaded(request)).toBeUndefined();
+  ledger.register(request, {
+    content: "body",
+    deliveredRange: { startLine: 1, endLine: null },
+    complete: true,
+  });
+  expect(ledger.referenceIfLoaded(request)).toBe(
+    "Already loaded: ctx#001 (review.get_file x; delivered lines 1-end of requested lines 1-end; complete=true)",
+  );
 });
 
 test("executeTool：未知名为有界错误；schema 面固定七工具", async () => {

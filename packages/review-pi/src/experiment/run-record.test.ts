@@ -111,6 +111,38 @@ describe("toAuditLight", () => {
     const light = toAuditLight(historical as unknown as RunAudit);
     expect("stopReason" in light).toBe(false);
   });
+
+  test("ledgerStats（#56）：有账本查询时键序在 ledger 之后、stopReason 之前", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      ledger: [
+        {
+          id: "ctx#001",
+          kind: "evidence",
+          description: "review.get_diff",
+          key: "evidence review.get_diff whole abc",
+          requestedRange: null,
+          deliveredRange: null,
+          complete: true,
+          contentHash: "abc",
+          charCount: 10,
+          hitCount: 1,
+          lastHitAt: "2026-11-12T00:00:00.000Z",
+        },
+      ],
+      ledgerStats: { ledgerHits: 1, ledgerMisses: 1, savedCharsEstimate: 10 },
+    });
+    expect(Object.keys(light)).toEqual([
+      "toolCallLog",
+      "phaseLog",
+      "rejections",
+      "truncated",
+      "truncationReasons",
+      "ledger",
+      "ledgerStats",
+      "stopReason",
+    ]);
+  });
 });
 
 describe("toRunSnapshot", () => {

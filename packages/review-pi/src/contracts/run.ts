@@ -2,7 +2,7 @@
 // 历史记录读面据此保持可读）。随模块落地逐步补齐。
 
 import type { Finding } from "./finding.js";
-import type { LedgerEntry } from "./ledger.js";
+import type { LedgerEntry, LedgerStats } from "./ledger.js";
 import type { LlmUsage, ToolSchema, WireMessage } from "./llm.js";
 
 /** 六阶段名（固定顺序；phaseLog 留痕用） */
@@ -116,6 +116,11 @@ export interface RunAudit {
   readonly truncationReasons: readonly string[];
   /** Context Ledger 快照（E 恒投影——含零工具调用的空数组形态） */
   readonly ledger?: readonly LedgerEntry[];
+  /**
+   * Context Ledger 命中统计（#56 / ADR-0018 §4）：有账本查询时在场；
+   * 零工具 run 省键（不落第二份请求计数——requests/attempts 仍从既有日志派生）。
+   */
+  readonly ledgerStats?: LedgerStats;
   /** 停止原因（新 run 恒写；ADR-0018 §2.4） */
   readonly stopReason: StopReason;
 }

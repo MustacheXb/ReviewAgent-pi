@@ -1,5 +1,11 @@
+import type { LedgerDelivery } from "../contracts/ledger.js";
 import type { ReviewToolHandler, ToolRunContext } from "./toolkit-types.js";
-import { readThroughLedger } from "./ledger.js";
+import {
+  completeWholeResultDelivery,
+  readThroughLedger,
+  wholeResultDelivery,
+  wholeResultRequest,
+} from "./ledger.js";
 import { applyLineBudget } from "./result-budget.js";
 import { requireStringArg } from "./args.js";
 import type { JavaSymbol } from "../zoneb/symbols.js";
@@ -21,14 +27,13 @@ export const getSymbolTool: ReviewToolHandler = async (args, context): Promise<s
   const name = requireStringArg("review.get_symbol", args, "symbol");
   return readThroughLedger(
     context.ledger,
-    "symbol",
-    `review.get_symbol "${name}"`,
+    wholeResultRequest("symbol", `review.get_symbol "${name}"`),
     async () => renderSymbolLookup(name, context),
   );
 };
 
 /** 真实读取路径：全仓符号索引扫描 + 签名渲染（含零命中显式留痕） */
-async function renderSymbolLookup(name: string, context: ToolRunContext): Promise<string> {
+async function renderSymbolLookup(name: string, context: ToolRunContext): Promise<LedgerDelivery> {
   const repo = await context.repo();
   const lines: string[] = [];
   let matchCount = 0;
@@ -66,7 +71,7 @@ async function renderSymbolLookup(name: string, context: ToolRunContext): Promis
     );
   }
   if (matchCount === 0) {
-    return header.join("\n");
+    return completeWholeResultDelivery(header.join("\n"));
   }
   const budget = applyLineBudget(
     [...header, ...lines],
@@ -74,7 +79,7 @@ async function renderSymbolLookup(name: string, context: ToolRunContext): Promis
     (shown, total) =>
       `Tool result truncated: showing ${shown} of ${total} result lines (tool result budget ${context.resultBudgetChars} chars exceeded).`,
   );
-  return budget.lines.join("\n");
+  return wholeResultDelivery(budget.lines.join("\n"), budget);
 }
 
 /** 递归收集名字命中的符号（文档顺序） */

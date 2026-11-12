@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { HistoricalConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
-import type { LedgerEntry } from "../contracts/ledger.js";
+import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
 import type {
   CacheBreakRecord,
@@ -43,6 +43,8 @@ export interface AuditLight {
   readonly truncationReasons: readonly string[];
   /** Context Ledger 快照（恒投影——零工具调用为空数组） */
   readonly ledger?: readonly LedgerEntry[];
+  /** Context Ledger 命中统计（#56；有账本查询时在场） */
+  readonly ledgerStats?: LedgerStats;
   /** 停止原因（#53 / ADR-0018 §2.4）：新记录恒写；历史记录缺键按 MODEL_COMPLETE 解释 */
   readonly stopReason?: StopReason;
 }
@@ -104,6 +106,7 @@ export function toAuditLight(audit: RunAudit): AuditLight {
     truncated: audit.truncated,
     truncationReasons: audit.truncationReasons,
     ...(audit.ledger !== undefined ? { ledger: audit.ledger } : {}),
+    ...(audit.ledgerStats !== undefined ? { ledgerStats: audit.ledgerStats } : {}),
     ...(audit.stopReason !== undefined ? { stopReason: audit.stopReason } : {}),
   };
 }

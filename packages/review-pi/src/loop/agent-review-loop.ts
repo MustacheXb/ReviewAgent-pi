@@ -362,6 +362,10 @@ export async function runAgentReviewLoop(
     );
   }
 
+  // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）；
+  // 命中统计只在确有账本查询时落键（零工具 run 审计字节不变，#56）。
+  const ledger = inputs.toolkit.ledger.snapshot();
+  const ledgerStats = inputs.toolkit.ledger.stats();
   const audit: RunAudit = {
     requests,
     toolCallLog,
@@ -370,8 +374,8 @@ export async function runAgentReviewLoop(
     cacheBreaks: classifyCacheBreaks(requests),
     truncated,
     truncationReasons,
-    // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）
-    ledger: inputs.toolkit.ledger.snapshot(),
+    ledger,
+    ...(ledgerStats.ledgerHits + ledgerStats.ledgerMisses > 0 ? { ledgerStats } : {}),
     // 兜底：模型未声明 complete、也未触达轮次上界即停止（ADR-0018 §2.4
     // 的 MODEL_STOPPED）；正常路径均在 advancePhase 里显式赋值。
     stopReason: stopReason ?? "MODEL_STOPPED",
