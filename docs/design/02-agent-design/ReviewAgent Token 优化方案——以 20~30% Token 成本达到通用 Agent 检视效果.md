@@ -1211,6 +1211,14 @@ flowchart TD
 
 实验环境启用候选预算，生产先保留安全上界。
 
+**落地记录（#53，2026-11-12）**
+
+- 预算载体收敛为内核内部输入 `ReviewBudget`（`packages/review-pi/src/loop/budget.ts`），命名以 ADR-0018 为准：`maxRequests` / `maxRounds` / `maxExecutedToolCalls` / `maxToolAttempts` / `maxOutputTokens`；缺省 24 / 5 / 6 / 12 / 48,000 为安全上界。只经 `runReview` 内部输入注入，协议 v3、CLI 参数与环境变量零新增。
+- #53 只落地注入面与计数：`maxRounds` 与 `maxExecutedToolCalls` 在既有收口点生效（原 `MAX_ROUNDS` / `MAX_TOOL_CALLS` 常量并入缺省档）；`maxRequests` / `maxToolAttempts` / `maxOutputTokens` 的收口语义分别由 #55、#54、#55 落地。
+- 审计新增可选 `stopReason`（审计顶层与 RunRecord `AuditLight` 尾部），新 run 恒写；#53 先产出 `MODEL_COMPLETE` / `MAX_ROUNDS_REACHED`，其余枚举值随 #54 / #55 在各自收口点写入。历史记录缺键按 `MODEL_COMPLETE` 解释，不回填、不改写。
+- requests / attempted / executed / skipped 不新增审计计数器：继续由 `phaseLog` 与 `toolCallLog` 派生（ADR-0018 §1），分析器口径不变。
+- 未触发预算的 run 与基线 wireBody 逐字节一致（行为缝测试锁定）。
+
 ### P0-4：处理空知识工具
 
 **问题**

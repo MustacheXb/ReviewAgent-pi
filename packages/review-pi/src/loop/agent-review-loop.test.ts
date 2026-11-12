@@ -10,12 +10,11 @@ import { buildReviewToolkit } from "../tools/toolkit.js";
 import type { LlmMessage } from "../contracts/llm.js";
 import type { WireMessage } from "../contracts/llm.js";
 import {
-  MAX_TOOL_CALLS,
-  MAX_ROUNDS,
   TOOL_BUDGET_EXHAUSTED_SUMMARY,
   TRUNCATION_MAX_ROUNDS,
   TRUNCATION_TOOL_BUDGET,
 } from "./constants.js";
+import { DEFAULT_REVIEW_BUDGET } from "./budget.js";
 import { PHASE_COUNT, PHASE_INSTRUCTIONS } from "./phases.js";
 import { runAgentReviewLoop } from "./agent-review-loop.js";
 
@@ -119,8 +118,9 @@ function scriptedLoop(replies: readonly FakeReply[], initial = INITIAL): Scripte
   return { run, requestUrls: script.requests.map((request) => request.url) };
 }
 
-test("循环常量与 DSH 线一致（工具预算 + 截断原因 + 预算耗尽应答字节）", () => {
-  expect(MAX_TOOL_CALLS).toBe(6);
+test("预算缺省与 DSH 线一致（五类安全上界 + 截断原因 + 预算耗尽应答字节）", () => {
+  expect(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls).toBe(6);
+  expect(DEFAULT_REVIEW_BUDGET.maxRounds).toBe(5);
   expect(TRUNCATION_TOOL_BUDGET).toBe("TOOL_BUDGET_EXHAUSTED");
   expect(TOOL_BUDGET_EXHAUSTED_SUMMARY).toBe("Error: tool call budget exhausted");
 });
@@ -244,7 +244,7 @@ test("协议完备性：assistant tool_calls 后紧跟覆盖全部 id 的 tool �
 test("预算耗尽：第 7+ 次调用获 Error 应答、计数留痕、截断原因单列但不翻转 truncated", async () => {
   // 预算批用互异区间（get_file 不同 start/end）——账本恒功能态（E 语义：
   // 同一规范化请求重复调用命中去重返回引用），互异请求才能真实执行满预算
-  const budgetCalls = Array.from({ length: MAX_TOOL_CALLS }, (_, index) => ({
+  const budgetCalls = Array.from({ length: DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls }, (_, index) => ({
     id: `call-e${index}`,
     name: "review_get_file",
     args: { path: "src/main/java/com/example/Alpha.java", startLine: 1, endLine: 1 + index },
@@ -269,17 +269,19 @@ test("预算耗尽：第 7+ 次调用获 Error 应答、计数留痕、截断原
   const outcome = await run();
 
   expect(outcome.complete).toBe(true);
-  expect(outcome.toolCalls).toBe(MAX_TOOL_CALLS);
+  expect(outcome.toolCalls).toBe(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls);
   expect(outcome.audit.truncated).toBe(false);
   expect(outcome.audit.truncationReasons).toEqual([TRUNCATION_TOOL_BUDGET]);
 
   // toolCallLog：6 条执行（真实读取，非预算拒绝）+ 2 条 Error 跳过（批序）
   const log = outcome.audit.toolCallLog;
-  expect(log).toHaveLength(MAX_TOOL_CALLS + overflowCalls.length);
+  expect(log).toHaveLength(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls + overflowCalls.length);
   expect(
-    log.slice(0, MAX_TOOL_CALLS).every((entry) => entry.resultSummary !== TOOL_BUDGET_EXHAUSTED_SUMMARY),
+    log
+      .slice(0, DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls)
+      .every((entry) => entry.resultSummary !== TOOL_BUDGET_EXHAUSTED_SUMMARY),
   ).toBe(true);
-  expect(log.slice(MAX_TOOL_CALLS)).toEqual([
+  expect(log.slice(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls)).toEqual([
     { name: "review.get_diff", argumentsJson: "{}", resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY },
     { name: "review.get_diff", argumentsJson: "{}", resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY },
   ]);
@@ -300,7 +302,7 @@ test("轮次上界：complete 恒 false → rounds=5、truncated=true、正常�
   const verdicts = '{"verdicts":[{"id":"F001","pass":true,"reason":"ok"}],"complete":false}';
   const replies: FakeReply[] = [];
   let index = 0;
-  for (let round = 1; round <= MAX_ROUNDS; round++) {
+  for (let round = 1; round <= DEFAULT_REVIEW_BUDGET.maxRounds; round++) {
     for (let phaseIndex = 0; phaseIndex < PHASE_COUNT; phaseIndex++) {
       const text = phaseIndex === 5 ? verdicts : phaseText(phaseIndex);
       replies.push(textReply(text, index));
@@ -311,14 +313,14 @@ test("轮次上界：complete 恒 false → rounds=5、truncated=true、正常�
   const outcome = await run();
 
   expect(outcome.complete).toBe(false);
-  expect(outcome.rounds).toBe(MAX_ROUNDS);
+  expect(outcome.rounds).toBe(DEFAULT_REVIEW_BUDGET.maxRounds);
   expect(outcome.audit.truncated).toBe(true);
   expect(outcome.audit.truncationReasons).toEqual([TRUNCATION_MAX_ROUNDS]);
-  expect(outcome.audit.requests).toHaveLength(MAX_ROUNDS * PHASE_COUNT);
-  expect(outcome.audit.phaseLog).toHaveLength(MAX_ROUNDS * PHASE_COUNT);
+  expect(outcome.audit.requests).toHaveLength(DEFAULT_REVIEW_BUDGET.maxRounds * PHASE_COUNT);
+  expect(outcome.audit.phaseLog).toHaveLength(DEFAULT_REVIEW_BUDGET.maxRounds * PHASE_COUNT);
   // 每轮各产出 1 条 finding（同 id 跨轮去重：首轮后 DUPLICATE_ID 拒绝）
   expect(outcome.findings).toHaveLength(1);
-  expect(outcome.audit.rejections).toHaveLength(MAX_ROUNDS - 1);
+  expect(outcome.audit.rejections).toHaveLength(DEFAULT_REVIEW_BUDGET.maxRounds - 1);
   expect(outcome.audit.rejections.every((entry) => entry.stage === "DUPLICATE_ID")).toBe(true);
 });
 

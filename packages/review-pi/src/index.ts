@@ -15,6 +15,11 @@ export {
   type ReviewRunResult,
   type ReviewRunProgress,
 } from "./run/review-run.js";
+// #53 / ADR-0018：预算只经 runReview 内部输入注入（不进入协议 / CLI / 环境
+// 变量）；类型升公开面以便执行缝与评测线做受控消融。StopReason 为审计 /
+// AuditLight 的新可选键类型。
+export type { ReviewBudget, ReviewBudgetOverride } from "./loop/budget.js";
+export type { StopReason } from "./contracts/run.js";
 export type {
   AuditLight,
   RunRecord,

@@ -10,6 +10,7 @@ import type {
   PhaseRecord,
   RunAudit,
   RunResult,
+  StopReason,
   ToolCallRecord,
 } from "../contracts/run.js";
 
@@ -42,6 +43,8 @@ export interface AuditLight {
   readonly truncationReasons: readonly string[];
   /** Context Ledger 快照（恒投影——零工具调用为空数组） */
   readonly ledger?: readonly LedgerEntry[];
+  /** 停止原因（#53 / ADR-0018 §2.4）：新记录恒写；历史记录缺键按 MODEL_COMPLETE 解释 */
+  readonly stopReason?: StopReason;
 }
 
 /** RunResult 快照（audit 以轻量投影落盘） */
@@ -101,6 +104,7 @@ export function toAuditLight(audit: RunAudit): AuditLight {
     truncated: audit.truncated,
     truncationReasons: audit.truncationReasons,
     ...(audit.ledger !== undefined ? { ledger: audit.ledger } : {}),
+    ...(audit.stopReason !== undefined ? { stopReason: audit.stopReason } : {}),
   };
 }
 

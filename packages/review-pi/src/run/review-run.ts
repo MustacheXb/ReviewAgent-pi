@@ -6,6 +6,7 @@ import type { LlmMessage } from "../contracts/llm.js";
 import { ReviewAbortedError, type RunResult, type ReviewRunProgress } from "../contracts/run.js";
 import { buildRunRecord, writeRunRecord, type RunRecord } from "../experiment/run-record.js";
 import { runAgentReviewLoop } from "../loop/agent-review-loop.js";
+import type { ReviewBudgetOverride } from "../loop/budget.js";
 import { buildInitialUserMessage } from "../loop/messages.js";
 import { LOCKED_EFFORT_LABEL, REVIEW_MODEL_ID } from "../provider/pi-client.js";
 import { buildReviewToolkit } from "../tools/toolkit.js";
@@ -50,6 +51,12 @@ export interface ReviewRunInput {
   /** 实验标识（目录名，如 "phase2-smoke"） */
   readonly experimentId: string;
   readonly rep: number;
+  /**
+   * 预算覆盖（#53 / ADR-0018 §1）：内核内部输入，只供评测线的受控消融使用。
+   * 不进入协议字段、CLI 参数或环境变量；缺省字段取安全上界
+   * （24 请求 / 5 轮 / 6 执行 / 12 尝试 / 48k 输出）。
+   */
+  readonly budget?: ReviewBudgetOverride;
   /**
    * 记录落盘开关（#8 runner 执行缝）：缺省 true（内核自写 RunRecord——
    * CLI / e2e 直跑形态）；false = 执行缝模式——runner 是记录唯一写者，
@@ -114,6 +121,7 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
     ...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
     fetch: input.fetch,
+    ...(input.budget !== undefined ? { budget: input.budget } : {}),
     ...(input.signal !== undefined ? { signal: input.signal } : {}),
     ...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
   });

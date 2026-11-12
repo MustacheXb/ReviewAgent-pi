@@ -10,6 +10,7 @@ import type {
   MrBoundaryRecord,
   PhaseRecord,
   RunAudit,
+  StopReason,
   ToolCallRecord,
   WireRequest,
 } from "../contracts/run.js";
@@ -55,6 +56,11 @@ export interface AuditFileContent {
    * （同 ledger 先例）。
    */
   readonly mrBoundary?: MrBoundaryRecord;
+  /**
+   * 停止原因（#53 / ADR-0018 §2.4）：新 run 恒写（含 MODEL_COMPLETE）；
+   * schema 可选只为历史审计文件读取兼容。
+   */
+  readonly stopReason?: StopReason;
 }
 
 /** runId：毫秒时间戳 + 配置 + 用例，文件名安全 */
@@ -102,6 +108,8 @@ export function buildAuditFileContent(args: {
     toolCallLog: args.audit.toolCallLog,
     ...(args.ledger !== undefined ? { ledger: args.ledger } : {}),
     ...(args.mrBoundary !== undefined ? { mrBoundary: args.mrBoundary } : {}),
+    // RunAudit.stopReason 为必填（新 run 恒写）——无需条件 spread
+    stopReason: args.audit.stopReason,
   };
 }
 

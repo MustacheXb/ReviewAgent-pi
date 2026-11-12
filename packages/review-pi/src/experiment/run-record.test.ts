@@ -28,6 +28,7 @@ const AUDIT: RunAudit = {
   cacheBreaks: [],
   truncated: false,
   truncationReasons: [],
+  stopReason: "MODEL_COMPLETE",
 };
 
 const RUN_RESULT: RunResult = {
@@ -82,7 +83,7 @@ function recordFixture(): RunRecord {
 }
 
 describe("toAuditLight", () => {
-  test("键序与 DSH AuditLight 一致；空 cacheBreaks 省键，非空保留", () => {
+  test("键序与 DSH AuditLight 一致；空 cacheBreaks 省键，非空保留；stopReason 恒写于尾部", () => {
     const light = toAuditLight(AUDIT);
     expect(Object.keys(light)).toEqual([
       "toolCallLog",
@@ -90,7 +91,9 @@ describe("toAuditLight", () => {
       "rejections",
       "truncated",
       "truncationReasons",
+      "stopReason",
     ]);
+    expect(light.stopReason).toBe("MODEL_COMPLETE");
 
     const withBreaks = toAuditLight({
       ...AUDIT,
@@ -100,6 +103,13 @@ describe("toAuditLight", () => {
     });
     expect(Object.keys(withBreaks)).toContain("cacheBreaks");
     expect(withBreaks.cacheBreaks).toHaveLength(1);
+  });
+
+  test("历史记录兼容：AuditLight 缺 stopReason 时省键（不回填 MODEL_COMPLETE）", () => {
+    const historical = { ...AUDIT } as Record<string, unknown>;
+    delete historical.stopReason;
+    const light = toAuditLight(historical as unknown as RunAudit);
+    expect("stopReason" in light).toBe(false);
   });
 });
 

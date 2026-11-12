@@ -10,6 +10,7 @@ import {
   type PhaseRecord,
   type ReviewRunProgress,
   type RunAudit,
+  type StopReason,
   type ToolCallRecord,
   type WireRequest,
 } from "../contracts/run.js";
@@ -22,9 +23,8 @@ import {
 } from "../provider/pi-client.js";
 import { addUsage, piUsageToLlmUsage, ZERO_USAGE } from "../provider/usage-map.js";
 import { classifyCacheBreaks } from "./cache-break.js";
+import { resolveReviewBudget, type ReviewBudgetOverride } from "./budget.js";
 import {
-  MAX_ROUNDS,
-  MAX_TOOL_CALLS,
   TOOL_BUDGET_EXHAUSTED_SUMMARY,
   TRUNCATION_MAX_ROUNDS,
   TRUNCATION_TOOL_BUDGET,
@@ -65,6 +65,11 @@ export interface AgentReviewLoopInputs {
   /** 传输层注入；离线测试恒注入 fake 适配器 */
   readonly fetch?: FetchFunction;
   /**
+   * 预算覆盖（#53 / ADR-0018 §1）：内核内部输入，不进入协议 / CLI / 环境
+   * 变量；缺席字段取 `DEFAULT_REVIEW_BUDGET` 安全上界。
+   */
+  readonly budget?: ReviewBudgetOverride;
+  /**
    * 取消信号（#23 S2 缝）：abort → agent.abort()（pi 内核取消面，spec #21
    * §6 / ADR-0012 决策 4）；prompt 返回后 signal 已中止 → 上抛
    * ReviewAbortedError。fake 适配器不感知 signal——shouldStopAfterTurn
@@ -97,6 +102,10 @@ export async function runAgentReviewLoop(
   if (inputs.signal?.aborted) {
     throw new ReviewAbortedError();
   }
+  // 预算解析单点（#53）：缺省 + 覆盖 → 生效预算；非法覆盖在此显式抛错。
+  // #53 只接线 maxRounds / maxExecutedToolCalls 的既有收口点；maxRequests /
+  // maxToolAttempts / maxOutputTokens 的收口语义分别由 #55 / #54 / #55 落地。
+  const budget = resolveReviewBudget(inputs.budget);
   // 审计累积面（run 内顺序单写；产出时整体冻结为 readonly 投影）
   const requests: WireRequest[] = [];
   const toolCallLog: ToolCallRecord[] = [];
@@ -116,6 +125,9 @@ export async function runAgentReviewLoop(
   let emittedIds: ReadonlySet<string> = new Set();
   let truncated = false;
   let complete = false;
+  // 停止原因（#53 / ADR-0018 §2.4）：新 run 恒写；模型完成与轮次上界在此
+  // 骨架先落地，其余枚举值由后续批次（#54/#55）在各自收口点写入。
+  let stopReason: StopReason | undefined;
 
   const agentTools: AgentTool[] = inputs.toolkit.schemas.map((schema) => {
     const parameters = JSON.parse(schema.parametersJson) as Record<string, unknown>;
@@ -129,7 +141,7 @@ export async function runAgentReviewLoop(
       execute: async (_toolCallId, params) => {
         const args = params as Record<string, unknown>;
         const argumentsJson = JSON.stringify(args);
-        if (executedToolCalls >= MAX_TOOL_CALLS) {
+        if (executedToolCalls >= budget.maxExecutedToolCalls) {
           phaseSkippedToolCalls += 1;
           appendReason(truncationReasons, TRUNCATION_TOOL_BUDGET);
           toolCallLog.push({
@@ -255,6 +267,9 @@ export async function runAgentReviewLoop(
     truncationReasons,
     // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）
     ledger: inputs.toolkit.ledger.snapshot(),
+    // 兜底：模型未声明 complete、也未触达轮次上界即停止（ADR-0018 §2.4
+    // 的 MODEL_STOPPED）；正常路径均在 advancePhase 里显式赋值。
+    stopReason: stopReason ?? "MODEL_STOPPED",
   };
   return { findings, usage, rounds: round, toolCalls: executedToolCalls, complete, audit };
 
@@ -295,11 +310,13 @@ export async function runAgentReviewLoop(
     emittedIds = gate.emittedIds;
     complete = roundComplete;
     if (complete) {
+      stopReason = "MODEL_COMPLETE";
       return true;
     }
-    if (round >= MAX_ROUNDS) {
+    if (round >= budget.maxRounds) {
       truncated = true;
       appendReason(truncationReasons, TRUNCATION_MAX_ROUNDS);
+      stopReason = "MAX_ROUNDS_REACHED";
       return true;
     }
     round += 1;

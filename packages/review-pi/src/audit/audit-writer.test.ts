@@ -10,7 +10,7 @@ import { buildAuditFileContent, buildRunId, writeAuditFile, type AuditFileConten
 // 逐键一致（E 主相位序列为真源口径），requests[] = onPayload 序列化点捕获
 // （model/effort/messages/tools/wireBody）。历史 B/C 尾键（prefetch /
 // fullRepo）已随研究装置根除（#32 / ADR-0014）——键序冻结面由本文件的
-// 字面 AUDIT_KEYS 列表单源锁定（t-series runs/ 对照随研究线退役）。
+// 字面 AUDIT_PREFIX_KEYS 列表单源锁定（t-series runs/ 对照随研究线退役）。
 
 const STARTED = new Date("2026-09-14T18:08:46.922Z");
 const FINISHED = new Date("2026-09-14T18:09:20.100Z");
@@ -23,10 +23,12 @@ const EMPTY_AUDIT: RunAudit = {
   cacheBreaks: [],
   truncated: false,
   truncationReasons: [],
+  stopReason: "MODEL_COMPLETE",
 };
 
-/** 键序冻结面（E 审计文件的完整键序；ledger / mrBoundary 为条件尾键） */
-const AUDIT_KEYS = [
+/** 键序冻结面（E 审计文件的前缀键序；ledger / mrBoundary 为条件尾键，
+ * stopReason 恒写且恒在最后——#53 / ADR-0018 §2.4） */
+const AUDIT_PREFIX_KEYS = [
   "runId",
   "caseId",
   "configId",
@@ -90,16 +92,17 @@ describe("buildRunId", () => {
 });
 
 describe("buildAuditFileContent", () => {
-  test("字段集与键序冻结（E 审计文件完整键序）", () => {
+  test("字段集与键序冻结（E 审计文件完整键序；stopReason 恒写于尾部）", () => {
     const content = contentFixture();
-    expect(Object.keys(content)).toEqual([...AUDIT_KEYS]);
+    expect(Object.keys(content)).toEqual([...AUDIT_PREFIX_KEYS, "stopReason"]);
+    expect(content.stopReason).toBe("MODEL_COMPLETE");
   });
 
-  test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序恒在尾部（ledger 之后）", () => {
+  test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序在 stopReason 之前（ledger 之后）", () => {
     // 界内（不传 mrBoundary）：键缺席——护栏零介入的投影面证明
     const bare = contentFixture();
     expect("mrBoundary" in bare).toBe(false);
-    expect(Object.keys(bare).at(-1)).toBe("toolCallLog");
+    expect(Object.keys(bare).at(-1)).toBe("stopReason");
 
     // 降级（传入 mrBoundary）：度量值与决策留痕，尾键扩展不扰动冻结前缀
     const degraded = buildAuditFileContent({
@@ -119,8 +122,8 @@ describe("buildAuditFileContent", () => {
       mrBoundary: { files: 11, changedLines: 22, degraded: true, reason: "too-many-files" },
     });
     const keys = Object.keys(degraded);
-    expect(keys.slice(0, -1)).toEqual([...AUDIT_KEYS, "ledger"]);
-    expect(keys.at(-1)).toBe("mrBoundary");
+    expect(keys.slice(0, -1)).toEqual([...AUDIT_PREFIX_KEYS, "ledger", "mrBoundary"]);
+    expect(keys.at(-1)).toBe("stopReason");
     expect(degraded.mrBoundary).toEqual({
       files: 11,
       changedLines: 22,

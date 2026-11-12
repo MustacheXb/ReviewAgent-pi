@@ -88,6 +88,23 @@ export interface MrBoundaryRecord {
   readonly reason: MrBoundaryReason;
 }
 
+/**
+ * 停止原因（#53 / ADR-0018 §2.4）：新 run 恒写（模型完成也写），保证每个
+ * 终止的 run 都有可区分的停止原因。历史记录缺键按 `MODEL_COMPLETE` 解释，
+ * 不回填、不改写。
+ *
+ * 命名权威是 ADR-0018；方案文档的 provisional 名 `TOOL_BUDGET_EXHAUSTED` /
+ * `PHASE_INCOMPLETE` 不在本枚举内（前者是历史 truncationReasons 文案）。
+ */
+export type StopReason =
+  | "MODEL_COMPLETE"
+  | "MODEL_STOPPED"
+  | "MAX_REQUESTS_REACHED"
+  | "MAX_ROUNDS_REACHED"
+  | "TOOL_ATTEMPTS_EXHAUSTED"
+  | "OUTPUT_BUDGET_EXHAUSTED"
+  | "PHASE_FORCED_INCOMPLETE";
+
 /** 循环运行期的审计累积面（AuditFileContent 与 AuditLight 的共同来源） */
 export interface RunAudit {
   readonly requests: readonly WireRequest[];
@@ -99,6 +116,8 @@ export interface RunAudit {
   readonly truncationReasons: readonly string[];
   /** Context Ledger 快照（E 恒投影——含零工具调用的空数组形态） */
   readonly ledger?: readonly LedgerEntry[];
+  /** 停止原因（新 run 恒写；ADR-0018 §2.4） */
+  readonly stopReason: StopReason;
 }
 
 /**
