@@ -56,6 +56,13 @@ export interface LedgerDelivery {
   readonly complete: boolean;
   /** 资源总行数（范围类工具；用于判定「到结尾」请求越界与子区间折算） */
   readonly totalLines?: number;
+  /**
+   * 整结果工具截断时的送达结果行数（含工具自带 header；不含提示行）。
+   * 排序选择可能非连续，无法用行区间表达，故以 shown/total 如实登记（#57）。
+   */
+  readonly shownResultLines?: number;
+  /** 整结果工具的完整结果行数（与 shownResultLines 同口径） */
+  readonly totalResultLines?: number;
 }
 
 /**
@@ -85,6 +92,10 @@ export interface LedgerEntry {
   readonly charCount?: number;
   /** 资源总行数（范围类工具；「到结尾」请求越界判定与子区间折算用） */
   readonly totalLines?: number;
+  /** 截断时的送达结果行数（整结果工具；含 header，不含提示行） */
+  readonly shownResultLines?: number;
+  /** 完整结果行数（整结果工具；与 shownResultLines 同口径） */
+  readonly totalResultLines?: number;
   /** 被引用次数（命中即累加） */
   readonly hitCount?: number;
   /** 最近一次命中的时间（ISO 8601；从未命中则省键） */

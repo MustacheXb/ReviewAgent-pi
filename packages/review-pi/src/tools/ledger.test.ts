@@ -127,6 +127,28 @@ test("整结果工具：完整送达命中；截断结果既不命中整体也�
   expect(ledger.referenceIfLoaded(symbol)).toBeUndefined();
 });
 
+test("整结果工具截断：shown/total 送达范围与 complete=false 进账本，不冒充整结果", () => {
+  const ledger = createContextLedger({ now: clock().now });
+  const symbol = wholeResultRequest('review.get_symbol "Alpha"', "symbol");
+  ledger.register(symbol, {
+    content: "partial-symbol-lines",
+    deliveredRange: null,
+    complete: false,
+    shownResultLines: 7,
+    totalResultLines: 20,
+  });
+  // 未覆盖整体请求 → 未命中，重读走真实读取路径
+  expect(ledger.referenceIfLoaded(symbol)).toBeUndefined();
+  const entry = entryById(ledger.snapshot(), "ctx#001");
+  expect(entry).toMatchObject({
+    kind: "symbol",
+    deliveredRange: null,
+    complete: false,
+    shownResultLines: 7,
+    totalResultLines: 20,
+  });
+});
+
 test("未覆盖重读登记新条目：快照保留请求/送达范围、内容哈希、字符数与命中计数", () => {
   const ledger = createContextLedger({ now: clock().now });
   const first = fileRequest("src/Foo.java", 11, 13);

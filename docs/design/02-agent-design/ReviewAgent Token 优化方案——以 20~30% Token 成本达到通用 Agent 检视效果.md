@@ -1387,6 +1387,14 @@ flowchart LR
 
 按工具逐个迁移，失败时恢复 head-only。
 
+**落地记录（#57，2026-11-12）**
+
+- 实现载体：`packages/review-pi/src/tools/result-budget.ts` 新增 `applyRankedBudget`（rank 字典序贪心选整条目、输出保原序、分组头按组首次入选输出一次）。未超预算直接返回完整行集，七工具未截断输出逐字节不变（既有渲染断言全绿）。
+- 各工具 rank：`get_file` 头部保留 + 提示下一段 `startLine/endLine`（长度与本次已送达行数一致；预算连一行正文都放不下时不给无效建议）；`get_diff` 头部保留 + 未完全展开文件清单（`diff --git` b 侧路径，含截断边界所在文件，上限 5 个 + `(+N more)`，建议 `review.get_file(path=...)`）；`get_symbol` 精确名命中中类型声明 > 方法/构造器 > 字段；`find_references` 声明 > 使用；`get_call_chain` hop1 > hop2 > callee（段级选择，块头仅在有段入选时输出）；`search_rule` / `search_history` 标题命中 > 正文命中。平局一律保持原顺序；超预算只选完整条目，不输出半条目。
+- 所有截断提示统一为 `Tool result truncated: showing <shown> of <total> result lines (tool result budget <budget> chars exceeded; complete=false).`，`get_file` / `get_diff` 追加可行动续读建议；提示不触发额外工具轮次。
+- Ledger：整结果工具的非连续送达登记 `deliveredRange = null`、`complete = false`、`shownResultLines / totalResultLines`；整结果请求只被 `complete = true` 的整结果送达覆盖，截断结果重复读取仍走真实执行路径。`get_file` 仍按实际送达行区间登记。
+- 测试缝：`tools/toolkit.test.ts`（七工具输出 + 截断选择 + Ledger 快照）、`tools/ledger.test.ts`（覆盖判定与送达计数）；新增 `testdata/repos/ranking` 合成仓库承载符号 / 调用链排序夹具。
+
 ### P0-7：Provider / 网关缓存合同
 
 **问题**

@@ -12,6 +12,7 @@ import { repoFixturePath } from "../testing/repos.js";
 // inert 模式随 C/D 研究配置根除，E 审计恒投影 ledger 键）。
 
 const SAMPLE = repoFixturePath("sample");
+const RANKING = repoFixturePath("ranking");
 const SAMPLE_DIFF = [
   "diff --git a/src/main/java/com/example/Beta.java b/src/main/java/com/example/Beta.java",
   "--- a/src/main/java/com/example/Beta.java",
@@ -203,13 +204,162 @@ test("预算：默认 8000 字符；超预算行边界截断并留痕", async ()
   const lines = result.split("\n");
   const notice = lines.at(-1) as string;
   expect(notice).toMatch(
-    /^Tool result truncated: showing \d+ of 20 result lines \(tool result budget 100 chars exceeded\); request a narrower range with startLine\/endLine\.$/,
+    /^Tool result truncated: showing \d+ of 20 result lines \(tool result budget 100 chars exceeded; complete=false\)\./,
   );
   // 截断只发生在行边界：无 notice 的行都来自原文行集
   const original = (await toolkit().executeTool("review.get_file", {
     path: "src/main/java/com/example/Alpha.java",
   })).split("\n");
   expect(lines.slice(0, -1).every((line) => original.includes(line))).toBe(true);
+});
+
+test("get_file 截断提示：含 shown/total/budget，并给出可用的下一段行区间", async () => {
+  const path = "src/main/java/com/example/Alpha.java";
+  const tk = toolkit({ resultBudgetChars: 100 });
+  const result = await tk.executeTool("review.get_file", { path });
+  const lines = result.split("\n");
+  const notice = lines.at(-1) as string;
+  const parsed =
+    /^Tool result truncated: showing (\d+) of (\d+) result lines \(tool result budget 100 chars exceeded; complete=false\)\. Continue with review\.get_file\(path="src\/main\/java\/com\/example\/Alpha\.java", startLine=(\d+), endLine=(\d+)\)\.$/.exec(
+      notice,
+    );
+  if (parsed === null) {
+    throw new Error(`unexpected truncation notice: ${notice}`);
+  }
+  const shown = Number(parsed[1]);
+  const total = Number(parsed[2]);
+  const nextStart = Number(parsed[3]);
+  const nextEnd = Number(parsed[4]);
+  // 头部两行（File / Lines）计入 shown；下一段从已送达内容的后一行开始
+  expect(total).toBe(20);
+  expect(nextStart).toBe(shown - 2 + 1);
+  expect(nextEnd).toBeGreaterThanOrEqual(nextStart);
+  expect(nextEnd).toBeLessThanOrEqual(18);
+
+  // 建议区间可直接续读，且不被同一预算再次截断
+  const continuation = await toolkit({ resultBudgetChars: 100 }).executeTool("review.get_file", {
+    path,
+    startLine: nextStart,
+    endLine: nextEnd,
+  });
+  expect(continuation).not.toContain("Tool result truncated");
+  expect(continuation.split("\n")[1]).toBe(`Lines ${nextStart}-${nextEnd} of 18`);
+  expect(continuation).toContain(`${nextStart} | `);
+});
+
+test("find_references 截断：声明优先于使用点（不再只保留前缀）", async () => {
+  // scale 的使用点在 Beta.java:7，声明在 Beta.java:11——前缀截断会先留下使用点
+  const tk = toolkit({ resultBudgetChars: 240 });
+  const result = await tk.executeTool("review.find_references", { symbol: "scale" });
+  expect(result).toContain("[declaration]");
+  expect(result).not.toContain("[usage]");
+  expect(result.split("\n").at(-1)).toMatch(
+    /^Tool result truncated: showing \d+ of \d+ result lines \(tool result budget 240 chars exceeded; complete=false\)\.$/,
+  );
+});
+
+test("search_rule 截断：标题命中优先于正文命中；全部入选时保持语料序", async () => {
+  const rules = [
+    { id: "R-1", title: "Unrelated", text: "mentions needle in body" },
+    { id: "R-2", title: "Needle handling", text: "unrelated body" },
+  ];
+  const ranked = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    resultBudgetChars: 120,
+    knowledge: { rules, history: [] },
+  });
+  const truncated = await ranked.executeTool("review.search_rule", { query: "needle" });
+  expect(truncated).toContain("[R-2] Needle handling");
+  expect(truncated).not.toContain("[R-1]");
+  expect(truncated.split("\n").at(-1)).toMatch(
+    /^Tool result truncated: showing \d+ of \d+ result lines \(tool result budget 120 chars exceeded; complete=false\)\.$/,
+  );
+
+  // 预算足够时两条都入选，且按语料原序输出（R-1 在 R-2 前）
+  const full = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    resultBudgetChars: 200,
+    knowledge: { rules, history: [] },
+  });
+  const ordered = await full.executeTool("review.search_rule", { query: "needle" });
+  expect(ordered.indexOf("[R-1]")).toBeGreaterThanOrEqual(0);
+  expect(ordered.indexOf("[R-1]")).toBeLessThan(ordered.indexOf("[R-2]"));
+  expect(ordered).not.toContain("Tool result truncated");
+});
+
+test("get_symbol 截断：类型声明优先于方法成员（不再只保留前缀）", async () => {
+  // 文件序：AFirst（方法 Shared）在前，ZType（类型 Shared）在后；截断应保留类型
+  const tk = buildReviewToolkit({
+    repoPath: RANKING,
+    diff: SAMPLE_DIFF,
+    resultBudgetChars: 170,
+  });
+  const result = await tk.executeTool("review.get_symbol", { symbol: "Shared" });
+  expect(result).toContain("src/main/java/com/example/ZType.java (package com.example)");
+  expect(result).toContain("public class Shared");
+  expect(result).not.toContain("AFirst.java");
+  expect(result.split("\n").at(-1)).toMatch(
+    /^Tool result truncated: showing \d+ of \d+ result lines \(tool result budget 170 chars exceeded; complete=false\)\.$/,
+  );
+});
+
+test("get_call_chain 截断：hop 1 优先于 hop 2 / callee（不再只保留前缀）", async () => {
+  const tk = buildReviewToolkit({
+    repoPath: RANKING,
+    diff: SAMPLE_DIFF,
+    resultBudgetChars: 600,
+  });
+  const result = await tk.executeTool("review.get_call_chain", { symbol: "Shared" });
+  // 块 2 的 hop 1 入选（前缀截断到不了这里）；hop 2 让位
+  expect(result).toContain("Second.Shared - method");
+  expect(result).toContain("CallerTwo.invokeSecond");
+  expect(result).not.toContain("Callers (hop 2):");
+  expect(result).not.toContain("no method-level callers identified at hop 1");
+  expect(result.split("\n").at(-1)).toMatch(
+    /^Tool result truncated: showing \d+ of \d+ result lines \(tool result budget 600 chars exceeded; complete=false\)\.$/,
+  );
+});
+
+test("get_diff 截断：提示列出未展开文件并建议 get_file(path)", async () => {
+  const diff = ["A", "B", "C"]
+    .flatMap((name) => [
+      `diff --git a/src/${name}.java b/src/${name}.java`,
+      `--- a/src/${name}.java`,
+      `+++ b/src/${name}.java`,
+      "@@ -1,1 +1,1 @@",
+      "-old",
+      "+new",
+    ])
+    .join("\n");
+  const tk = toolkit({ diff, resultBudgetChars: 120 });
+  const result = await tk.executeTool("review.get_diff", {});
+  const notice = result.split("\n").at(-1) as string;
+  expect(notice).toBe(
+    'Tool result truncated: showing 7 of 19 diff lines (tool result budget 120 chars exceeded; complete=false). ' +
+      'Not fully expanded files: src/B.java, src/C.java; continue with review.get_file(path="src/B.java").',
+  );
+});
+
+test("get_diff 截断在文件内部：提示该文件可继续完整读取", async () => {
+  const diff = ["A", "B"]
+    .flatMap((name) => [
+      `diff --git a/src/${name}.java b/src/${name}.java`,
+      `--- a/src/${name}.java`,
+      `+++ b/src/${name}.java`,
+      "@@ -1,1 +1,1 @@",
+      "-old",
+      "+new",
+    ])
+    .join("\n");
+  // 预算够到第二个文件的 diff 头、但不够读完该文件 → 该文件列为未完全展开
+  const tk = toolkit({ diff, resultBudgetChars: 170 });
+  const result = await tk.executeTool("review.get_diff", {});
+  expect(result).toContain(
+    'Not fully expanded files: src/B.java; continue with review.get_file(path="src/B.java").',
+  );
+  expect(result).toContain("diff --git a/src/B.java");
 });
 
 test("Ledger 送达感知：精确重复命中引用、不同请求不命中、失败不登记", async () => {
@@ -350,6 +500,12 @@ test("Ledger 送达感知：整结果工具完整送达命中；截断结果不�
   const truncated = await small.executeTool("review.get_diff", {});
   expect(truncated).toContain("Tool result truncated");
   await expect(small.executeTool("review.get_diff", {})).resolves.toBe(truncated);
+  // 截断送达范围与 complete 进账本：不冒充整结果
+  const entry = small.ledger.snapshot()[0];
+  expect(entry?.complete).toBe(false);
+  expect(entry?.deliveredRange).toBeNull();
+  expect(entry?.shownResultLines).toBeGreaterThan(0);
+  expect(entry?.totalResultLines).toBeGreaterThan(entry?.shownResultLines ?? 0);
 });
 
 test("Ledger 功能态：整读（file）与区间读（range）分属不同登记；get_diff 登记为 evidence", async () => {

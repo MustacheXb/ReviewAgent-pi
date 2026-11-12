@@ -3,7 +3,7 @@ import type { LedgerDelivery, LedgerRange } from "../contracts/ledger.js";
 import type { RepoContext } from "../zoneb/repo-context.js";
 import { normalizeRepoPath, optionalPositiveIntArg, requireStringArg } from "./args.js";
 import { readThroughLedger } from "./ledger.js";
-import { applyLineBudget } from "./result-budget.js";
+import { applyLineBudget, standardTruncationNotice } from "./result-budget.js";
 import type { ReviewToolHandler } from "./toolkit-types.js";
 
 /**
@@ -137,7 +137,15 @@ function renderFileSlice(
     [...header, ...numbered],
     budgetChars,
     (shown, total) =>
-      `Tool result truncated: showing ${shown} of ${total} result lines (tool result budget ${budgetChars} chars exceeded); request a narrower range with startLine/endLine.`,
+      truncationNotice({
+        posixPath,
+        shown,
+        total,
+        headerLineCount: header.length,
+        requestedStart,
+        clampedEnd,
+        budgetChars,
+      }),
   );
   // 送达范围按实际渲染结果折算（头部两行不计入源行号）；截断或 clamp 即不完整。
   // 整读（未给 endLine）完整送达记 endLine=null（到文件尾）；totalLines 供
@@ -162,4 +170,32 @@ function numberLines(lines: readonly string[], firstLineNumber: number): readonl
     const lineNumber = String(firstLineNumber + index).padStart(width, " ");
     return `${lineNumber} | ${line}`;
   });
+}
+
+/**
+ * 截断提示（#57）：shown / total / budget 三要素 + 可行动的下一次读取
+ * （nextCall 只给参数化建议，不实际发起请求——不增加工具轮次）。
+ * 头部两行（File / Lines）计入 shown；下一段从已送达内容的后一行开始，
+ * 长度与本次已送达行数一致，便于同一预算下继续取证。
+ * 预算连一行正文都放不下时不给建议（同样的预算下重读必然再次截断）。
+ */
+interface TruncationNoticeInput {
+  readonly posixPath: string;
+  readonly shown: number;
+  readonly total: number;
+  readonly headerLineCount: number;
+  readonly requestedStart: number;
+  readonly clampedEnd: number;
+  readonly budgetChars: number;
+}
+
+function truncationNotice(input: TruncationNoticeInput): string {
+  const base = standardTruncationNotice(input.shown, input.total, input.budgetChars);
+  const shownContentLines = Math.max(0, input.shown - input.headerLineCount);
+  if (shownContentLines === 0) {
+    return base;
+  }
+  const nextStart = input.requestedStart + shownContentLines;
+  const nextEnd = Math.min(input.clampedEnd, nextStart + shownContentLines - 1);
+  return `${base} Continue with review.get_file(path=${JSON.stringify(input.posixPath)}, startLine=${nextStart}, endLine=${nextEnd}).`;
 }

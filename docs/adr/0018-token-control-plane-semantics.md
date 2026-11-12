@@ -94,7 +94,7 @@ TOOL_ATTEMPTS_EXHAUSTED | OUTPUT_BUDGET_EXHAUSTED | PHASE_FORCED_INCOMPLETE
 - **引用文本**必须包含：引用 id、请求范围、实际送达范围、`complete` 标记。
 - Ledger 覆盖全部七个工具（现状即如此），不新增工具面。
 - 审计增加 `ledgerHits / ledgerMisses / savedCharsEstimate`；正常未命中路径的 wire 输出不变。
-- **落地口径（#56，2026-11-12）**：实现载体 `contracts/ledger.ts` + `tools/ledger.ts`。命中桶按 `resourceKey`（工具名 + 决定资源内容的参数，不含请求范围）分组——整读（`file`）与子区间读（`range`）必须在同一桶内做覆盖判定；`kind` 只进条目身份键与审计。覆盖判定为 `deliveredRange ⊇ requestedRange`（`endLine = null` 表示到文件 / 结果结尾），范围类工具另记 `totalLines`：请求起点或终点越过资源总行数一律不覆盖（越界 clamp 不算覆盖），只有覆盖才返回引用并累计 `hitCount / lastHitAt`；截断整文件等未覆盖请求一律未命中并登记新条目。条目记录 `key / kind / description / requestedRange / deliveredRange / complete / contentHash / contentVersion / charCount / totalLines / hitCount / lastHitAt`；内容哈希与版本进入条目身份键但不参与预读查询（查询发生在读取前，且 run 内快照内容不变）；`runId / toolCallId / messageId` 暂不在内核缝落位（Agent 桥接后续可追加，缺席省键）。引用文本单行：`Already loaded: ctx#NNN (<请求回显>; delivered <送达范围> of requested <请求范围>; complete=<bool>)`，其中 `complete` 描述**条目自身送达**是否完整（截断 / clamp 即 false）——是否可引用由覆盖关系单独保证。审计新增可选尾键 `ledgerStats: { ledgerHits, ledgerMisses, savedCharsEstimate }`（有账本查询时在场，零工具 run 省键）；`savedCharsEstimate` 对精确重复取送达字符数，对覆盖子区间按请求 / 送达行数比例折算（`endLine = null` 时用 `totalLines` 折算，不按 100% 计）。正常未命中路径的渲染层未改动，工具输出逐字节不变。
+- **落地口径（#56，2026-11-12）**：实现载体 `contracts/ledger.ts` + `tools/ledger.ts`。命中桶按 `resourceKey`（工具名 + 决定资源内容的参数，不含请求范围）分组——整读（`file`）与子区间读（`range`）必须在同一桶内做覆盖判定；`kind` 只进条目身份键与审计。覆盖判定为 `deliveredRange ⊇ requestedRange`（`endLine = null` 表示到文件 / 结果结尾），范围类工具另记 `totalLines`：请求起点或终点越过资源总行数一律不覆盖（越界 clamp 不算覆盖），只有覆盖才返回引用并累计 `hitCount / lastHitAt`；截断整文件等未覆盖请求一律未命中并登记新条目。条目记录 `key / kind / description / requestedRange / deliveredRange / complete / contentHash / contentVersion / charCount / totalLines / hitCount / lastHitAt`（#57 追加可选 `shownResultLines / totalResultLines`，整结果工具截断时登记送达行数与完整行数）；内容哈希与版本进入条目身份键但不参与预读查询（查询发生在读取前，且 run 内快照内容不变）；`runId / toolCallId / messageId` 暂不在内核缝落位（Agent 桥接后续可追加，缺席省键）。引用文本单行：`Already loaded: ctx#NNN (<请求回显>; delivered <送达范围> of requested <请求范围>; complete=<bool>)`，其中 `complete` 描述**条目自身送达**是否完整（截断 / clamp 即 false）——是否可引用由覆盖关系单独保证。审计新增可选尾键 `ledgerStats: { ledgerHits, ledgerMisses, savedCharsEstimate }`（有账本查询时在场，零工具 run 省键）；`savedCharsEstimate` 对精确重复取送达字符数，对覆盖子区间按请求 / 送达行数比例折算（`endLine = null` 时用 `totalLines` 折算，不按 100% 计）。正常未命中路径的渲染层未改动，工具输出逐字节不变。
 
 ### 5. 截断选择
 
@@ -118,7 +118,8 @@ nextCall?  // 仅 get_file
 | `get_call_chain` | hop 1 > hop 2 > callee；平局按限定名 / 文件 / 行 |
 | `search_rule` / `search_history` | 标题命中 > 正文命中；平局按语料序 |
 
-- 除 `get_file` 外不给带参数的 `nextCall`（schema 无分页 / 过滤参数）；扩 schema 另行立项，不在本 ADR。
+- 除 `get_file` 外不给带参数的 `nextCall`（schema 无分页 / 过滤参数）；`get_diff` 的续读建议指向另一工具 `review.get_file(path=...)`，不是自身参数化 `nextCall`。扩 schema 另行立项，不在本 ADR。
+- **落地口径（#57，2026-11-12）**：实现载体 `tools/result-budget.ts` 的 `applyRankedBudget`。未超预算时直接返回完整行集（与既有输出逐字节一致，含条目顺序与空白）；超预算时按 `rank` 字典序贪心选取**完整条目**（不输出半条目）、输出保持原序，分组头（`get_symbol` 的文件头、`get_call_chain` 的块头 + 空行）只在该组有任一条目入选时输出一次。各工具 `rank`：`get_symbol` 精确名命中中 [类型声明 0 > 方法/构造器 1 > 字段 2]（平局按文件 / 行原序）；`find_references` [声明 0 > 使用 1]（平局原序）；`get_call_chain` [hop1 1 > hop2 2 > callee 3，块序为次键]；`search_rule` / `search_history` [标题命中 0 > 正文命中 1]（平局语料原序）；`get_file` 保留头部并把「下一段 `startLine/endLine`」写进提示（预算连一行正文都放不下时不给无效建议）；`get_diff` 保留头部并列出未完全展开的文件（`diff --git` b 侧路径，含截断边界所在文件，最多 5 个 + `(+N more)`，建议 `review.get_file(path=...)`）。所有截断提示统一含 `shown / total / budget / complete=false`。Ledger 对整结果工具的非连续送达不再伪造行区间：`deliveredRange = null`、`complete=false`，并以 `shownResultLines / totalResultLines` 如实登记；整结果请求只被 `complete=true` 的整结果送达覆盖。<br>`nextCall` 是提示文本，不触发额外工具轮次。
 
 ### 6. 缓存合同
 

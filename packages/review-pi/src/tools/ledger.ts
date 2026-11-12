@@ -8,7 +8,7 @@ import type {
   LedgerStats,
 } from "../contracts/ledger.js";
 import { boundedEcho } from "./args.js";
-import type { LineBudgetResult } from "./result-budget.js";
+import type { TruncationCounts } from "./result-budget.js";
 
 /**
  * Context Ledger 实现（#6 P3a；#56 / ADR-0018 §4 送达感知）。
@@ -85,7 +85,8 @@ function rangeText(range: LedgerRange | null): string {
 function covers(entry: StoredLedgerEntry, requested: LedgerRange | null): boolean {
   const delivered = entry.deliveredRange;
   if (requested === null) {
-    return delivered === null;
+    // 整结果请求只被「完整送达」覆盖；截断（含排序选择）不得冒充整结果
+    return delivered === null && entry.complete === true;
   }
   if (delivered === null) {
     return false;
@@ -198,6 +199,12 @@ export function createContextLedger(options: ContextLedgerOptions = {}): Context
         contentVersion: 1,
         charCount: delivery.content.length,
         ...(delivery.totalLines !== undefined ? { totalLines: delivery.totalLines } : {}),
+        ...(delivery.shownResultLines !== undefined
+          ? { shownResultLines: delivery.shownResultLines }
+          : {}),
+        ...(delivery.totalResultLines !== undefined
+          ? { totalResultLines: delivery.totalResultLines }
+          : {}),
         hitCount: 0,
       };
       entries.push(entry);
@@ -239,13 +246,20 @@ export function wholeResultRequest(
 
 /**
  * 整结果工具（无范围参数：diff / 符号 / 检索）的送达投影：
- * 未截断 = 整结果完整送达；截断 = 已送达结果行前缀（complete=false）。
+ * 未截断 = 整结果完整送达（deliveredRange null）；截断 = 非完整送达，
+ * 排序选择可能非连续，故以 shownResultLines / totalResultLines 如实登记
+ * （complete=false，不冒充整结果已送达）。
  */
-export function wholeResultDelivery(content: string, budget: LineBudgetResult): LedgerDelivery {
+export function wholeResultDelivery(content: string, budget: TruncationCounts): LedgerDelivery {
+  if (!budget.truncated) {
+    return { content, deliveredRange: null, complete: true };
+  }
   return {
     content,
-    deliveredRange: budget.truncated ? { startLine: 1, endLine: budget.shownLines } : null,
-    complete: !budget.truncated,
+    deliveredRange: null,
+    complete: false,
+    shownResultLines: budget.shownLines,
+    totalResultLines: budget.totalLines,
   };
 }
 
