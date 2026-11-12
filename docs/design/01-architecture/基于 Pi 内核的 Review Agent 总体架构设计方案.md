@@ -104,12 +104,12 @@ Benchmark 驱动         （每个架构组件的价值须由消融/对照证明
 
 ### 1.5 已确立事实基线
 
-本节是全文档的事实锚点：后续各章的设计决定要么由这些事实支撑，要么显式声明为未验证假设。主源：[Phase 2 主数据分析报告](../../report/Phase 2 主数据分析报告.md)（30 案 VUL4J × A–E × 3 reps = 450 单元 × 三侧）、[ADR-0009](../../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)、[《Config B 生产化方案》](../02-agent-design/Config B 生产化方案——差距分析、推荐路线与修改建议.md)。
+本节是全文档的事实锚点：后续各章的设计决定要么由这些事实支撑，要么显式声明为未验证假设。主源：[Phase 2 主数据分析报告](../../report/Phase 2 主数据分析报告.md)（30 案 VUL4J × A–E × 3 reps = 450 单元 × 三侧）、[ADR-0009](../../adr/0009-pi-kernel-from-scratch-rewrites-review-runtime.md)、[《Config E 生产化方案》](../02-agent-design/Config E 生产化方案——选型依据、生产基线与演进路线.md)。
 
 | # | 事实 / 拍板 | 数据 / 主源 |
 |---|---|---|
 | F1 | **内核**：Review Runtime 在 pi fork 上从 0 重写；DSH 内核移除，其评测数据保留为对照基线（`runs/phase2-dsh`，450 单元） | ADR-0009 |
-| F2 | **生产形态**：Config B 拍板（2026-09-17）——零工具 + 确定性预取（Diff→Symbol→Reference→Call Chain），`rounds=1`，无风险升级门 | 《Config B 生产化方案》 |
+| F2 | **生产形态**：Config E（ADR-0011）——七工具按需检索 + Context Ledger，协议 v3 由服务端派生配置；2026-09-17 的历史 Config B 推荐已由 pi 线质量门重判替代 | 《Config E 生产化方案》/ADR-0011 |
 | F3 | **B 全面占优（质量面）**：precision 0.7835 全场最高、judge F1 0.5763 稳定最高（D 名义 0.6257 但跨侧不稳定、不作对照结论）；token 49.9k/单元仅为 C（全仓）706.5k 的 **7%** | Phase 2 §5.1 |
 | F4 | **A 是效率双冠**：零工具纯 MR 上下文，judge recall 0.5008 最高、RIE 0.0242 最高（B 的 2.3 倍、C 的 17.3 倍）、token 22.6k 最低 | Phase 2 §5.1/§7 |
 | F5 | **C（全仓注入）实证塌缩**：recall 0.1341 最低、token 最贵（A 的 31 倍）、77% 单元零 finding、跨侧 recall 极差 0.1487 最大——「全仓注入的边际信息收益为负」 | Phase 2 §5.4 |
@@ -647,7 +647,7 @@ Finding 契约（severity / category / file:line / title / description / evidenc
 
 ## 7. 生产线与企业平台集成
 
-> 本章是旧 DSH 架构文档没有的增量（其生产内容散在《Config B 生产化方案》）；拓扑四件套（Gateway/Scheduler/Worker/Adapter）与 ReviewJob 契约来自讨论稿 v1.0 的有效增量，按本仓约束（企业内部平台、静态源码快照）适配。
+> 本章是旧 DSH 架构文档没有的增量（其生产内容散在《Config E 生产化方案》）；拓扑四件套（Gateway/Scheduler/Worker/Adapter）与 ReviewJob 契约来自讨论稿 v1.0 的有效增量，按本仓约束（企业内部平台、静态源码快照）适配。
 
 ### 7.1 集成拓扑
 
@@ -738,9 +738,9 @@ P3      → Summary only
 
 同时生成：Review Summary + Finding List + Evidence + Metrics（审计留痕，`AuditFileContent` 投影含 `requests[].wireBody`）。
 
-### 7.7 Config B 生产化四必做项（上线前硬票）
+### 7.7 生产化差距项（历史四必做，现行状态见 E 方案）
 
-《Config B 生产化方案》拍板的生产化差距项（骨架不动——保守路线，B 形态已实测占优，不在上线前改骨架）：
+《Config E 生产化方案》记录 B→E 切流后的生产基线。下表保留为早期四必做票面，现行实现状态和后续缺口以该文及 ADR-0011/0014/0015/0017 为准；B 已不是生产形态。
 
 | # | 必做项 | 内容 | 验收 |
 |---|---|---|---|

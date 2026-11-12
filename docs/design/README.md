@@ -19,7 +19,7 @@
 | [ReviewAgent Token 优化方案](<./02-agent-design/ReviewAgent Token 优化方案——以 20~30% Token 成本达到通用 Agent 检视效果.md>) | 主线 E-only Token 效率方案 |
 | [ReviewAgent 竞争力演进方案](<./02-agent-design/ReviewAgent 竞争力演进方案——对标 prime-agent 与 whale-pod 的 Token 效率、Loop 与自进化设计.md>) | Token、Loop 与经验沉淀的演进分析 |
 | [ReviewAgent 语义去重与大 MR 检视方案](<./02-agent-design/ReviewAgent 语义去重与大 MR 检视方案.md>) | 大 MR 分片、Finding 去重与覆盖度设计稿 |
-| [Config B 生产化方案](<./02-agent-design/Config B 生产化方案——差距分析、推荐路线与修改建议.md>) | 历史生产配置方案，需与当前 E-only 口径区分 |
+| [Config E 生产化方案](<./02-agent-design/Config E 生产化方案——选型依据、生产基线与演进路线.md>) | 当前 E-only 生产基线、选型依据与演进路线 |
 
 ## 3. 内核
 

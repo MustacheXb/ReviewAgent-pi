@@ -20,7 +20,7 @@
 - [ADR-0014 分支策略——生产 main 与 Demo 分离](../../adr/0014-branch-strategy-production-main-and-demo-split.md)
 - [ADR-0015 协议 v3——配置选择根除](../../adr/0015-protocol-v3-no-config-selection.md)
 - [ReviewAgent Token 优化方案](<../02-agent-design/ReviewAgent Token 优化方案——以 20~30% Token 成本达到通用 Agent 检视效果.md>)
-- [Config B 生产化方案](<../02-agent-design/Config B 生产化方案——差距分析、推荐路线与修改建议.md>)
+- [Config E 生产化方案](<../02-agent-design/Config E 生产化方案——选型依据、生产基线与演进路线.md>)
 - [VUL4J 评测方案与数据复制指南](<./VUL4J 评测方案与数据复制指南.md>)
 
 ---
