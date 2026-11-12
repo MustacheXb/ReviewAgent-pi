@@ -11,6 +11,7 @@ import {
 } from "../../instrument/cli-args.js";
 import {
   CAMPAIGN_ARMS,
+  DEFAULT_ARM_ORDER_SEED,
   type CampaignArm,
   type CampaignDeps,
   type CampaignEnvironmentInput,
@@ -82,6 +83,8 @@ interface CampaignParseValues {
   calibration: boolean;
   calibrationRef: string | null;
   resume: boolean;
+  randomizeArms: boolean;
+  armSeedRaw: string | null;
 }
 
 const USAGE = `用法：
@@ -101,6 +104,9 @@ const USAGE = `用法：
   --calibration-ref     正式 campaign 引用的空对照校准 id（与 --calibration 互斥）
   --resume              续跑既有输出目录：跳过已完成单元，只补缺记录 / judge
                         （长跑中断恢复；校验 plan / cases hash 不变）
+  --randomize-arms      每个 case×rep 确定性随机臂序（消除固定臂序的时段偏差）
+  --arm-seed <n>        随机臂序种子（正整数；须与 --randomize-arms 同用，
+                        缺省 20261112）
   --out                 campaign 输出目录（缺省 runs/eval/<campaign-id>）
   --report-only         只读已有记录重建报告（不执行内核 / judge）
   --fake                #39 骨架：注入 fake 内核 / judge（零网络；不是真实测量）`;
@@ -141,11 +147,14 @@ const CAMPAIGN_ARG_SPEC: CliArgSpec<CampaignParseValues, CampaignCliOptions> = {
     calibration: false,
     calibrationRef: null,
     resume: false,
+    randomizeArms: false,
+    armSeedRaw: null,
   }),
   booleanFlags: {
     "--report-only": { reportOnly: true },
     "--calibration": { calibration: true },
     "--resume": { resume: true },
+    "--randomize-arms": { randomizeArms: true },
   },
   valueFlags: {
     "--campaign-id": singleValueFlag("--campaign-id"),
@@ -155,6 +164,7 @@ const CAMPAIGN_ARG_SPEC: CliArgSpec<CampaignParseValues, CampaignCliOptions> = {
     "--model": singleValueFlag("--model"),
     "--out": singleValueFlag("--out"),
     "--calibration-ref": singleValueFlag("--calibration-ref"),
+    "--arm-seed": (value, current) => once("--arm-seed", current.armSeedRaw, { armSeedRaw: value }),
     "--reps": (value, current) => once("--reps", current.repsRaw, { repsRaw: value }),
     "--arms": (value, current) => {
       if (current.arms !== null) {
@@ -184,7 +194,9 @@ function finalizeReportOnly(
     values.arms !== null ||
     values.calibration ||
     values.calibrationRef !== null ||
-    values.resume
+    values.resume ||
+    values.randomizeArms ||
+    values.armSeedRaw !== null
   ) {
     return fail("--report-only only accepts --campaign-id and --out");
   }
@@ -241,6 +253,10 @@ function finalizeRun(
   if (typeof calibrationRef !== "string" && calibrationRef !== null) {
     return calibrationRef;
   }
+  const armOrder = resolveArmOrder(values, fail);
+  if (!armOrder.ok) {
+    return armOrder.result;
+  }
   return {
     ok: true,
     options: {
@@ -255,8 +271,39 @@ function finalizeRun(
       outDir: values.outDir ?? path.join("runs", "eval", campaignId),
       calibrationRef,
       resume: values.resume,
+      ...(armOrder.armOrder !== undefined
+        ? { armOrder: armOrder.armOrder, armOrderSeed: armOrder.armOrderSeed }
+        : {}),
     },
   };
+}
+
+type ResolvedArmOrder =
+  | {
+      readonly ok: true;
+      readonly armOrder?: "randomized";
+      readonly armOrderSeed?: number;
+    }
+  | { readonly ok: false; readonly result: CliParseResult<CampaignCliOptions> };
+
+/** 臂序（#42 复核）：`--randomize-arms` + 可选 `--arm-seed`；缺省种子固定 */
+function resolveArmOrder(
+  values: CampaignParseValues,
+  fail: CampaignFail,
+): ResolvedArmOrder {
+  if (!values.randomizeArms) {
+    if (values.armSeedRaw !== null) {
+      return { ok: false, result: fail("--arm-seed requires --randomize-arms") };
+    }
+    return { ok: true };
+  }
+  if (values.armSeedRaw === null) {
+    return { ok: true, armOrder: "randomized", armOrderSeed: DEFAULT_ARM_ORDER_SEED };
+  }
+  if (!/^[0-9]+$/.test(values.armSeedRaw) || Number(values.armSeedRaw) <= 0) {
+    return { ok: false, result: fail("--arm-seed must be a positive integer") };
+  }
+  return { ok: true, armOrder: "randomized", armOrderSeed: Number(values.armSeedRaw) };
 }
 
 /**
@@ -362,6 +409,9 @@ export async function runCampaignCommand(
     model: options.model,
     arms: options.arms,
     outputDir: options.outDir,
+    ...(options.armOrder !== undefined
+      ? { armOrder: options.armOrder, armOrderSeed: options.armOrderSeed }
+      : {}),
   };
   // 校准元数据单源 = CLI（#42）：覆盖 provenance 里的 calibrationRef，
   // 防装配层与 plan 语义漂移；runCampaign 会在烧网关前校验同 ref / 自指。

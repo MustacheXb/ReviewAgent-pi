@@ -160,6 +160,31 @@ describe("parseCampaignArgs: run 模式", () => {
     expect(parseError(["--report-only", "--out", "x", "--resume"])).toMatch(/--report-only/);
   });
 
+  it("--randomize-arms 缺省种子可复现；--arm-seed 覆盖；单独给种子拒绝", () => {
+    const defaultSeed = parsed([...RUN_FLAGS, "--randomize-arms"]);
+    if (defaultSeed.reportOnly) {
+      throw new Error("expected run options");
+    }
+    expect(defaultSeed.armOrder).toBe("randomized");
+    expect(defaultSeed.armOrderSeed).toBe(20261112);
+
+    const customSeed = parsed([
+      ...RUN_FLAGS,
+      "--randomize-arms",
+      "--arm-seed",
+      "42",
+    ]);
+    if (customSeed.reportOnly) {
+      throw new Error("expected run options");
+    }
+    expect(customSeed.armOrderSeed).toBe(42);
+
+    expect(parseError([...RUN_FLAGS, "--arm-seed", "42"])).toMatch(/arm-seed|randomize/);
+    expect(parseError(["--report-only", "--out", "x", "--randomize-arms"])).toMatch(
+      /--report-only/,
+    );
+  });
+
   it("--help 与未知 flag 返回用法错误", () => {
     expect(parseError(["--help"])).toMatch(/help/);
     expect(parseError(["--nope"])).toMatch(/unknown flag/);

@@ -106,7 +106,7 @@ describe("runCampaign: L2 报告落盘", () => {
     expect(report).toEqual(result.l2);
     expect(report).toMatchObject({
       kind: "l2-token-bench",
-      schemaVersion: 2,
+      schemaVersion: 3,
       campaignId: "smoke-2026-11-11",
       campaignType: "formal",
       calibrationRef: null,

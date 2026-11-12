@@ -467,7 +467,12 @@ export function renderNoiseFloorMarkdown(report: NoiseFloorReport): string {
   );
   lines.push(
     `| 样本量 | ${report.sampling.cases} case × ${report.sampling.reps} reps × ` +
-      `${report.sampling.arms} arms = ${report.sampling.planned} 单元 |`,
+      `${report.sampling.arms} arms = ${report.sampling.planned} 单元 · ` +
+      `臂序 ${report.sampling.armOrder}` +
+      (report.sampling.armOrderSeed === null
+        ? ""
+        : `（seed ${report.sampling.armOrderSeed}）`) +
+      ` |`,
   );
   lines.push(
     `| coverage | ${fmtNullable(report.coverage.ratio)}（executed ${report.coverage.executed} / ` +

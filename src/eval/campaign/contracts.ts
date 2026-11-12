@@ -33,6 +33,14 @@ export const CAMPAIGN_REPORT_KIND = "campaign-report";
 /** campaign 报告 schema 版本（golden 测试锁定） */
 export const CAMPAIGN_REPORT_SCHEMA_VERSION = 1;
 
+/** 臂序模式（#42 复核）：fixed = plan.arms 顺序；randomized = 每 case×rep 洗牌 */
+export const CAMPAIGN_ARM_ORDERS = ["fixed", "randomized"] as const;
+
+export type CampaignArmOrder = (typeof CAMPAIGN_ARM_ORDERS)[number];
+
+/** 随机臂序缺省种子（CLI / 计划缺省；显式入 plan.json 保证可复现） */
+export const DEFAULT_ARM_ORDER_SEED = 20_261_112;
+
 /** campaign plan（`plan.json` 的机读形状；CLI 旗标与文件输入共用） */
 export interface CampaignPlan {
   /** campaign id（安全路径段；输出目录名） */
@@ -47,8 +55,15 @@ export interface CampaignPlan {
   readonly reps: number;
   /** 被测模型 id（E 运行时单源） */
   readonly model: string;
-  /** 参跑对照臂（顺序即同 case 同 rep 内的执行顺序） */
+  /** 参跑对照臂（fixed 时即同 case 同 rep 内的执行顺序） */
   readonly arms: readonly CampaignArm[];
+  /**
+   * 臂序（#42 复核）：`fixed`（缺省）按 plan.arms；`randomized` 按
+   * case×rep 确定性洗牌，消除固定臂序的时段 / 顺序偏差。
+   */
+  readonly armOrder?: CampaignArmOrder;
+  /** 随机臂序种子（armOrder = randomized 时必填；正整数） */
+  readonly armOrderSeed?: number;
   /** campaign 输出目录（`runs/eval/<campaign-id>`；本 campaign 自有） */
   readonly outputDir: string;
 }

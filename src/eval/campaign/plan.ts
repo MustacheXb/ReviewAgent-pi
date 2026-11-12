@@ -1,6 +1,7 @@
 import type { MRCase } from "../../instrument/contracts/mr-case.js";
 import {
   CAMPAIGN_ARMS,
+  CAMPAIGN_ARM_ORDERS,
   type CampaignArm,
   type CampaignCase,
   type CampaignPlan,
@@ -39,6 +40,26 @@ export function validateCampaignPlan(value: unknown): asserts value is CampaignP
   requireNonEmptyString(value.model, "model", "campaign plan");
   requireNonEmptyString(value.outputDir, "outputDir", "campaign plan");
   validateArms(value.arms);
+  validateArmOrder(value);
+}
+
+function validateArmOrder(value: Record<string, unknown>): void {
+  if (value.armOrder !== undefined) {
+    if (
+      typeof value.armOrder !== "string" ||
+      !(CAMPAIGN_ARM_ORDERS as readonly string[]).includes(value.armOrder)
+    ) {
+      throw new Error(
+        `campaign plan: armOrder must be one of ${CAMPAIGN_ARM_ORDERS.join(", ")} ` +
+          `(got ${JSON.stringify(value.armOrder)})`,
+      );
+    }
+  }
+  if (value.armOrder === "randomized") {
+    requirePositiveInt(value.armOrderSeed, "armOrderSeed", "campaign plan");
+  } else if (value.armOrderSeed !== undefined) {
+    requirePositiveInt(value.armOrderSeed, "armOrderSeed", "campaign plan");
+  }
 }
 
 function validateArms(value: unknown): asserts value is readonly CampaignArm[] {
@@ -159,8 +180,9 @@ function validateTruth(value: unknown, where: string): void {
 }
 
 /**
- * 展开执行单元：case（cases file 顺序）→ rep（1..reps）→ arm（plan 顺序）。
- * 同 case / rep 的两臂相邻，便于同窗口交错执行。
+ * 展开执行单元：case（cases file 顺序）→ rep（1..reps）→ arm。
+ * 同 case / rep 的两臂相邻，便于同窗口交错执行；`armOrder = randomized`
+ * 时每个 case×rep 按种子确定性洗牌（同种子可复算），消除固定臂序偏差。
  */
 export function expandUnits(
   plan: CampaignPlan,
@@ -171,12 +193,54 @@ export function expandUnits(
   const units: CampaignUnit[] = [];
   for (const mrCase of cases) {
     for (let rep = 1; rep <= plan.reps; rep += 1) {
-      for (const arm of plan.arms) {
+      for (const arm of armsFor(plan, mrCase.caseId, rep)) {
         units.push({ source: "vul4j", caseId: mrCase.caseId, arm, rep });
       }
     }
   }
   return units;
+}
+
+function armsFor(plan: CampaignPlan, caseId: string, rep: number): readonly CampaignArm[] {
+  if (plan.armOrder !== "randomized") {
+    return plan.arms;
+  }
+  const seed = hashSeed(
+    `${plan.campaignId}|${plan.armOrderSeed ?? 0}|${caseId}|${rep}`,
+  );
+  return shuffle(plan.arms, mulberry32(seed));
+}
+
+/** FNV-1a 32-bit（稳定字符串 → 种子） */
+function hashSeed(text: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
+}
+
+/** mulberry32：确定性 32-bit PRNG（与 L2 bootstrap 同族算法） */
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+function shuffle<T>(values: readonly T[], random: () => number): T[] {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    const current = result[index] as T;
+    result[index] = result[swapIndex] as T;
+    result[swapIndex] = current;
+  }
+  return result;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

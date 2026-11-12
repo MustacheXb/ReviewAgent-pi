@@ -18,11 +18,14 @@ export {
 } from "./cli.js";
 export {
   CAMPAIGN_ARMS,
+  CAMPAIGN_ARM_ORDERS,
   CAMPAIGN_REPORT_KIND,
   CAMPAIGN_REPORT_SCHEMA_VERSION,
+  DEFAULT_ARM_ORDER_SEED,
   DEFAULT_IO_TIMEOUT_MS,
   ENVIRONMENT_REF,
   type CampaignArm,
+  type CampaignArmOrder,
   type CampaignCase,
   type CampaignDeps,
   type CampaignEnvironmentInput,

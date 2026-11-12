@@ -47,6 +47,23 @@ describe("validateCampaignPlan", () => {
     expect(() => validateCampaignPlan(plan({ outputDir: "" }))).toThrow(/outputDir/);
   });
 
+  it("armOrder 只接受 fixed / randomized；随机臂序必须带正整数种子", () => {
+    expect(() =>
+      validateCampaignPlan(plan({ armOrder: "shuffle" as "fixed" })),
+    ).toThrow(/armOrder/);
+    expect(() => validateCampaignPlan(plan({ armOrder: "randomized" }))).toThrow(
+      /armOrderSeed/,
+    );
+    for (const armOrderSeed of [0, -1, 1.5]) {
+      expect(() =>
+        validateCampaignPlan(plan({ armOrder: "randomized", armOrderSeed })),
+      ).toThrow(/armOrderSeed/);
+    }
+    expect(() =>
+      validateCampaignPlan(plan({ armOrder: "fixed", armOrderSeed: 42 })),
+    ).not.toThrow();
+  });
+
   it("拒绝非对象输入", () => {
     expect(() => validateCampaignPlan(null)).toThrow(/plan/);
     expect(() => validateCampaignPlan([])).toThrow(/plan/);
@@ -140,5 +157,47 @@ describe("expandUnits", () => {
       { source: "vul4j", caseId: "VUL4J-1", arm: "candidate", rep: 1 },
       { source: "vul4j", caseId: "VUL4J-1", arm: "baseline", rep: 1 },
     ]);
+  });
+
+  it("随机臂序：同种子可复现，且每个 case × rep 仍两臂相邻", () => {
+    const cases = [mrCase("VUL4J-1"), mrCase("VUL4J-2")];
+    const randomized = {
+      reps: 3,
+      arms: ["baseline", "candidate"] as const,
+      armOrder: "randomized" as const,
+      armOrderSeed: 42,
+    };
+
+    const first = expandUnits(plan(randomized), cases);
+    const second = expandUnits(plan(randomized), cases);
+    expect(second).toEqual(first);
+
+    // 两臂完整、相邻、属于同一 case/rep
+    for (let index = 0; index < first.length; index += 2) {
+      const left = first[index];
+      const right = first[index + 1];
+      expect(left?.caseId).toBe(right?.caseId);
+      expect(left?.rep).toBe(right?.rep);
+      expect(new Set([left?.arm, right?.arm])).toEqual(new Set(["baseline", "candidate"]));
+    }
+    expect(first).toHaveLength(2 * 3 * 2);
+  });
+
+  it("随机臂序：不同种子会改变至少一个 case × rep 的顺序", () => {
+    const cases = [mrCase("VUL4J-1"), mrCase("VUL4J-2")];
+    const base = plan({
+      reps: 3,
+      arms: ["baseline", "candidate"],
+      armOrder: "randomized",
+      armOrderSeed: 1,
+    });
+    const other = plan({
+      reps: 3,
+      arms: ["baseline", "candidate"],
+      armOrder: "randomized",
+      armOrderSeed: 2,
+    });
+
+    expect(expandUnits(other, cases)).not.toEqual(expandUnits(base, cases));
   });
 });

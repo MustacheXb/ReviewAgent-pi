@@ -15,8 +15,8 @@ import type { RunAnalysis, Stat } from "../analysis/contracts.js";
 /** L2 报告 kind（附录 B.1；与 campaign 报告分文件） */
 export const L2_REPORT_KIND = "l2-token-bench";
 
-/** L2 报告 schema 版本（golden / 形状测试锁定；#42 起 2） */
-export const L2_REPORT_SCHEMA_VERSION = 2;
+/** L2 报告 schema 版本（golden / 形状测试锁定；#42 起 3） */
+export const L2_REPORT_SCHEMA_VERSION = 3;
 
 /** L2 报告文件名（campaign 输出目录内） */
 export const L2_REPORT_FILE = "l2-report.json";
@@ -261,12 +261,15 @@ export interface L2Report {
     readonly hash: string;
   };
   readonly environmentRef: "environment.json";
-  /** 样本量留痕（#42；校准可复算需能读出 case / reps / arms） */
+  /** 样本量留痕（#42；校准可复算需能读出 case / reps / arms / 臂序） */
   readonly sampling: {
     readonly cases: number;
     readonly reps: number;
     readonly arms: number;
     readonly planned: number;
+    /** 臂序模式：fixed = plan.arms；randomized = 每 case×rep 确定性洗牌 */
+    readonly armOrder: "fixed" | "randomized";
+    readonly armOrderSeed: number | null;
   };
   readonly coverage: L2Coverage;
   /** 两臂全部 run（冷热）的绝对值上界观测（#42 阈值复核输入） */

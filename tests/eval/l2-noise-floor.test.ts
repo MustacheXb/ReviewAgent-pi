@@ -190,7 +190,7 @@ export function l2ReportFixture(
       hash: "31a326bd1722042a1790d4bffbc05c02086098a212bedd785e6f51dbb4fcd8ba",
     },
     environmentRef: "environment.json",
-    sampling: { cases: 30, reps: 3, arms: 2, planned: 180 },
+    sampling: { cases: 30, reps: 3, arms: 2, planned: 180, armOrder: "fixed", armOrderSeed: null },
     coverage: {
       planned: 180,
       executed: 180,
@@ -294,7 +294,7 @@ describe("buildNoiseFloorReport", () => {
       campaignType: "calibration",
       outputDir: "runs/eval/p1-calibration-2026-11-11",
       dataset: { cases: 30, negativeControl: 0 },
-      sampling: { cases: 30, reps: 3, arms: 2, planned: 180 },
+      sampling: { cases: 30, reps: 3, arms: 2, planned: 180, armOrder: "fixed", armOrderSeed: null },
       environment: {
         git: { commit: "deadbeef" },
         model: { requestedId: "deepseek-v4-flash", providerClass: "volcengine" },

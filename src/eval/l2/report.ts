@@ -131,6 +131,9 @@ export function buildL2Report(args: BuildL2ReportArgs): L2Report {
       reps: args.plan.reps,
       arms: args.plan.arms.length,
       planned: args.plannedUnits,
+      armOrder: args.plan.armOrder ?? "fixed",
+      armOrderSeed:
+        args.plan.armOrder === "randomized" ? (args.plan.armOrderSeed ?? null) : null,
     },
     coverage,
     bounds: computeBounds(allRuns),
