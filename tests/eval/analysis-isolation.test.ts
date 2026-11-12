@@ -22,6 +22,7 @@ const L2_DIR = path.join(EVAL_DIR, "l2");
 const JUDGE_DIR = path.join(EVAL_DIR, "judge");
 const ASSEMBLY_DIR = path.join(EVAL_DIR, "assembly");
 const REF_DIR = path.join(EVAL_DIR, "ref");
+const REFERENCE_DIR = path.join(EVAL_DIR, "reference");
 
 const FORBIDDEN_ANALYSIS_RUNTIME = [
   "node:http",
@@ -147,6 +148,10 @@ describe("评测面边界", () => {
     assertImportShape(REF_DIR, true);
   });
 
+  it("Claude Code 外部参照 import 只允许相对模块、node 内置与 review-pi type-only", () => {
+    assertImportShape(REFERENCE_DIR, true);
+  });
+
   it("campaign 核心不得 import judge / assembly（真实装配只在进程入口）", () => {
     const specifierPattern = /(?:from|import)\s+"([^"]+)"/g;
     for (const file of listTsFiles(CAMPAIGN_DIR)) {
@@ -190,6 +195,7 @@ describe("评测面边界", () => {
           "eval/judge",
           "eval/assembly",
           "eval/ref",
+          "eval/reference",
         ]) {
           expect(source, `${relative} imports ${plane}`).not.toContain(plane);
         }

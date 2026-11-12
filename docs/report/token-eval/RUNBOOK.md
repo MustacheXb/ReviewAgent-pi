@@ -169,6 +169,7 @@ candidate: <commit>
 | `eval/bench` `src/eval/campaign/` | campaign harness（plan / 单元执行 / 记录 / 报告；零网络，依赖注入） |
 | `eval/bench` `src/eval/l2/` | L2 配对统计 + bootstrap + 四门判定 + `l2-report.json` 装配（纯函数） |
 | `eval/bench` `src/eval/ref/` | C_ref eval-only 全仓注入（80k 预算 / 排序 / 行级截断）+ kernel 适配 + fullRepo sidecar（#43；不写生产 `RunAudit.fullRepo`） |
+| `eval/bench` `src/eval/reference/claude-code/` | Claude Code 外部参照 client / 输出归一化 / 同一 judge 链 / 单列报告（#44；fake 默认离线，真实 CLI 冒烟环境变量门控） |
 | `eval/bench` `src/eval/judge/` | LLM-as-judge 链（prompt / parse / resolve / HTTP 客户端；离线可测） |
 | `eval/bench` `src/eval/assembly/` | 真实装配（pi 内核 + judge + `environment.json` provenance；`CAMPAIGN_REAL=1` 门控） |
 | `eval/bench` | campaign harness、judge 链、`C_ref`、Claude Code 参照、空对照校准、配对统计 |
