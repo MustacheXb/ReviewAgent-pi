@@ -138,6 +138,7 @@ measuredAt
 - **无密钥**：缓存合同与重试留痕不含任何密钥（ADR-0008）；审计新增可选 `cacheContract` 键，缺省省键，可外发。
 - 价目表为静态 JSON（`priceValidFrom`、`currency`、三种价格），由分析 CLI 的可选参数读取；不存在时按 N/A 处理。
 - 主动探针（warmup / 块对齐 / 路由亲和）只作仓内手动脚本 + runbook，**不进产品 bin、不进 CI**，避免非预期费用。
+- **落地口径（#58，2026-11-12）**：契约 `contracts/cache-contract.ts` + 采集器 `provider/cache-contract.ts`。采集器包装注入的 FetchFunction，旁路读取响应副本（SSE 逐帧 / JSON 整体）提取响应模型回显与原始 usage 字段名；原 Response 原样返回，观测失败静默收口为 unknown，不击穿主链。字段族判定只看字段存在性：`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` → `deepseek-native`；`prompt_tokens_details.cached_tokens` / 顶层 `cached_tokens` → `openai-cached-tokens`；有 usage 无缓存字段 → family unknown 且 `cacheMetering=false`；完全无 usage → `cacheMetering="unknown"`。`cacheBlockTokens / cacheWarmupMs / providerAffinityRequired` 被动不可得，恒 `"unknown"`；`deploymentVersion` 仅取非密钥响应头，否则 unknown。审计 `cacheContract` 为可选尾键（追加在既有 `stopReason` 之后，历史键序不变；新 run 恒写、历史缺键兼容），不含任何密钥；RunRecord `AuditLight` 同源投影。分析器把 `cacheContract` 原样带进报告（缺省省键，schema v3），提供静态价目表时在报告层附加价目三元组 / 币种 / 价目生效时间（ADR §6 字段），并按该价目表计算每 run 的 `currencyCost`：无价目表、`cacheReadTokens` 缺失、有写缓存量却无 `cacheWritePrice`、或有写价但写量未上报 → `null`（N/A，不按 0 / 固定折扣假设）；`report.currency` / `priceValidFrom` 仍随价目表缺省为 null。主动探针：`scripts/probe-gateway-cache.ts` + `docs/runbooks/cache-contract-probe.md`（`pnpm probe:gateway-cache`，手动、非 CI、非产品 bin）。
 
 ### 7. 边界、治理与回滚
 

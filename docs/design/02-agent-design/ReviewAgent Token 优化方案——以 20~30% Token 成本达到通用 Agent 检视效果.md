@@ -1470,6 +1470,15 @@ flowchart TD
 
 探针纯观测，网关拒绝时标记 unknown，不影响主链。
 
+**落地记录（#58，2026-11-12）**
+
+- 契约与采集：`packages/review-pi/src/contracts/cache-contract.ts`（类型 + usage 字段族 / endpoint 纯分类器）、`provider/cache-contract.ts`（FetchFunction 旁路采集器）。包装后的 fetch 返回原 Response，响应副本异步解析 SSE / JSON；原链路与请求字节不变，观测失败只落 unknown。
+- 字段族：`deepseek-native`（`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`）、`openai-cached-tokens`（`prompt_tokens_details.cached_tokens` / 顶层 `cached_tokens`）；有 usage 无缓存字段 → family unknown + `cacheMetering=false`；无 usage → `cacheMetering="unknown"`。模型回显取响应 `model`；`cacheBlockTokens / cacheWarmupMs / providerAffinityRequired` 恒 unknown（被动不可得），`deploymentVersion` 仅取非密钥响应头。
+- 留痕：审计 `cacheContract` 与 RunRecord `AuditLight.cacheContract` 同源，可选尾键（追加在 stopReason 之后）、新 run 恒写、历史缺键兼容、不含密钥。
+- 价目：分析器新增 `currencyCost`（per run + 汇总 + Markdown 行/列）与 `cacheContract` 透传（报告 schema v3，缺省省键）；提供静态价目表时在报告层给合同附加价目三元组 / 币种 / 价目生效时间。无价目 / 缓存计量缺失 / 有写缓存量但无写价 / 有写价但写量未上报 → `null`；`currency` / `priceValidFrom` 仍随价目缺失为 null。`analyze-token --pricing <json>` 为唯一入口，示例见 runbook。
+- 主动探针：`scripts/probe-gateway-cache.ts` + `docs/runbooks/cache-contract-probe.md`，`pnpm probe:gateway-cache` 手动执行；不进 CI、不进产品 bin、不进 review-pi CLI。观测项：health、usage 字段族、模型回显、warmup、块对齐、路由亲和；结论只标 observed / unknown。
+- 测试缝：`run/cache-contract.test.ts`（fake 响应推导字段族 / 模型回显 / 缺字段 unknown / 无密钥）、`tests/eval/analyze.test.ts`（货币成本与 N/A）、`tests/instrument/cache-probe-runbook.test.ts`（探针边界护栏）。
+
 ## 15. P1/P2 路线
 
 ### P1

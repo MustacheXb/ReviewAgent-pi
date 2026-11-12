@@ -143,6 +143,27 @@ describe("toAuditLight", () => {
       "stopReason",
     ]);
   });
+
+  test("cacheContract（#58）：可选尾键追加在 stopReason 之后", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      cacheContract: {
+        provider: "deepseek",
+        endpointKind: "chat-completions",
+        requestedModel: "deepseek-v4-flash",
+        respondedModel: "deepseek-v4-flash",
+        deploymentVersion: "unknown",
+        usageFieldFamily: "deepseek-native",
+        cacheMetering: true,
+        cacheBlockTokens: "unknown",
+        cacheWarmupMs: "unknown",
+        providerAffinityRequired: "unknown",
+        measuredAt: "2026-11-12T00:00:00.000Z",
+      },
+    });
+    expect(Object.keys(light).at(-2)).toBe("stopReason");
+    expect(Object.keys(light).at(-1)).toBe("cacheContract");
+  });
 });
 
 describe("toRunSnapshot", () => {

@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { CacheContract } from "../contracts/cache-contract.js";
 import type { HistoricalConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
@@ -47,6 +48,8 @@ export interface AuditLight {
   readonly ledgerStats?: LedgerStats;
   /** 停止原因（#53 / ADR-0018 §2.4）：新记录恒写；历史记录缺键按 MODEL_COMPLETE 解释 */
   readonly stopReason?: StopReason;
+  /** 缓存合同（#58 / ADR-0018 §6）：新记录恒写；历史记录缺键兼容，无密钥 */
+  readonly cacheContract?: CacheContract;
 }
 
 /** RunResult 快照（audit 以轻量投影落盘） */
@@ -108,6 +111,7 @@ export function toAuditLight(audit: RunAudit): AuditLight {
     ...(audit.ledger !== undefined ? { ledger: audit.ledger } : {}),
     ...(audit.ledgerStats !== undefined ? { ledgerStats: audit.ledgerStats } : {}),
     ...(audit.stopReason !== undefined ? { stopReason: audit.stopReason } : {}),
+    ...(audit.cacheContract !== undefined ? { cacheContract: audit.cacheContract } : {}),
   };
 }
 

@@ -21,6 +21,7 @@ import {
   LOCKED_REASONING_EFFORT,
   reviewModelOf,
 } from "../provider/pi-client.js";
+import { createCacheContractCollector } from "../provider/cache-contract.js";
 import { addUsage, piUsageToLlmUsage, ZERO_USAGE } from "../provider/usage-map.js";
 import { classifyCacheBreaks } from "./cache-break.js";
 import {
@@ -195,11 +196,17 @@ export async function runAgentReviewLoop(
     return tool;
   });
 
+  // 缓存合同旁路采集（#58）：包装注入的 fetch，响应副本异步解析；原
+  // Response 原样返回，未观察到的字段在合同里记 unknown。
+  const cacheContractCollector = createCacheContractCollector();
+  const observedFetch = cacheContractCollector.wrap(inputs.fetch ?? globalThis.fetch);
+  const model = reviewModelOf(inputs.modelId, inputs.baseUrl);
+
   const streamFn: StreamFn = (model, context, options) =>
     deepseekProvider().stream(model as Model<"openai-completions">, context, {
       ...options,
       apiKey: inputs.apiKey,
-      ...(inputs.fetch !== undefined ? { fetch: inputs.fetch } : {}),
+      fetch: observedFetch,
       reasoningEffort: LOCKED_REASONING_EFFORT,
     });
 
@@ -212,7 +219,7 @@ export async function runAgentReviewLoop(
   const agent = new Agent({
     initialState: {
       systemPrompt: inputs.systemPrompt,
-      model: reviewModelOf(inputs.modelId, inputs.baseUrl),
+      model,
       messages: inputs.initialContextMessages.map(toUserMessage),
       tools: agentTools,
     },
@@ -362,6 +369,10 @@ export async function runAgentReviewLoop(
     );
   }
 
+  // 缓存合同观测落定（#58）：等待所有响应副本解析完成；观测失败只影响
+  // unknown 字段，不击穿主链。
+  await cacheContractCollector.settle();
+
   // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）；
   // 命中统计只在确有账本查询时落键（零工具 run 审计字节不变，#56）。
   const ledger = inputs.toolkit.ledger.snapshot();
@@ -379,6 +390,12 @@ export async function runAgentReviewLoop(
     // 兜底：模型未声明 complete、也未触达轮次上界即停止（ADR-0018 §2.4
     // 的 MODEL_STOPPED）；正常路径均在 advancePhase 里显式赋值。
     stopReason: stopReason ?? "MODEL_STOPPED",
+    // 缓存合同（#58 / ADR-0018 §6）：只含响应可观测事实与 unknown，不含密钥
+    cacheContract: cacheContractCollector.contract({
+      provider: model.provider,
+      requestedModel: model.id,
+      measuredAt: new Date().toISOString(),
+    }),
   };
   return { findings, usage, rounds: round, toolCalls: executedToolCalls, complete, audit };
 

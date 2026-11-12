@@ -1,6 +1,6 @@
 {
   "kind": "run-record-analysis",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "currency": null,
   "priceValidFrom": null,
   "runs": [
@@ -22,6 +22,7 @@
         "toolCostTokens": 0,
         "retryCostTokens": null,
         "summaryCostTokens": null,
+        "currencyCost": null,
         "carc": 18850
       },
       "loop": {
@@ -56,6 +57,19 @@
       "rep": 2,
       "model": "deepseek-v4-flash",
       "completedAt": "2026-09-23T06:52:42.017Z",
+      "cacheContract": {
+        "provider": "deepseek",
+        "endpointKind": "chat-completions",
+        "requestedModel": "deepseek-v4-flash",
+        "respondedModel": "deepseek-v4-flash",
+        "deploymentVersion": "unknown",
+        "usageFieldFamily": "deepseek-native",
+        "cacheMetering": true,
+        "cacheBlockTokens": "unknown",
+        "cacheWarmupMs": "unknown",
+        "providerAffinityRequired": "unknown",
+        "measuredAt": "2026-11-12T00:00:00.000Z"
+      },
       "cost": {
         "cachedInputTokens": 600,
         "uncachedInputTokens": 400,
@@ -67,6 +81,7 @@
         "toolCostTokens": 0,
         "retryCostTokens": null,
         "summaryCostTokens": null,
+        "currencyCost": null,
         "carc": 500
       },
       "loop": {
@@ -106,6 +121,7 @@
         "toolCostTokens": 0,
         "retryCostTokens": null,
         "summaryCostTokens": null,
+        "currencyCost": null,
         "carc": 500
       },
       "loop": {
@@ -174,6 +190,7 @@
       },
       "retryCostTokens": null,
       "summaryCostTokens": null,
+      "currencyCost": null,
       "carc": {
         "count": 2,
         "mean": 9675,

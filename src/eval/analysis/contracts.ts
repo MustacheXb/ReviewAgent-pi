@@ -1,4 +1,4 @@
-import type { RunRecord } from "review-pi";
+import type { CacheContract, RunRecord } from "review-pi";
 
 /**
  * 只读分析器契约（#37，P0）：输入历史 A–D / 当前 E 的 RunRecord，输出标准化
@@ -14,13 +14,15 @@ import type { RunRecord } from "review-pi";
 export const ANALYSIS_REPORT_KIND = "run-record-analysis";
 
 /**
- * 报告 schema 版本（golden 测试锁定；v2 = #51 增加 currency / priceValidFrom / retry / summary / skipped）。
+ * 报告 schema 版本（golden 测试锁定；v2 = #51 增加 currency / priceValidFrom /
+ * retry / summary / skipped；v3 = #58 增加 currencyCost 与 cacheContract）。
  *
  * 与 #49「新字段可选、缺省省键」的差异：#51 验收明确要求缺 retry / summary
  * 成本时字段为 null、缺价目时 currency 为 null，故这些新字段是 present-null
- * 而非省键；v2 标记读取方需要容忍这些键。
+ * 而非省键；v2 标记读取方需要容忍这些键。v3 的 `cacheContract` 仍按「缺省
+ * 省键」处理（历史记录无此键）。
  */
-export const ANALYSIS_REPORT_SCHEMA_VERSION = 2;
+export const ANALYSIS_REPORT_SCHEMA_VERSION = 3;
 
 /** 分析输入：一条 run 记录 + 可选真值 / judge 结果 */
 export interface AnalysisRunInput {
@@ -39,7 +41,7 @@ export interface AnalysisRunInput {
 export interface AnalysisPriceTable {
   readonly currency: string;
   readonly priceValidFrom: string;
-  /** 三种价格在批 1 只校验并随 CLI 读取；货币口径成本在批 4（缓存合同）接线 */
+  /** 每 token 单价（缓存命中 / 未命中 / 缓存写入 / 输出） */
   readonly cacheHitPrice: number;
   readonly cacheMissPrice: number;
   readonly cacheWritePrice?: number;
@@ -111,6 +113,11 @@ export interface RunCostMetrics {
   readonly retryCostTokens: number | null;
   /** 摘要 / compaction 成本；null = 无摘要机制（N/A，不记 0；独立报告，不计入 CARC） */
   readonly summaryCostTokens: number | null;
+  /**
+   * 货币口径成本（价目表 × token；单位 = report.currency）。无价目表、缓存
+   * 计量缺失或写缓存有量却无写价 → null（N/A，不按 0 / 固定折扣假设）。
+   */
+  readonly currencyCost: number | null;
   /** CARC = uncachedInput + cacheWrite + output + toolCost（ADR-0017 口径） */
   readonly carc: number;
 }
@@ -159,6 +166,8 @@ export interface RunAnalysis {
   readonly rep: number;
   readonly model: string;
   readonly completedAt: string;
+  /** 缓存合同（#58；历史记录无此键 → 省键） */
+  readonly cacheContract?: CacheContract;
   readonly cost: RunCostMetrics;
   readonly loop: RunLoopMetrics;
   readonly quality: RunQualityMetrics;
@@ -183,6 +192,7 @@ export interface CostStats {
   readonly toolCostTokens: Stat | null;
   readonly retryCostTokens: Stat | null;
   readonly summaryCostTokens: Stat | null;
+  readonly currencyCost: Stat | null;
   readonly carc: Stat | null;
 }
 

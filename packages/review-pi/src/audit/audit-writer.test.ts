@@ -27,7 +27,7 @@ const EMPTY_AUDIT: RunAudit = {
 };
 
 /** 键序冻结面（E 审计文件的前缀键序；ledger / mrBoundary 为条件尾键，
- * stopReason 恒写且恒在最后——#53 / ADR-0018 §2.4） */
+ * stopReason 恒写；#58 cacheContract 为追加在 stopReason 之后的可选尾键） */
 const AUDIT_PREFIX_KEYS = [
   "runId",
   "caseId",
@@ -96,6 +96,43 @@ describe("buildAuditFileContent", () => {
     const content = contentFixture();
     expect(Object.keys(content)).toEqual([...AUDIT_PREFIX_KEYS, "stopReason"]);
     expect(content.stopReason).toBe("MODEL_COMPLETE");
+  });
+
+  test("cacheContract（#58）：可选尾键追加在 stopReason 之后，历史键序不变", () => {
+    const withContract = buildAuditFileContent({
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
+      caseId: "VUL4J-1",
+      configId: CONFIG_E,
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 0,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: {
+        ...EMPTY_AUDIT,
+        cacheContract: {
+          provider: "deepseek",
+          endpointKind: "chat-completions",
+          requestedModel: "deepseek-v4-flash",
+          respondedModel: "deepseek-v4-flash",
+          deploymentVersion: "unknown",
+          usageFieldFamily: "deepseek-native",
+          cacheMetering: true,
+          cacheBlockTokens: "unknown",
+          cacheWarmupMs: "unknown",
+          providerAffinityRequired: "unknown",
+          measuredAt: "2026-11-12T00:00:00.000Z",
+        },
+      },
+    });
+    expect(Object.keys(withContract)).toEqual([
+      ...AUDIT_PREFIX_KEYS,
+      "stopReason",
+      "cacheContract",
+    ]);
   });
 
   test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序在 stopReason 之前（ledger 之后）", () => {

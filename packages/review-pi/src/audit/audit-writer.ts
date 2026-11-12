@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { CacheContract } from "../contracts/cache-contract.js";
 import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
@@ -63,6 +64,11 @@ export interface AuditFileContent {
    * schema 可选只为历史审计文件读取兼容。
    */
   readonly stopReason?: StopReason;
+  /**
+   * 缓存合同（#58 / ADR-0018 §6）：可选尾键，缺省省键；只含响应可观测
+   * 事实与 unknown，不含任何密钥，可外发。
+   */
+  readonly cacheContract?: CacheContract;
 }
 
 /** runId：毫秒时间戳 + 配置 + 用例，文件名安全 */
@@ -113,6 +119,10 @@ export function buildAuditFileContent(args: {
     ...(args.mrBoundary !== undefined ? { mrBoundary: args.mrBoundary } : {}),
     // RunAudit.stopReason 为必填（新 run 恒写）——无需条件 spread
     stopReason: args.audit.stopReason,
+    // #58 新增可选尾键：只追加（在既有 stopReason 之后），历史键序不变
+    ...(args.audit.cacheContract !== undefined
+      ? { cacheContract: args.audit.cacheContract }
+      : {}),
   };
 }
 

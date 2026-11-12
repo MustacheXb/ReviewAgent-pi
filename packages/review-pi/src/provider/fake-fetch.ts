@@ -29,6 +29,13 @@ export interface FakeReply {
   /** 工具调用批次（有则 finish_reason 渲染为 "tool_calls"） */
   readonly toolCalls?: readonly FakeToolCall[];
   readonly usage: FakeUsage;
+  /**
+   * 覆盖 wire usage 对象原文（#58 缓存合同测试：OpenAI / DeepSeek 字段族
+   * 与缺字段形态）；缺省按 FakeUsage 渲染 DeepSeek 原生字段。
+   */
+  readonly rawUsage?: Record<string, unknown>;
+  /** 省略 usage 帧（模拟响应不报 usage；#58 未知字段路径） */
+  readonly omitUsage?: boolean;
   /** 缺省：有 toolCalls 即 "tool_calls"，否则 "stop"；错误路径脚本用（如 "content_filter"） */
   readonly finishReason?: string;
 }
@@ -90,7 +97,7 @@ export function sseBody(reply: FakeReply): string {
     ...contentDeltas(reply.text ?? "").map((delta) => contentChunk(delta)),
     ...(reply.toolCalls ?? []).map((call, index) => toolCallChunk(call, index)),
     finishChunk(reply.finishReason ?? defaultFinishReason(reply)),
-    usageChunk(reply.usage),
+    ...(reply.omitUsage ? [] : [usageChunk(reply.usage, reply.rawUsage)]),
     "data: [DONE]",
   ];
   return `${frames.join("\n\n")}\n\n`;
@@ -149,14 +156,15 @@ function finishChunk(finishReason: string): string {
   });
 }
 
-function usageChunk(usage: FakeUsage): string {
+function usageChunk(usage: FakeUsage, rawUsage?: Record<string, unknown>): string {
   return dataFrame({
     choices: [],
-    usage: {
-      prompt_tokens: usage.promptTokens,
-      completion_tokens: usage.completionTokens,
-      prompt_cache_hit_tokens: usage.cacheReadTokens,
-    },
+    usage:
+      rawUsage ?? {
+        prompt_tokens: usage.promptTokens,
+        completion_tokens: usage.completionTokens,
+        prompt_cache_hit_tokens: usage.cacheReadTokens,
+      },
   });
 }
 

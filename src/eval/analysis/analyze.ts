@@ -1,5 +1,12 @@
+import type { CacheContract } from "review-pi";
 import { buildL1, buildSummary } from "./aggregate.js";
-import type { AnalysisInput, AnalysisReport, AnalysisRunInput, RunAnalysis } from "./contracts.js";
+import type {
+  AnalysisInput,
+  AnalysisPriceTable,
+  AnalysisReport,
+  AnalysisRunInput,
+  RunAnalysis,
+} from "./contracts.js";
 import {
   ANALYSIS_REPORT_KIND,
   ANALYSIS_REPORT_SCHEMA_VERSION,
@@ -23,8 +30,9 @@ import { ANALYSIS_CONFIG_IDS, validateAnalysisInput } from "./validate.js";
 export function analyzeRuns(input: AnalysisInput): AnalysisReport {
   validateAnalysisInput(input);
   const pricing = input.toolCost ?? DEFAULT_TOOL_COST_PRICING;
+  const priceTable = input.priceTable ?? null;
   const inputs = sortRuns(input.runs);
-  const runs = inputs.map((run) => analyzeRun(run, pricing));
+  const runs = inputs.map((run) => analyzeRun(run, pricing, priceTable));
   return {
     kind: ANALYSIS_REPORT_KIND,
     schemaVersion: ANALYSIS_REPORT_SCHEMA_VERSION,
@@ -61,7 +69,11 @@ function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function analyzeRun(run: AnalysisRunInput, pricing: ToolCostPricing): RunAnalysis {
+function analyzeRun(
+  run: AnalysisRunInput,
+  pricing: ToolCostPricing,
+  priceTable: AnalysisPriceTable | null,
+): RunAnalysis {
   // P0 只分析 baseline 快照（生产 verifier off 档）；effective 复核档不在
   // 本分析器范围（历史 A–D 记录 effective 恒 null，缺席不影响读取）。
   const { record } = run;
@@ -77,6 +89,7 @@ function analyzeRun(run: AnalysisRunInput, pricing: ToolCostPricing): RunAnalysi
   const toolCostTokens = computeToolCostTokens(baseline.audit.toolCallLog, pricing);
   const attemptedToolCalls = baseline.audit.toolCallLog.length;
   const executedToolCalls = baseline.toolCalls;
+  const cacheContract = contractWithPrices(baseline.audit.cacheContract, priceTable);
   return {
     source: record.source,
     caseId: record.caseId,
@@ -84,11 +97,13 @@ function analyzeRun(run: AnalysisRunInput, pricing: ToolCostPricing): RunAnalysi
     rep: record.rep,
     model: record.model,
     completedAt: record.completedAt,
+    ...(cacheContract !== undefined ? { cacheContract } : {}),
     cost: computeRunCost(
       baseline.usage,
       toolCostTokens,
       run.retryCostTokens ?? null,
       run.summaryCostTokens ?? null,
+      priceTable,
     ),
     loop: {
       requests,
@@ -106,5 +121,29 @@ function analyzeRun(run: AnalysisRunInput, pricing: ToolCostPricing): RunAnalysi
       rule,
       judge,
     },
+  };
+}
+
+/**
+ * 报告层价目附加（#58）：运行期审计只含可观测事实；分析命令提供静态价目表
+ * 时把价目三元组 / 币种 / 生效时间附加到报告的 cacheContract 上（审计不读
+ * 价目文件）；缺价目表则保持合同原样（省键）。
+ */
+function contractWithPrices(
+  contract: CacheContract | undefined,
+  priceTable: AnalysisPriceTable | null,
+): CacheContract | undefined {
+  if (contract === undefined || priceTable === null) {
+    return contract;
+  }
+  return {
+    ...contract,
+    cacheHitPrice: priceTable.cacheHitPrice,
+    cacheMissPrice: priceTable.cacheMissPrice,
+    ...(priceTable.cacheWritePrice !== undefined
+      ? { cacheWritePrice: priceTable.cacheWritePrice }
+      : {}),
+    currency: priceTable.currency,
+    priceValidFrom: priceTable.priceValidFrom,
   };
 }

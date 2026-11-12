@@ -29,7 +29,23 @@ export function renderAnalysisMarkdown(report: AnalysisReport): string {
   lines.push(statRow("toolCostTokens", report.summary.cost.toolCostTokens));
   lines.push(statRow("retryCostTokens", report.summary.cost.retryCostTokens));
   lines.push(statRow("summaryCostTokens", report.summary.cost.summaryCostTokens));
+  lines.push(statRow("currencyCost", report.summary.cost.currencyCost));
   lines.push("");
+
+  const contracted = report.runs.flatMap((run) =>
+    run.cacheContract === undefined ? [] : [{ run, contract: run.cacheContract }],
+  );
+  if (contracted.length > 0) {
+    lines.push("## 缓存合同", "");
+    lines.push("| run | provider | endpoint | requested | responded | usage fields | metering |", "|---|---|---|---|---|---|---|");
+    for (const { run, contract } of contracted) {
+      lines.push(
+        `| ${run.caseId}/${run.configId}/rep-${run.rep} | ${contract.provider} | ${contract.endpointKind} | ` +
+          `${contract.requestedModel} | ${contract.respondedModel} | ${contract.usageFieldFamily} | ${String(contract.cacheMetering)} |`,
+      );
+    }
+    lines.push("");
+  }
 
   lines.push("## 循环与工具", "", "| 指标 | mean | std | count |", "|---|---:|---:|---:|");
   lines.push(statRow("requests", report.summary.loop.requests));
@@ -48,8 +64,8 @@ export function renderAnalysisMarkdown(report: AnalysisReport): string {
 
   lines.push("## 逐 run", "");
   lines.push(
-    "| run | cached | uncached | output | CARC | requests | attempted | executed | skipped | truncated |",
-    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    "| run | cached | uncached | output | CARC | currencyCost | requests | attempted | executed | skipped | truncated |",
+    "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
   );
   for (const run of report.runs) {
     lines.push(runRow(run));
@@ -73,6 +89,7 @@ function runRow(run: RunAnalysis): string {
     formatNumber(run.cost.uncachedInputTokens),
     formatNumber(run.cost.outputTokens),
     formatNumber(run.cost.carc),
+    nullable(run.cost.currencyCost),
     formatNumber(run.loop.requests),
     formatNumber(run.loop.attemptedToolCalls),
     formatNumber(run.loop.executedToolCalls),

@@ -20,6 +20,19 @@ export {
 // AuditLight 的新可选键类型。
 export type { ReviewBudget, ReviewBudgetOverride } from "./loop/budget.js";
 export type { StopReason } from "./contracts/run.js";
+// #58 / ADR-0018 §6：缓存合同进公开面（审计 / RunRecord / 报告消费方共用）；
+// usage 字段族分类器同时供仓内手动探针脚本复用（探针不进产品 bin / CI）。
+export type {
+  CacheContract,
+  EndpointKind,
+  UsageFieldFamily,
+} from "./contracts/cache-contract.js";
+export {
+  cacheHitTokensOf,
+  classifyUsageFields,
+  endpointKindOf,
+  modelEchoOf,
+} from "./contracts/cache-contract.js";
 export type {
   AuditLight,
   RunRecord,

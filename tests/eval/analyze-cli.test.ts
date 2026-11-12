@@ -138,7 +138,7 @@ describe("analyze-token 进程级", () => {
       summary: { cost: { carc: { mean: number } } };
       runs: readonly { cost: { cachedInputTokens: number | null } }[];
     };
-    expect(report.schemaVersion).toBe(2);
+    expect(report.schemaVersion).toBe(3);
     expect(report.currency).toBeNull();
     expect(report.priceValidFrom).toBeNull();
     expect(report.runs[0]?.cost.cachedInputTokens).toBe(600);
@@ -191,6 +191,41 @@ describe("analyze-token 进程级", () => {
     });
     expect(report.runs[0]?.loop.skippedToolCalls).toBe(0);
     expect(readFileSync(path.join(out, "token-analysis.md"), "utf8")).toContain("- currency: CNY");
+  });
+
+  it("缓存计量齐备 + --pricing：报告输出 currencyCost（货币口径）", () => {
+    const root = makeTempDir("analyze-token-currency-");
+    const recordFile = writeRecordFile(root, "VUL4J-4", "E", 1, {
+      baseline: snapshot({
+        usage: { inputTokens: 400, outputTokens: 100, cacheReadTokens: 600, cacheWriteTokens: 0 },
+      }),
+    });
+    const pricingFile = path.join(root, "pricing.json");
+    writeFileSync(
+      pricingFile,
+      JSON.stringify({
+        currency: "USD",
+        priceValidFrom: "2026-11-01T00:00:00Z",
+        cacheHitPrice: 0.1,
+        cacheMissPrice: 1,
+        outputPrice: 2,
+      }),
+      "utf8",
+    );
+    const out = path.join(root, "out");
+    const result = runCli(["--record", recordFile, "--pricing", pricingFile, "--out", out]);
+    expect(result.status, result.stderr).toBe(0);
+
+    const report = JSON.parse(readFileSync(path.join(out, "token-analysis.json"), "utf8")) as {
+      currency: string | null;
+      runs: readonly { cost: { currencyCost: number | null } }[];
+      summary: { cost: { currencyCost: { count: number; mean: number } | null } };
+    };
+    // 400×1 + 600×0.1 + 100×2 = 660
+    expect(report.currency).toBe("USD");
+    expect(report.runs[0]?.cost.currencyCost).toBe(660);
+    expect(report.summary.cost.currencyCost).toEqual({ count: 1, mean: 660, std: 0 });
+    expect(readFileSync(path.join(out, "token-analysis.md"), "utf8")).toContain("currencyCost");
   });
 
   it("不读密钥、不发起网络：哨兵环境变量不出现在任何输出面", () => {

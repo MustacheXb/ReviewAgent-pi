@@ -1,5 +1,5 @@
 import type { RunRecord } from "review-pi";
-import type { RunCostMetrics, ToolCostPricing } from "./contracts.js";
+import type { AnalysisPriceTable, RunCostMetrics, ToolCostPricing } from "./contracts.js";
 
 /** 记录里的 usage 形状（RunRecord.baseline.usage 的结构投影） */
 type LlmUsage = RunRecord["baseline"]["usage"];
@@ -33,12 +33,16 @@ export function computeToolCostTokens(
  * 是保守上界（真命中率越高，真实成本只会更低）。totalInput / totalTokens
  * 在 cached 缺失时也为 null：未知缓存量下，把它们写成 uncached + output
  * 等于把缺失缓存按 0 计。
+ *
+ * 货币成本（#58）：仅当价目表在场且缓存计量已知时计算；缓存写入有量但价目
+ * 表缺 `cacheWritePrice` → null（不按固定折扣假设）。无价目表 → null。
  */
 export function computeRunCost(
   usage: LlmUsage,
   toolCostTokens: number,
   retryCostTokens: number | null,
   summaryCostTokens: number | null,
+  priceTable: AnalysisPriceTable | null = null,
 ): RunCostMetrics {
   const uncachedInputTokens = usage.inputTokens;
   const cachedInputTokens = usage.cacheReadTokens ?? null;
@@ -65,6 +69,30 @@ export function computeRunCost(
     toolCostTokens,
     retryCostTokens,
     summaryCostTokens,
+    currencyCost: computeCurrencyCost(usage, priceTable),
     carc,
   };
+}
+
+/** 货币成本（价目表 × token）；不可计价时 null（N/A，不按 0 假设） */
+function computeCurrencyCost(
+  usage: LlmUsage,
+  priceTable: AnalysisPriceTable | null,
+): number | null {
+  if (priceTable === null || usage.cacheReadTokens === undefined) {
+    return null;
+  }
+  const base =
+    usage.inputTokens * priceTable.cacheMissPrice +
+    usage.cacheReadTokens * priceTable.cacheHitPrice +
+    usage.outputTokens * priceTable.outputPrice;
+  if (priceTable.cacheWritePrice === undefined) {
+    // 写缓存无量 → 不涉及写价；有量却无价 → 无法计价
+    return usage.cacheWriteTokens !== undefined && usage.cacheWriteTokens > 0 ? null : base;
+  }
+  // 有写价但写量未上报（缺字段）→ 无法计价，不按 0 假设
+  if (usage.cacheWriteTokens === undefined) {
+    return null;
+  }
+  return base + usage.cacheWriteTokens * priceTable.cacheWritePrice;
 }

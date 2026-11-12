@@ -30,6 +30,7 @@ export function buildSummary(runs: readonly RunAnalysis[]): AnalysisSummary {
       toolCostTokens: costStat(runs, (run) => run.cost.toolCostTokens),
       retryCostTokens: costStat(runs, (run) => run.cost.retryCostTokens),
       summaryCostTokens: costStat(runs, (run) => run.cost.summaryCostTokens),
+      currencyCost: costStat(runs, (run) => run.cost.currencyCost),
       carc: costStat(runs, (run) => run.cost.carc),
     } satisfies CostStats,
     loop: {

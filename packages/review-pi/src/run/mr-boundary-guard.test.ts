@@ -312,8 +312,10 @@ test("全链超界（11 文件）：照常出 findings + domainWarning + 审计 
     reason: "too-many-files",
   });
   const auditKeys = Object.keys(audit);
-  expect(auditKeys.at(-2)).toBe("mrBoundary");
-  expect(auditKeys.at(-1)).toBe("stopReason");
+  // 历史尾键次序不变（mrBoundary → stopReason）；#58 cacheContract 只追加在最末
+  expect(auditKeys.at(-3)).toBe("mrBoundary");
+  expect(auditKeys.at(-2)).toBe("stopReason");
+  expect(auditKeys.at(-1)).toBe("cacheContract");
 
   // 记录落盘：domainWarning 经 toRunSnapshot 透传进 rep-1.json
   const onDisk = JSON.parse(readFileSync(recordPath, "utf8")) as {

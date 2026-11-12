@@ -1,6 +1,7 @@
 // run 级留痕契约（测量常量面：审计投影的形状与 DSH 线 ADR 冻结记录一致，
 // 历史记录读面据此保持可读）。随模块落地逐步补齐。
 
+import type { CacheContract } from "./cache-contract.js";
 import type { Finding } from "./finding.js";
 import type { LedgerEntry, LedgerStats } from "./ledger.js";
 import type { LlmUsage, ToolSchema, WireMessage } from "./llm.js";
@@ -123,6 +124,12 @@ export interface RunAudit {
   readonly ledgerStats?: LedgerStats;
   /** 停止原因（新 run 恒写；ADR-0018 §2.4） */
   readonly stopReason: StopReason;
+  /**
+   * 缓存合同（#58 / ADR-0018 §6）：新 run 恒写；历史记录缺键兼容。
+   * 只含响应可观测事实（usage 字段族 / 模型回显 / 部署版本）与 unknown，
+   * 不含任何密钥。
+   */
+  readonly cacheContract?: CacheContract;
 }
 
 /**
