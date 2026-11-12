@@ -1,0 +1,12 @@
+[
+  {
+    "campaignId": "p1-armorder-recheck-2026-11-12",
+    "source": "vul4j",
+    "caseId": "VUL4J-25",
+    "arm": "baseline",
+    "rep": 1,
+    "stage": "judge",
+    "error": "OpenAI API returned finish_reason \"length\": the judge response was truncated by max_tokens; not retried automatically",
+    "at": "2026-11-12T18:23:56.036Z"
+  }
+]

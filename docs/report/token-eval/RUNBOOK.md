@@ -138,9 +138,14 @@ candidate: <commit>
    baseline→candidate 可能引入顺序偏差，后续主跑建议随机化臂序；judge
    `VUL4J-75/baseline/rep-1` 持续非法 JSON（已留痕，不插补）。
 
-   已知限制：数据集无 clean MR（阴性对照阈值 N/A）；固定臂序
-   baseline→candidate 可能引入顺序偏差，后续主跑建议随机化臂序；judge
-   `VUL4J-75/baseline/rep-1` 持续非法 JSON（已留痕，不插补）。
+   ### 2.3 臂序随机复核（2026-11-12）
+
+   `p1-armorder-recheck-2026-11-12`（10×3×2，`--randomize-arms`，seed
+   `20261112`）：60/60 executed、59/60 judged。固定臂序下 candidate 质量
+   略低的方向未复现（随机 Recall +14.8pp [+1.3,+29.0]）；但 10 案功效不足，
+   **不修改任何阈值**。方法学要求：后续 L2 主跑 / 校准使用随机臂序；下一次
+   正式校准仍为 30×3（并扩到 ≥43 案）。报告：
+   [`p1-armorder-recheck-2026-11-12/`](p1-armorder-recheck-2026-11-12/REPORT.md)。
 
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s

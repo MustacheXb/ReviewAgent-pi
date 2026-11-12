@@ -150,3 +150,14 @@ Precision −7.6pp 方向一致），后续校准 / L2 主跑应随机化臂序�
 （`VUL4J-75/baseline/rep-1`），不插补；judge 版本变更后按 §5 重做校准。
 空对照结果只用于阈值复核，不用于判定优化收益；对外宣称仍按 §4 执行。
 
+**补记复核（2026-11-12，臂序随机 10×3×2）**：campaign
+`p1-armorder-recheck-2026-11-12`（10 案 × 3 reps × 2 arms，`armOrder =
+randomized`，seed `20261112`；60/60 executed、59/60 judged）。warm 结果：
+CARC ratio **1.058 [0.845, 1.305]**；judge Recall **+14.8pp [+1.3, +29.0]**、
+Precision +9.6pp [−8.8, +25.8]；零 finding −5.0pp。固定臂序下 candidate
+质量略低的方向**未复现**，更可能是固定臂序 / 时段漂移或 30 案噪声；10 案
+功效不足（CARC CI 半宽约 23pp），**不据此修改任何阈值**。方法学结论：后续
+L2 主跑 / 校准应使用随机臂序；下一次正式校准仍为 30×3（并按噪声底建议扩到
+≥43 案），不得用 10 案下结论。报告见
+[`docs/report/token-eval/p1-armorder-recheck-2026-11-12/`](../report/token-eval/p1-armorder-recheck-2026-11-12/REPORT.md)。
+
