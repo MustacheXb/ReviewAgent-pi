@@ -36,6 +36,7 @@
 
 - attempts 耗尽后本批工具结果全部携带 `terminate`，并向模型**追加一条 append-only 指令**：「工具预算已耗尽，请直接输出本阶段要求的 JSON」。不重写既有消息（Zone C 纪律）。
 - 该收口每阶段至多触发 **2 次**；仍不产出文本 → 以 `PHASE_FORCED_INCOMPLETE` 收尾。
+- **终止原因分流（#54 落地澄清，2026-11-12）**：收尾注入用尽后模型仍只发工具调用 → `TOOL_ATTEMPTS_EXHAUSTED`（尝试预算即终止因）；收尾后模型返回空文本 → `PHASE_FORCED_INCOMPLETE`（收尾未产出任何文本）。两者均 `truncated=true`。
 - 收口不伪造 Finding、不把半成品当完整检视。工具预算耗尽本身**不翻转** `truncated`（见 2.4）。
 
 #### 2.2 请求预算 → 阶段边界保底

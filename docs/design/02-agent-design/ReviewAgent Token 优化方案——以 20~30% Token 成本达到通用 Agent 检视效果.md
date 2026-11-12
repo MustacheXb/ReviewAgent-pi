@@ -1219,6 +1219,14 @@ flowchart TD
 - requests / attempted / executed / skipped 不新增审计计数器：继续由 `phaseLog` 与 `toolCallLog` 派生（ADR-0018 §1），分析器口径不变。
 - 未触发预算的 run 与基线 wireBody 逐字节一致（行为缝测试锁定）。
 
+**落地记录（#54，2026-11-12）**
+
+- 尝试闸前移到 `beforeToolCall`（被拦调用不进入 `execute`）：attempt 按模型发出的 toolCall 内容块计数（含被拒调用），整批判定——本批放行后累计尝试达到上限时，批内全部结果携带 `terminate`，pi 内核据此终止本批并消费收尾 follow-up。
+- 超尝试预算的调用应答 `Error: tool attempt budget exhausted`；attempts 耗尽后 append-only 注入 `FORCED_FINALIZATION_INSTRUCTION`（每阶段至多 2 次，阶段切换重置）。
+- 终止原因分流：收尾注入用尽后模型仍只发工具调用 → `TOOL_ATTEMPTS_EXHAUSTED`；收尾后返回空文本 → `PHASE_FORCED_INCOMPLETE`。两种终态 `truncated=true`；收尾成功则阶段照常完成、`truncated` 不翻转。
+- 审计 `truncationReasons` 新增事件 `TOOL_ATTEMPTS_EXHAUSTED`（与 StopReason 同名，只作事件留痕）；执行预算路径的应答文案与 wire 字节不变。
+- 行为缝测试：`packages/review-pi/src/loop/forced-finalization.test.ts`（收尾指令、整批 terminate、每阶段 2 次上限、truncated 表驱动）；run 级落盘见 `review-run-budget.test.ts`。
+
 ### P0-4：处理空知识工具
 
 **问题**

@@ -25,8 +25,12 @@ import { addUsage, piUsageToLlmUsage, ZERO_USAGE } from "../provider/usage-map.j
 import { classifyCacheBreaks } from "./cache-break.js";
 import { resolveReviewBudget, type ReviewBudgetOverride } from "./budget.js";
 import {
+  FORCED_FINALIZATION_INSTRUCTION,
+  MAX_FORCED_FINALIZATIONS_PER_PHASE,
+  TOOL_ATTEMPTS_EXHAUSTED_SUMMARY,
   TOOL_BUDGET_EXHAUSTED_SUMMARY,
   TRUNCATION_MAX_ROUNDS,
+  TRUNCATION_TOOL_ATTEMPTS,
   TRUNCATION_TOOL_BUDGET,
 } from "./constants.js";
 import { parseCandidatesReply, parseVerificationReply, type VerificationVerdict } from "./parse.js";
@@ -37,19 +41,24 @@ import type { ReviewToolkit } from "../tools/toolkit.js";
 // agentLoop 钩子驱动循环（#6 P3a；#32 / ADR-0014 起唯一内核形态）：六阶段 +
 // 工具子循环跑在 pi-agent-core Agent 上，三个预定缝承载 review 语义——
 //
-// - shouldStopAfterTurn = review 状态机：工具轮恒继续（t-series 真源：预算
-//   耗尽也 recall，相位只在文本回复时完结，无 force-complete）；文本轮完结
-//   当前阶段（解析 + PhaseRecord 留痕），经 agent.followUp 注入下一阶段指令
-//   或下一轮 phase-1 指令；complete / 轮次上界即停；
+// - shouldStopAfterTurn = review 状态机：工具轮恒继续（t-series 真源：执行
+//   预算耗尽也 recall，相位只在文本回复时完结；尝试预算耗尽例外——#54
+//   Forced Phase Finalization：本批 terminate + 注入收尾指令，每阶段至多
+//   2 次）；文本轮完结当前阶段（解析 + PhaseRecord 留痕），经 agent.followUp
+//   注入下一阶段指令或下一轮 phase-1 指令；complete / 轮次上界即停；
 // - transformContext 不设（恒等透传）：消息前缀 append-only，Zone A/B/C
 //   稳定前缀由内核时序直接保证；
 // - state.tools = 七工具 AgentTool（name = wire 下划线名直达 wire function.name；
 //   prepareArguments 剥未知键对齐 DSH 容忍语义——pi-ai 严格校验缝的方言对冲）。
 //
-// 工具预算与审计在 execute 包装层：成功执行计数跨轮不重置（失败也计入），
-// 超出即返回 "Error: tool call budget exhausted"（= 审计 resultSummary =
-// wire tool 消息 content，t-series 真源字节）；truncationReasons 单列
-// TOOL_BUDGET_EXHAUSTED 但不翻转 truncated（截断语义只归 MAX_ROUNDS）。
+// 工具预算与审计在 beforeToolCall / execute 包装层（#54 起预算闸前移到
+// beforeToolCall，被拦调用不执行）：attempts 累计跨轮不重置（含被拒调用），
+// 达上限后本批结果全部 terminate；executed 成功/失败均计入；超执行预算返回
+// "Error: tool call budget exhausted"（= 审计 resultSummary = wire tool 消息
+// content，t-series 真源字节）；超尝试预算返回 "Error: tool attempt budget
+// exhausted"。truncationReasons 单列 TOOL_BUDGET_EXHAUSTED /
+// TOOL_ATTEMPTS_EXHAUSTED 但不翻转 truncated（截断语义只归 MAX_ROUNDS 与
+// 阶段/轮次跳过）。
 
 export interface AgentReviewLoopInputs {
   readonly systemPrompt: string;
@@ -115,10 +124,23 @@ export async function runAgentReviewLoop(
   const truncationReasons: string[] = [];
   let usage: LlmUsage = ZERO_USAGE;
   let executedToolCalls = 0;
+  // 尝试计数（#54 / ADR-0018 §2.1）：模型每发出一个 toolCall 内容块计 1，
+  // 跨轮不重置；与 executed 是两个独立闸（attempt 含被拒调用）。
+  let attemptedToolCalls = 0;
+  // 尝试预算是否已耗尽（黏性：耗尽后不再执行任何工具，直到 run 结束）
+  let attemptsExhausted = false;
+  // 当前工具批的模型回复（批边界识别 + 尝试预算「整批 terminate」判定）
+  let currentBatchMessage: AssistantMessage | undefined;
+  let currentBatchReachesAttemptCap = false;
+  // 本批已走进 beforeToolCall 的调用数（对账内核即时拒绝的调用：
+  // 未知工具名 / 参数校验失败不经过该钩子，但仍计一次 attempt）
+  let currentBatchSeenCalls = 0;
   let round = 1;
   let phaseIndex = 0;
   let phaseRequestCount = 0;
   let phaseSkippedToolCalls = 0;
+  // 当前阶段强制收尾注入次数（#54：每阶段至多 2 次，阶段切换重置）
+  let phaseForcedFinalizations = 0;
   let roundCandidates: readonly unknown[] = [];
   let roundVerdicts: ReadonlyMap<string, VerificationVerdict> = new Map();
   let roundComplete = false;
@@ -141,18 +163,6 @@ export async function runAgentReviewLoop(
       execute: async (_toolCallId, params) => {
         const args = params as Record<string, unknown>;
         const argumentsJson = JSON.stringify(args);
-        if (executedToolCalls >= budget.maxExecutedToolCalls) {
-          phaseSkippedToolCalls += 1;
-          appendReason(truncationReasons, TRUNCATION_TOOL_BUDGET);
-          toolCallLog.push({
-            name: schema.name,
-            argumentsJson,
-            resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY,
-          });
-          return { content: [{ type: "text", text: TOOL_BUDGET_EXHAUSTED_SUMMARY }], details: {} };
-        }
-        // 预算预约同步于检查（批内调用序即预约序）；失败不退还（防失败死循环）
-        executedToolCalls += 1;
         try {
           const result = await inputs.toolkit.executeTool(schema.name, args);
           toolCallLog.push({ name: schema.name, argumentsJson, resultSummary: result });
@@ -193,6 +203,55 @@ export async function runAgentReviewLoop(
     streamFn,
     // DSH 工具批为严格批序执行（审计记录顺序 = 批内顺序）；parallel 模式按完成序落账
     toolExecution: "sequential",
+    // 工具预算闸（#54 / ADR-0018 §2.1）：attempt 在模型发出时计数（含被拒
+    // 调用），执行预约在放行时同步发生（失败不退还）；超预算调用由
+    // beforeToolCall 拦截——工具本体不执行，审计与 wire 应答保持同字节。
+    beforeToolCall: async ({ assistantMessage, toolCall, args }) => {
+      if (assistantMessage !== currentBatchMessage) {
+        currentBatchMessage = assistantMessage;
+        currentBatchSeenCalls = 0;
+        // 整批 terminate 判定：本批放行后累计尝试达到/超过上限 → 批内全部
+        // 结果携带 terminate（pi 语义：批内 every 才生效）。
+        currentBatchReachesAttemptCap =
+          attemptedToolCalls + countToolCalls(assistantMessage) >= budget.maxToolAttempts;
+      }
+      currentBatchSeenCalls += 1;
+      attemptedToolCalls += 1;
+      if (currentBatchReachesAttemptCap && !attemptsExhausted) {
+        attemptsExhausted = true;
+        appendReason(truncationReasons, TRUNCATION_TOOL_ATTEMPTS);
+      }
+      const overAttempts = attemptedToolCalls > budget.maxToolAttempts;
+      const overExecuted = executedToolCalls >= budget.maxExecutedToolCalls;
+      if (overAttempts || overExecuted) {
+        phaseSkippedToolCalls += 1;
+        const reason = overAttempts
+          ? TOOL_ATTEMPTS_EXHAUSTED_SUMMARY
+          : TOOL_BUDGET_EXHAUSTED_SUMMARY;
+        if (!overAttempts) {
+          appendReason(truncationReasons, TRUNCATION_TOOL_BUDGET);
+        }
+        toolCallLog.push({
+          name: fromWireToolName(toolCall.name),
+          argumentsJson: JSON.stringify(args),
+          resultSummary: reason,
+        });
+        return {
+          block: true,
+          reason,
+          terminate: overAttempts || currentBatchReachesAttemptCap,
+        };
+      }
+      // 执行预约：放行即计数（失败不退还，防失败死循环）
+      executedToolCalls += 1;
+      return undefined;
+    },
+    // 已执行结果补齐批级 terminate（拦截路径在 beforeToolCall 直接带回）；
+    // 只认当前批的回复，避免跨批串写
+    afterToolCall: async ({ assistantMessage }) =>
+      assistantMessage === currentBatchMessage && currentBatchReachesAttemptCap
+        ? { terminate: true }
+        : undefined,
     onPayload: (payload) => {
       requests.push(auditWireCapture(payload));
       phaseRequestCount += 1;
@@ -206,9 +265,42 @@ export async function runAgentReviewLoop(
       const message = context.message;
       usage = addUsage(usage, piUsageToLlmUsage(message.usage));
       if (message.content.some((block) => block.type === "toolCall")) {
-        return false;
+        // 尝试对账（ADR-0018 §1）：内核即时拒绝的调用（未知工具 / 参数校验
+        // 失败）不经过 beforeToolCall，但同样是模型发出的 attempt。
+        const seenForMessage = currentBatchMessage === message ? currentBatchSeenCalls : 0;
+        attemptedToolCalls += countToolCalls(message) - seenForMessage;
+        if (attemptedToolCalls >= budget.maxToolAttempts && !attemptsExhausted) {
+          attemptsExhausted = true;
+          appendReason(truncationReasons, TRUNCATION_TOOL_ATTEMPTS);
+        }
+        // 整批都没有经过预算闸（全部被内核即时拒绝）时 terminate 不成立，
+        // 收尾指令会滞留 follow-up 队列并污染下一阶段——只在本批全部经闸时
+        // 注入。
+        const batchFullyGated =
+          currentBatchMessage === message && currentBatchSeenCalls === countToolCalls(message);
+        if (!attemptsExhausted || !batchFullyGated) {
+          return false;
+        }
+        // 尝试预算耗尽后的工具轮（#54 / ADR-0018 §2.1）：本批已被 terminate，
+        // 注入强制收尾指令让模型直接产出阶段 JSON；每阶段至多 2 次。
+        if (phaseForcedFinalizations < MAX_FORCED_FINALIZATIONS_PER_PHASE) {
+          phaseForcedFinalizations += 1;
+          enqueueFollowUp(forcedFinalizationMessage());
+          return false;
+        }
+        // 收尾注入用尽仍只发工具调用 → 以尝试预算耗尽终止
+        truncated = true;
+        stopReason = "TOOL_ATTEMPTS_EXHAUSTED";
+        return true;
       }
-      return advancePhase(assistantText(message), enqueueFollowUp);
+      const replyText = assistantText(message);
+      // 收尾指令仍不产出文本：以 PHASE_FORCED_INCOMPLETE 终止（#54）
+      if (phaseForcedFinalizations > 0 && replyText.trim().length === 0) {
+        truncated = true;
+        stopReason = "PHASE_FORCED_INCOMPLETE";
+        return true;
+      }
+      return advancePhase(replyText, enqueueFollowUp);
     },
   });
   enqueueFollowUp = (message) => {
@@ -348,6 +440,7 @@ export async function runAgentReviewLoop(
   function resetPhaseCounters(): void {
     phaseRequestCount = 0;
     phaseSkippedToolCalls = 0;
+    phaseForcedFinalizations = 0;
   }
 }
 
@@ -365,6 +458,11 @@ function phaseInstruction(phaseIndex: number): AgentMessage {
     throw new Error(`missing phase instruction at index ${phaseIndex}`);
   }
   return { role: "user", content: instruction, timestamp: 0 };
+}
+
+/** 强制阶段收尾指令（append-only user 消息；#54 / ADR-0018 §2.1） */
+function forcedFinalizationMessage(): AgentMessage {
+  return { role: "user", content: FORCED_FINALIZATION_INSTRUCTION, timestamp: 0 };
 }
 
 function phaseNameOf(phaseIndex: number): PhaseRecord["phase"] {
@@ -387,8 +485,12 @@ function auditWireCapture(payload: unknown): WireRequest {
   };
 }
 
-/** schema 已知入参键（prepareArguments 剥未知键的保留集） */
-function knownArgumentKeys(parameters: Record<string, unknown>): ReadonlySet<string> {
+/** 一条 assistant 回复携带的 toolCall 内容块数（= 本批 attempt 数） */
+function countToolCalls(message: AssistantMessage): number {
+  return message.content.filter((block) => block.type === "toolCall").length;
+}
+
+/** schema 已知入参键（prepareArguments 剥未知键的保留集） */function knownArgumentKeys(parameters: Record<string, unknown>): ReadonlySet<string> {
   const properties = parameters.properties;
   if (typeof properties !== "object" || properties === null) {
     return new Set();

@@ -133,6 +133,23 @@ test("stopReason 骨架：模型完成 vs 轮次上界可区分（RunRecord 与�
   expect(readAuditJson(truncated.auditPath).stopReason).toBe("MAX_ROUNDS_REACHED");
 }, 120_000);
 
+test("停止原因可观测：收尾注入用尽仍调用工具 → TOOL_ATTEMPTS_EXHAUSTED 落审计与 RunRecord", async () => {
+  const toolBatch = (id: string): FakeReply => ({
+    text: "retrying",
+    usage: ZERO,
+    toolCalls: [{ id, name: "review_get_diff", arguments: {} }],
+  });
+  const script = fakeFetch([toolBatch("call-a"), toolBatch("call-b"), toolBatch("call-c")]);
+  const { record, auditPath } = await runReview({
+    ...runInput(script, tempRunsRoot("review-pi-budget-")),
+    budget: { maxToolAttempts: 1 },
+  });
+
+  expect(record.baseline.audit.stopReason).toBe("TOOL_ATTEMPTS_EXHAUSTED");
+  expect(record.baseline.audit.truncated).toBe(true);
+  expect(readAuditJson(auditPath).stopReason).toBe("TOOL_ATTEMPTS_EXHAUSTED");
+}, 120_000);
+
 interface AuditJson {
   readonly stopReason?: string;
   readonly requests: readonly { readonly wireBody: string }[];
@@ -149,6 +166,41 @@ test("未触发预算的 run：显式缺省预算与无预算基线的 wireBody 
   const baseline = await runReview(runInput(baselineScript, tempRunsRoot("review-pi-budget-")));
 
   const explicitScript = fakeFetch(sixPhaseNoToolCorpus());
+  const explicit = await runReview({
+    ...runInput(explicitScript, tempRunsRoot("review-pi-budget-")),
+    budget: DEFAULT_REVIEW_BUDGET,
+  });
+
+  expect(explicitScript.requests).toHaveLength(baselineScript.requests.length);
+  expect(readAuditJson(explicit.auditPath).requests.map((request) => request.wireBody)).toEqual(
+    readAuditJson(baseline.auditPath).requests.map((request) => request.wireBody),
+  );
+}, 120_000);
+
+test("未触发尝试预算的工具路径：预算闸不改写任何 wire 字节", async () => {
+  const toolCorpus = (): FakeReply[] => [
+    { text: "ok", usage: ZERO },
+    {
+      text: "Reading alpha.",
+      usage: ZERO,
+      toolCalls: [
+        {
+          id: "call-a",
+          name: "review_get_file",
+          arguments: { path: "src/main/java/com/example/Alpha.java", startLine: 1, endLine: 1 },
+        },
+      ],
+    },
+    { text: "ok", usage: ZERO },
+    { text: "ok", usage: ZERO },
+    { text: "ok", usage: ZERO },
+    { text: '{"candidates":[]}', usage: ZERO },
+    { text: '{"verdicts":[],"complete":true}', usage: ZERO },
+  ];
+  const baselineScript = fakeFetch(toolCorpus());
+  const baseline = await runReview(runInput(baselineScript, tempRunsRoot("review-pi-budget-")));
+
+  const explicitScript = fakeFetch(toolCorpus());
   const explicit = await runReview({
     ...runInput(explicitScript, tempRunsRoot("review-pi-budget-")),
     budget: DEFAULT_REVIEW_BUDGET,

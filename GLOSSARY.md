@@ -68,7 +68,7 @@ _Avoid_: 相对锚口径（不依赖评测结论）、把 reject/false-positive 
 _Avoid_: 执行预算（那是执行上界）、把尝试耗尽当整轮终止
 
 **Forced Phase Finalization（强制阶段收尾）**:
-工具尝试预算耗尽后的收口方式：本批工具调用终止，向模型注入一次性的「直接输出本阶段 JSON」指令，保证候选与裁决阶段仍能产出结论；注入仍不产出文本才按未完成收尾。
+工具尝试预算耗尽后的收口方式：本批工具调用终止，向模型注入「直接输出本阶段 JSON」指令（每阶段至多 2 次），保证候选与裁决阶段仍能产出结论；注入用尽仍只发工具调用按 `TOOL_ATTEMPTS_EXHAUSTED` 收尾，返回空文本才按 `PHASE_FORCED_INCOMPLETE` 收尾。
 _Avoid_: 预算耗尽即终止整轮（会丢失 Finding）、静默跳过阶段
 
 **核内（Review Runtime）**:
