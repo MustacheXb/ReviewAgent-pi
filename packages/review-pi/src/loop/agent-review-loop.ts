@@ -60,7 +60,8 @@ import type { ReviewToolkit } from "../tools/toolkit.js";
 //   注入下一阶段指令或下一轮 phase-1 指令；complete / 轮次上界即停；
 // - transformContext 不设（恒等透传）：消息前缀 append-only，Zone A/B/C
 //   稳定前缀由内核时序直接保证；
-// - state.tools = 七工具 AgentTool（name = wire 下划线名直达 wire function.name；
+// - state.tools = Tool Profile 投影的 AgentTool（#52：生产 core-5，语料存在
+//   时增补检索；name = wire 下划线名直达 wire function.name；
 //   prepareArguments 剥未知键对齐 DSH 容忍语义——pi-ai 严格校验缝的方言对冲）。
 //
 // 工具预算与审计在 beforeToolCall / execute 包装层（#54 起预算闸前移到
@@ -83,7 +84,7 @@ export interface AgentReviewLoopInputs {
   readonly systemPrompt: string;
   /** 初始上下文消息（MR user 起始的 run 级组装，由调用方决定） */
   readonly initialContextMessages: readonly LlmMessage[];
-  /** 七工具执行面（含功能态 Context Ledger） */
+  /** Tool Profile 投影的工具执行面（含功能态 Context Ledger；#52） */
   readonly toolkit: ReviewToolkit;
   readonly apiKey: string;
   /** 网关 base URL 覆盖（REVIEWER_URL；缺省官方接入点） */
@@ -411,6 +412,9 @@ export async function runAgentReviewLoop(
     }),
     // 首字节前重试留痕（#59）：无重试省键
     ...(retrySummary !== undefined ? { retry: retrySummary } : {}),
+    // Tool Profile（#52）：run 内固定，source = derived / override
+    toolProfile: inputs.toolkit.toolProfile,
+    toolProfileSource: inputs.toolkit.toolProfileSource,
   };
   return { findings, usage, rounds: round, toolCalls: executedToolCalls, complete, audit };
 

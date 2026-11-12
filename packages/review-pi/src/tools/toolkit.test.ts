@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { createContextLedger } from "./ledger.js";
+import { REVIEW_TOOL_ORDER } from "./registry.js";
 import { DEFAULT_TOOL_RESULT_BUDGET_CHARS } from "./result-budget.js";
 import { buildReviewToolkit } from "./toolkit.js";
 import { repoFixturePath } from "../testing/repos.js";
@@ -162,12 +163,17 @@ test("get_call_chain：sample 方法链形态与零命中", async () => {
 });
 
 test("search_rule/search_history：空语料与命中形态", async () => {
-  const tk = toolkit();
+  // 空语料在评测 override 下仍可暴露（生产 core-5 不暴露必然为空的检索工具）
+  const empty = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    toolProfileOverride: "extended-7",
+  });
   // 空语料（t-series 真源形态：0 entries configured for this run）
-  await expect(tk.executeTool("review.search_rule", { query: "autoType" })).resolves.toBe(
+  await expect(empty.executeTool("review.search_rule", { query: "autoType" })).resolves.toBe(
     'Rule search "autoType" (case-insensitive substring): rule corpus is empty (0 entries configured for this run)',
   );
-  await expect(tk.executeTool("review.search_history", { query: "CVE-2017-18349" })).resolves.toBe(
+  await expect(empty.executeTool("review.search_history", { query: "CVE-2017-18349" })).resolves.toBe(
     'History search "CVE-2017-18349" (case-insensitive substring): history corpus is empty (0 entries configured for this run)',
   );
 
@@ -362,6 +368,79 @@ test("get_diff 截断在文件内部：提示该文件可继续完整读取", as
   expect(result).toContain("diff --git a/src/B.java");
 });
 
+test("Tool Profile：生产缺省 core-5；单语料映射；内部 override 可强制 extended-7", async () => {
+  const base = toolkit();
+  expect(base.toolProfile).toBe("core-5");
+  expect(base.toolProfileSource).toBe("derived");
+  expect(base.schemas.map((schema) => schema.name)).toEqual([
+    "review.get_diff",
+    "review.get_symbol",
+    "review.get_file",
+    "review.find_references",
+    "review.get_call_chain",
+  ]);
+
+  const rule = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    knowledge: { rules: [{ id: "R-1", title: "Rule", text: "body" }] },
+  });
+  expect(rule.toolProfile).toBe("core-5+rule");
+  expect(rule.schemas.map((schema) => schema.name)).toContain("review.search_rule");
+  expect(rule.schemas.map((schema) => schema.name)).not.toContain("review.search_history");
+
+  const history = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    knowledge: { history: [{ id: "H-1", title: "History", text: "body" }] },
+  });
+  expect(history.toolProfile).toBe("core-5+history");
+
+  const both = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    knowledge: {
+      rules: [{ id: "R-1", title: "Rule", text: "body" }],
+      history: [{ id: "H-1", title: "History", text: "body" }],
+    },
+  });
+  expect(both.toolProfile).toBe("extended-7");
+
+  // 内部 override：即便无语料也可强制 extended-7（评测消融缝）
+  const override = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    toolProfileOverride: "extended-7",
+  });
+  expect(override.toolProfile).toBe("extended-7");
+  expect(override.toolProfileSource).toBe("override");
+  expect(override.schemas).toHaveLength(7);
+
+  // 非 profile 工具不可执行：core-5 下 search 工具不存在
+  await expect(base.executeTool("review.search_rule", { query: "x" })).rejects.toThrow(
+    /unknown tool "review.search_rule"/,
+  );
+  await expect(override.executeTool("review.search_rule", { query: "x" })).resolves.toContain(
+    "corpus is empty",
+  );
+});
+
+test("Tool Profile：同一 run 内固定；重复组装字节稳定且顺序为注册表子序列", () => {
+  const first = toolkit();
+  const second = toolkit();
+  expect(first.toolProfile).toBe(second.toolProfile);
+  expect(JSON.stringify(first.schemas)).toBe(JSON.stringify(second.schemas));
+  const registry = REVIEW_TOOL_ORDER as readonly string[];
+  let cursor = 0;
+  for (const schema of first.schemas) {
+    while (cursor < registry.length && registry[cursor] !== schema.name) {
+      cursor += 1;
+    }
+    expect(cursor).toBeLessThan(registry.length);
+    cursor += 1;
+  }
+});
+
 test("Ledger 送达感知：精确重复命中引用、不同请求不命中、失败不登记", async () => {
   const tk = toolkit();
   const args = { path: "src/main/java/com/example/Alpha.java", startLine: 11, endLine: 13 };
@@ -538,12 +617,25 @@ test("Ledger 原语：未登记不命中；register 后命中引用格式（去�
   );
 });
 
-test("executeTool：未知名为有界错误；schema 面固定七工具", async () => {
+test("executeTool：未知名为有界错误；生产 schema 面固定 core-5", async () => {
   const tk = toolkit();
   await expect(tk.executeTool("review.nope", {})).rejects.toThrow(
     /unknown tool "review.nope" \(available: review.get_diff, /,
   );
   expect(tk.schemas.map((schema) => schema.name)).toEqual([
+    "review.get_diff",
+    "review.get_symbol",
+    "review.get_file",
+    "review.find_references",
+    "review.get_call_chain",
+  ]);
+  // 内部 override 下 schema 面为 extended-7（评测消融）
+  const extended = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    toolProfileOverride: "extended-7",
+  });
+  expect(extended.schemas.map((schema) => schema.name)).toEqual([
     "review.get_diff",
     "review.get_symbol",
     "review.get_file",
@@ -577,8 +669,12 @@ test("只读纪律：七工具全调用后仓库内容哈希不变", async () =>
   }
 
   const before = snapshotDirHash(SAMPLE);
-  const tk = toolkit();
-  // 每个工具真实执行一轮（含搜索类与 diff）
+  const tk = buildReviewToolkit({
+    repoPath: SAMPLE,
+    diff: SAMPLE_DIFF,
+    toolProfileOverride: "extended-7",
+  });
+  // 每个工具真实执行一轮（含搜索类与 diff；override 暴露全部七工具）
   await tk.executeTool("review.get_diff", {});
   await tk.executeTool("review.get_symbol", { symbol: "Alpha" });
   await tk.executeTool("review.get_file", { path: "src/main/java/com/example/Beta.java" });

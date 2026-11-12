@@ -9,6 +9,8 @@ import { repoFixturePath } from "../testing/repos.js";
 import { buildReviewToolkit } from "../tools/toolkit.js";
 import type { LlmMessage } from "../contracts/llm.js";
 import type { WireMessage } from "../contracts/llm.js";
+import type { KnowledgeCorpus } from "../contracts/knowledge.js";
+import type { ReviewToolkit } from "../tools/toolkit.js";
 import {
   TOOL_BUDGET_EXHAUSTED_SUMMARY,
   TRUNCATION_MAX_ROUNDS,
@@ -108,9 +110,11 @@ function scriptedLoop(
   replies: readonly FakeReply[],
   initial = INITIAL,
   budget?: ReviewBudgetOverride,
+  toolkitOverride?: ReviewToolkit,
 ): ScriptedRun {
   const script = fakeFetch([...replies]);
-  const toolkit = buildReviewToolkit({ repoPath: repoFixturePath("sample"), diff: DIFF });
+  const toolkit =
+    toolkitOverride ?? buildReviewToolkit({ repoPath: repoFixturePath("sample"), diff: DIFF });
   const run = () =>
     runAgentReviewLoop({
       systemPrompt: SYSTEM,
@@ -168,12 +172,14 @@ test("单轮直驱 + 工具子循环：phase-2 执行 get_diff 后 recall 收尾
   expect(outcome.audit.truncationReasons).toEqual([]);
 });
 
-test("Zone A 稳定：七工具面跨请求字节恒定（审计点分名 / wire 下划线名），消息前缀 append-only", async () => {
+test("Zone A 稳定：core-5 工具面跨请求字节恒定（审计点分名 / wire 下划线名），消息前缀 append-only", async () => {
   const { run } = scriptedLoop(singleRoundScript());
   const outcome = await run();
   const requests = outcome.audit.requests;
 
-  // 审计投影：七工具、点分名、顺序与注册表一致
+  // 审计投影：生产缺省 core-5、点分名、顺序与注册表一致（#52）
+  expect(outcome.audit.toolProfile).toBe("core-5");
+  expect(outcome.audit.toolProfileSource).toBe("derived");
   for (const request of requests) {
     expect(request.tools.map((tool) => tool.name)).toEqual([
       "review.get_diff",
@@ -181,8 +187,6 @@ test("Zone A 稳定：七工具面跨请求字节恒定（审计点分名 / wire
       "review.get_file",
       "review.find_references",
       "review.get_call_chain",
-      "review.search_rule",
-      "review.search_history",
     ]);
   }
   // wire 体：工具名为下划线形态
@@ -195,9 +199,12 @@ test("Zone A 稳定：七工具面跨请求字节恒定（审计点分名 / wire
     "review_get_file",
     "review_find_references",
     "review_get_call_chain",
-    "review_search_rule",
-    "review_search_history",
   ]);
+  // wire tools 字节跨请求恒定（重复读取字节稳定，P1-2）
+  const toolsBytes = new Set(
+    requests.map((request) => JSON.stringify(JSON.parse(request.wireBody).tools)),
+  );
+  expect(toolsBytes.size).toBe(1);
   // 锁档：reasoning_effort high
   expect(JSON.parse(requests[0]!.wireBody).reasoning_effort).toBe(LOCKED_REASONING_EFFORT);
 
@@ -346,4 +353,43 @@ test("provider 错误（stopReason error）：显式抛错，不静默成成功 
       expect((error as Error).message).toMatch(/review turn failed/i);
     },
   );
+});
+
+test("单语料 profile：run 内固定 core-5+rule / core-5+history，审计 derived", async () => {
+  const cases: readonly {
+    knowledge: KnowledgeCorpus;
+    expected: "core-5+rule" | "core-5+history";
+    included: string;
+    excluded: string;
+  }[] = [
+    {
+      knowledge: { rules: [{ id: "R-1", title: "Rule", text: "rule body" }] },
+      expected: "core-5+rule",
+      included: "review.search_rule",
+      excluded: "review.search_history",
+    },
+    {
+      knowledge: { history: [{ id: "H-1", title: "History", text: "history body" }] },
+      expected: "core-5+history",
+      included: "review.search_history",
+      excluded: "review.search_rule",
+    },
+  ];
+
+  for (const item of cases) {
+    const toolkit = buildReviewToolkit({
+      repoPath: repoFixturePath("sample"),
+      diff: DIFF,
+      knowledge: item.knowledge,
+    });
+    const outcome = await scriptedLoop(singleRoundScript(), INITIAL, undefined, toolkit).run();
+    expect(outcome.audit.toolProfile).toBe(item.expected);
+    expect(outcome.audit.toolProfileSource).toBe("derived");
+    for (const request of outcome.audit.requests) {
+      const names = request.tools.map((tool) => tool.name);
+      expect(names).toHaveLength(6);
+      expect(names).toContain(item.included);
+      expect(names).not.toContain(item.excluded);
+    }
+  }
 });

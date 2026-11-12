@@ -4,6 +4,7 @@
 import type { CacheContract } from "./cache-contract.js";
 import type { Finding } from "./finding.js";
 import type { RetryRecord } from "./retry.js";
+import type { ToolProfile, ToolProfileSource } from "./tool-profile.js";
 import type { LedgerEntry, LedgerStats } from "./ledger.js";
 import type { LlmUsage, ToolSchema, WireMessage } from "./llm.js";
 
@@ -133,6 +134,10 @@ export interface RunAudit {
   readonly cacheContract?: CacheContract;
   /** 首字节前重试留痕（#59 / ADR-0018 §7）：无重试省键；失败尝试 usage 随记录 */
   readonly retry?: RetryRecord;
+  /** 实际生效的 Tool Profile（#52 / ADR-0018 §3）：新 run 恒写，run 内固定 */
+  readonly toolProfile?: ToolProfile;
+  /** profile 来源（derived / override；#52） */
+  readonly toolProfileSource?: ToolProfileSource;
 }
 
 /**

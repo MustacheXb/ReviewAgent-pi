@@ -6,6 +6,7 @@ import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
 import type { RetryRecord } from "../contracts/retry.js";
+import type { ToolProfile, ToolProfileSource } from "../contracts/tool-profile.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
@@ -53,6 +54,9 @@ export interface AuditLight {
   readonly cacheContract?: CacheContract;
   /** 首字节前重试留痕（#59）：无重试省键 */
   readonly retry?: RetryRecord;
+  /** 实际生效的 Tool Profile 与来源（#52）：新记录恒写；历史缺键兼容 */
+  readonly toolProfile?: ToolProfile;
+  readonly toolProfileSource?: ToolProfileSource;
 }
 
 /** RunResult 快照（audit 以轻量投影落盘） */
@@ -116,6 +120,10 @@ export function toAuditLight(audit: RunAudit): AuditLight {
     ...(audit.stopReason !== undefined ? { stopReason: audit.stopReason } : {}),
     ...(audit.cacheContract !== undefined ? { cacheContract: audit.cacheContract } : {}),
     ...(audit.retry !== undefined ? { retry: audit.retry } : {}),
+    ...(audit.toolProfile !== undefined ? { toolProfile: audit.toolProfile } : {}),
+    ...(audit.toolProfileSource !== undefined
+      ? { toolProfileSource: audit.toolProfileSource }
+      : {}),
   };
 }
 

@@ -6,6 +6,7 @@ import type { Finding } from "../contracts/finding.js";
 import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
 import type { RetryRecord } from "../contracts/retry.js";
+import type { ToolProfile, ToolProfileSource } from "../contracts/tool-profile.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
@@ -72,6 +73,9 @@ export interface AuditFileContent {
   readonly cacheContract?: CacheContract;
   /** 首字节前重试留痕（#59）：可选尾键，无重试省键 */
   readonly retry?: RetryRecord;
+  /** Tool Profile 与来源（#52）：新 run 恒写；历史缺键兼容 */
+  readonly toolProfile?: ToolProfile;
+  readonly toolProfileSource?: ToolProfileSource;
 }
 
 /** runId：毫秒时间戳 + 配置 + 用例，文件名安全 */
@@ -127,6 +131,12 @@ export function buildAuditFileContent(args: {
       ? { cacheContract: args.audit.cacheContract }
       : {}),
     ...(args.audit.retry !== undefined ? { retry: args.audit.retry } : {}),
+    ...(args.audit.toolProfile !== undefined
+      ? { toolProfile: args.audit.toolProfile }
+      : {}),
+    ...(args.audit.toolProfileSource !== undefined
+      ? { toolProfileSource: args.audit.toolProfileSource }
+      : {}),
   };
 }
 

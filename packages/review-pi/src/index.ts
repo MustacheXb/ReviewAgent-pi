@@ -20,6 +20,9 @@ export {
 // AuditLight 的新可选键类型。
 export type { ReviewBudget, ReviewBudgetOverride } from "./loop/budget.js";
 export type { StopReason } from "./contracts/run.js";
+// #52 / ADR-0018 §3：Tool Profile 类型升公开面（审计 / 评测消融消费）；
+// profile 覆盖只经 runReview 内部输入，不进协议 / CLI / 环境变量。
+export type { ToolProfile, ToolProfileSource } from "./contracts/tool-profile.js";
 // #58 / ADR-0018 §6：缓存合同进公开面（审计 / RunRecord / 报告消费方共用）；
 // usage 字段族分类器同时供仓内手动探针脚本复用（探针不进产品 bin / CI）。
 export type {

@@ -81,6 +81,7 @@ TOOL_ATTEMPTS_EXHAUSTED | OUTPUT_BUDGET_EXHAUSTED | PHASE_FORCED_INCOMPLETE
 - 评测专用内部输入 `toolProfileOverride`（与 `ReviewBudget` 同一内部缝）；审计记录实际生效的 `toolProfile` 与 `toolProfileSource: derived | override`，使消融可归因。
 - 工具注册表是唯一真源：暴露集合、顺序与 schema 名 / 字节均由注册表投影；同一 run 内工具数组只构造一次、顺序恒为注册表序列的子序列。本轮不新增工具规则散文（system prompt 无工具规则章节，不发明）。
 - Zone A golden 按 profile 分套：现有七工具真源保留为 `extended-7`，新增 `core-5` 真源；单工具字节不变。
+- **落地口径（#52，2026-11-12）**：派生 / 投影单点在 `tools/registry.ts`——`deriveToolProfile(knowledge)` 按四档返回（空数组等同无语料），`toolNamesForProfile(profile)` 恒以 `REVIEW_TOOL_ORDER` 过滤得到子序列，`reviewToolSchemasForProfile(profile)` 从完整注册表投影（单工具字节与 extended-7 真源一致）。`buildReviewToolkit` 只把 profile 内的 schema / handler 挂到 toolkit（被裁掉的工具按 unknown tool 有界拒绝），并把 `profile` + `toolProfileSource` 带出；`toolProfileOverride` 为内部输入（`runReview` / `buildReviewToolkit`），不进入协议 / CLI / 环境变量，来源记 `override`。生产入口无语料 → 派生 `core-5`，**这是有意的 Zone A 变更**。审计与 `AuditLight` 追加可选尾键 `toolProfile` / `toolProfileSource`（在 `retry` 之后；新 run 恒写、历史缺键兼容）。Golden：保留现有 DSH 七工具真源为 extended-7，新增 `review-tools-core5.json` / `review-tools-wire-core5.json`；重复组装字节稳定、工具序恒为注册表子序列。生产入口不注入知识语料（产品侧语料来源属父 spec out-of-scope，另行立项），因此单语料档位只在 toolkit 装配缝可达；run 内固定性由 loop 级 core-5 / core-5+rule / core-5+history 测试锁定。
 
 ### 4. Context Ledger（送达感知）
 

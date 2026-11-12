@@ -165,6 +165,25 @@ describe("toAuditLight", () => {
     expect(Object.keys(light).at(-1)).toBe("cacheContract");
   });
 
+  test("toolProfile/toolProfileSource（#52）：可选尾键追加在 retry 之后", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      retry: {
+        retries: 1,
+        failedAttempts: 1,
+        exhausted: false,
+        records: [{ request: 1, attempt: 1, reason: "network", delayMs: 500, retried: true }],
+      },
+      toolProfile: "core-5",
+      toolProfileSource: "derived",
+    });
+    expect(Object.keys(light).slice(-3)).toEqual([
+      "retry",
+      "toolProfile",
+      "toolProfileSource",
+    ]);
+  });
+
   test("retry（#59）：可选尾键追加在 cacheContract 之后", () => {
     const light = toAuditLight({
       ...AUDIT,

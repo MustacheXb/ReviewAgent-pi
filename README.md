@@ -1,8 +1,8 @@
 # ReviewAgent-pi（生产主线）
 
-低 Token、高质量 MR 代码检视 Agent：以**最小充分上下文**（Minimal Sufficient Context）与**缓存稳定循环**（Cache-Stable Review Loop）——七工具自主拉取 + Context Ledger 去重——用远低于全仓注入的 Token 成本获得接近全量上下文的检视质量。内核基座为 vendored pi 四包（ADR-0009），产品入口是自包含 npm 包 **`reviewagent`**（CLI 单次 / stdio 长驻 / HTTP server 三形态）。
+低 Token、高质量 MR 代码检视 Agent：以**最小充分上下文**（Minimal Sufficient Context）与**缓存稳定循环**（Cache-Stable Review Loop）——core-5 工具自主拉取（有知识语料时增补检索）+ Context Ledger 去重——用远低于全仓注入的 Token 成本获得接近全量上下文的检视质量。内核基座为 vendored pi 四包（ADR-0009），产品入口是自包含 npm 包 **`reviewagent`**（CLI 单次 / stdio 长驻 / HTTP server 三形态）。
 
-> **本分支定位（ADR-0014）**：生产主线 `main`（由 `production/e-only` 收口而来）——固定 Config E（七工具 + Context Ledger），协议 v3（无配置选择，ADR-0015）。研究侧（A–E 配置矩阵、判定链、Phase 2 复现资产）冻结在 **Demo 线** [`demo/config-matrix`]，基线标签 `demo-config-matrix-baseline-2026-11-03`，见「[研究背景](#研究背景)」。
+> **本分支定位（ADR-0014）**：生产主线 `main`（由 `production/e-only` 收口而来）——固定 Config E（core-5 + Context Ledger；#52 生产缺省），协议 v3（无配置选择，ADR-0015）。研究侧（A–E 配置矩阵、判定链、Phase 2 复现资产）冻结在 **Demo 线** [`demo/config-matrix`]，基线标签 `demo-config-matrix-baseline-2026-11-03`，见「[研究背景](#研究背景)」。
 >
 > **姊妹仓（DSH 内核线）**：[`MustacheXb/ReviewAgent`](https://github.com/MustacheXb/ReviewAgent)。跨仓/跨分支 ADR 限定语纪律：裸写「ADR-XXXX」一律指本仓主线序列；引用 DSH 兄弟仓须写「DSH 线 ADR-XXXX」，引用 Demo 线须写「Demo 线 ADR-XXXX」。
 >
