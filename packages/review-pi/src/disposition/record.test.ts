@@ -30,6 +30,7 @@ const AUDIT: RunAudit = {
   cacheBreaks: [],
   truncated: false,
   truncationReasons: [],
+  stopReason: "MODEL_COMPLETE",
 };
 
 function finding(id: string, severity: "P1" | "P2"): Finding {

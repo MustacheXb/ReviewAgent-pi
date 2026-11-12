@@ -1,8 +1,9 @@
 import path from "node:path";
+import type { LedgerDelivery, LedgerRange } from "../contracts/ledger.js";
 import type { RepoContext } from "../zoneb/repo-context.js";
 import { normalizeRepoPath, optionalPositiveIntArg, requireStringArg } from "./args.js";
 import { readThroughLedger } from "./ledger.js";
-import { applyLineBudget } from "./result-budget.js";
+import { applyLineBudget, standardTruncationNotice } from "./result-budget.js";
 import type { ReviewToolHandler } from "./toolkit-types.js";
 
 /**
@@ -13,9 +14,9 @@ import type { ReviewToolHandler } from "./toolkit-types.js";
  *   错误信息不泄漏仓库绝对路径（请求字节可跨环境复现）；
  * - 行区间：start 超出文件尾为显式错误；end 超出文件尾截断到文件尾并留痕；
  * - 输出行带行号（证据引用需要行号）；超预算在行边界截断并留痕；
- * - Context Ledger：整读登记为 file、区间读取登记为 range（规范化请求标识 =
- *   路径 + 请求区间，未给的边界显式化为 start=1 / end=end）；重复的同一规范化
- *   请求返回 "Already loaded: ctx#NNN" 引用；读取失败不登记。
+ * - Context Ledger（#56 送达感知）：resourceKey = 路径；请求范围 = 规范化行
+ *   区间；送达范围按实际渲染结果登记（超预算截断 / end clamp 均 complete=false）。
+ *   整文件完整送达后请求子区间命中；截断送达不得冒充整文件；读取失败不登记。
  */
 
 export const getFileTool: ReviewToolHandler = async (args, context): Promise<string> => {
@@ -31,8 +32,12 @@ export const getFileTool: ReviewToolHandler = async (args, context): Promise<str
   const posixPath = normalizeRepoPath("review.get_file", rawPath);
   return readThroughLedger(
     context.ledger,
-    fileReadLedgerKind(startLine, endLine),
-    fileReadLedgerDescription(posixPath, startLine, endLine),
+    {
+      kind: fileReadLedgerKind(startLine, endLine),
+      resourceKey: `review.get_file ${posixPath}`,
+      description: fileReadLedgerDescription(posixPath, startLine, endLine),
+      requestedRange: { startLine: startLine ?? 1, endLine: endLine ?? null },
+    },
     async () => {
       const repo = await context.repo();
       const source = await readSourceSafe(repo, posixPath);
@@ -99,10 +104,15 @@ function renderFileSlice(
   lines: readonly string[],
   slice: FileSlice,
   budgetChars: number,
-): string {
+): LedgerDelivery {
   const totalLines = lines.length;
   if (totalLines === 0) {
-    return [`File: ${posixPath}`, "Lines 0-0 of 0 (empty file)"].join("\n");
+    return {
+      content: [`File: ${posixPath}`, "Lines 0-0 of 0 (empty file)"].join("\n"),
+      deliveredRange: { startLine: 1, endLine: null },
+      complete: true,
+      totalLines,
+    };
   }
   const requestedStart = slice.startLine ?? 1;
   if (requestedStart > totalLines) {
@@ -112,10 +122,10 @@ function renderFileSlice(
   }
   const clampedEnd =
     slice.endLine !== undefined && slice.endLine > totalLines ? totalLines : (slice.endLine ?? totalLines);
-  const clampedNote =
-    slice.endLine !== undefined && slice.endLine > totalLines
-      ? ` (requested end line ${slice.endLine} clamped to end of file)`
-      : "";
+  const clamped = slice.endLine !== undefined && slice.endLine > totalLines;
+  const clampedNote = clamped
+    ? ` (requested end line ${slice.endLine} clamped to end of file)`
+    : "";
 
   const selected = lines.slice(requestedStart - 1, clampedEnd);
   const header = [
@@ -127,9 +137,30 @@ function renderFileSlice(
     [...header, ...numbered],
     budgetChars,
     (shown, total) =>
-      `Tool result truncated: showing ${shown} of ${total} result lines (tool result budget ${budgetChars} chars exceeded); request a narrower range with startLine/endLine.`,
+      truncationNotice({
+        posixPath,
+        shown,
+        total,
+        headerLineCount: header.length,
+        requestedStart,
+        clampedEnd,
+        budgetChars,
+      }),
   );
-  return budget.lines.join("\n");
+  // 送达范围按实际渲染结果折算（头部两行不计入源行号）；截断或 clamp 即不完整。
+  // 整读（未给 endLine）完整送达记 endLine=null（到文件尾）；totalLines 供
+  // 账本判定「到结尾」请求是否越界与子区间折算。
+  const shownContentLines = Math.max(0, budget.shownLines - header.length);
+  const complete = !budget.truncated && !clamped;
+  const deliveredRange: LedgerRange = complete
+    ? { startLine: requestedStart, endLine: slice.endLine === undefined ? null : clampedEnd }
+    : { startLine: requestedStart, endLine: requestedStart + shownContentLines - 1 };
+  return {
+    content: budget.lines.join("\n"),
+    deliveredRange,
+    complete,
+    totalLines,
+  };
 }
 
 /** 行号右对齐前缀（宽度按展示区间内最大行号） */
@@ -139,4 +170,32 @@ function numberLines(lines: readonly string[], firstLineNumber: number): readonl
     const lineNumber = String(firstLineNumber + index).padStart(width, " ");
     return `${lineNumber} | ${line}`;
   });
+}
+
+/**
+ * 截断提示（#57）：shown / total / budget 三要素 + 可行动的下一次读取
+ * （nextCall 只给参数化建议，不实际发起请求——不增加工具轮次）。
+ * 头部两行（File / Lines）计入 shown；下一段从已送达内容的后一行开始，
+ * 长度与本次已送达行数一致，便于同一预算下继续取证。
+ * 预算连一行正文都放不下时不给建议（同样的预算下重读必然再次截断）。
+ */
+interface TruncationNoticeInput {
+  readonly posixPath: string;
+  readonly shown: number;
+  readonly total: number;
+  readonly headerLineCount: number;
+  readonly requestedStart: number;
+  readonly clampedEnd: number;
+  readonly budgetChars: number;
+}
+
+function truncationNotice(input: TruncationNoticeInput): string {
+  const base = standardTruncationNotice(input.shown, input.total, input.budgetChars);
+  const shownContentLines = Math.max(0, input.shown - input.headerLineCount);
+  if (shownContentLines === 0) {
+    return base;
+  }
+  const nextStart = input.requestedStart + shownContentLines;
+  const nextEnd = Math.min(input.clampedEnd, nextStart + shownContentLines - 1);
+  return `${base} Continue with review.get_file(path=${JSON.stringify(input.posixPath)}, startLine=${nextStart}, endLine=${nextEnd}).`;
 }

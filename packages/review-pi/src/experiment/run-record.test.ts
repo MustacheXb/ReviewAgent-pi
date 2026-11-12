@@ -28,6 +28,7 @@ const AUDIT: RunAudit = {
   cacheBreaks: [],
   truncated: false,
   truncationReasons: [],
+  stopReason: "MODEL_COMPLETE",
 };
 
 const RUN_RESULT: RunResult = {
@@ -82,7 +83,7 @@ function recordFixture(): RunRecord {
 }
 
 describe("toAuditLight", () => {
-  test("键序与 DSH AuditLight 一致；空 cacheBreaks 省键，非空保留", () => {
+  test("键序与 DSH AuditLight 一致；空 cacheBreaks 省键，非空保留；stopReason 恒写于尾部", () => {
     const light = toAuditLight(AUDIT);
     expect(Object.keys(light)).toEqual([
       "toolCallLog",
@@ -90,7 +91,9 @@ describe("toAuditLight", () => {
       "rejections",
       "truncated",
       "truncationReasons",
+      "stopReason",
     ]);
+    expect(light.stopReason).toBe("MODEL_COMPLETE");
 
     const withBreaks = toAuditLight({
       ...AUDIT,
@@ -100,6 +103,113 @@ describe("toAuditLight", () => {
     });
     expect(Object.keys(withBreaks)).toContain("cacheBreaks");
     expect(withBreaks.cacheBreaks).toHaveLength(1);
+  });
+
+  test("历史记录兼容：AuditLight 缺 stopReason 时省键（不回填 MODEL_COMPLETE）", () => {
+    const historical = { ...AUDIT } as Record<string, unknown>;
+    delete historical.stopReason;
+    const light = toAuditLight(historical as unknown as RunAudit);
+    expect("stopReason" in light).toBe(false);
+  });
+
+  test("ledgerStats（#56）：有账本查询时键序在 ledger 之后、stopReason 之前", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      ledger: [
+        {
+          id: "ctx#001",
+          kind: "evidence",
+          description: "review.get_diff",
+          key: "evidence review.get_diff whole abc",
+          requestedRange: null,
+          deliveredRange: null,
+          complete: true,
+          contentHash: "abc",
+          charCount: 10,
+          hitCount: 1,
+          lastHitAt: "2026-11-12T00:00:00.000Z",
+        },
+      ],
+      ledgerStats: { ledgerHits: 1, ledgerMisses: 1, savedCharsEstimate: 10 },
+    });
+    expect(Object.keys(light)).toEqual([
+      "toolCallLog",
+      "phaseLog",
+      "rejections",
+      "truncated",
+      "truncationReasons",
+      "ledger",
+      "ledgerStats",
+      "stopReason",
+    ]);
+  });
+
+  test("cacheContract（#58）：可选尾键追加在 stopReason 之后", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      cacheContract: {
+        provider: "deepseek",
+        endpointKind: "chat-completions",
+        requestedModel: "deepseek-v4-flash",
+        respondedModel: "deepseek-v4-flash",
+        deploymentVersion: "unknown",
+        usageFieldFamily: "deepseek-native",
+        cacheMetering: true,
+        cacheBlockTokens: "unknown",
+        cacheWarmupMs: "unknown",
+        providerAffinityRequired: "unknown",
+        measuredAt: "2026-11-12T00:00:00.000Z",
+      },
+    });
+    expect(Object.keys(light).at(-2)).toBe("stopReason");
+    expect(Object.keys(light).at(-1)).toBe("cacheContract");
+  });
+
+  test("toolProfile/toolProfileSource（#52）：可选尾键追加在 retry 之后", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      retry: {
+        retries: 1,
+        failedAttempts: 1,
+        exhausted: false,
+        records: [{ request: 1, attempt: 1, reason: "network", delayMs: 500, retried: true }],
+      },
+      toolProfile: "core-5",
+      toolProfileSource: "derived",
+    });
+    expect(Object.keys(light).slice(-3)).toEqual([
+      "retry",
+      "toolProfile",
+      "toolProfileSource",
+    ]);
+  });
+
+  test("retry（#59）：可选尾键追加在 cacheContract 之后", () => {
+    const light = toAuditLight({
+      ...AUDIT,
+      cacheContract: {
+        provider: "deepseek",
+        endpointKind: "chat-completions",
+        requestedModel: "deepseek-v4-flash",
+        respondedModel: "deepseek-v4-flash",
+        deploymentVersion: "unknown",
+        usageFieldFamily: "deepseek-native",
+        cacheMetering: true,
+        cacheBlockTokens: "unknown",
+        cacheWarmupMs: "unknown",
+        providerAffinityRequired: "unknown",
+        measuredAt: "2026-11-12T00:00:00.000Z",
+      },
+      retry: {
+        retries: 1,
+        failedAttempts: 1,
+        exhausted: false,
+        records: [{ request: 1, attempt: 1, reason: "network", delayMs: 500, retried: true }],
+      },
+    });
+    expect(Object.keys(light).at(-3)).toBe("stopReason");
+    expect(Object.keys(light).at(-2)).toBe("cacheContract");
+    expect(Object.keys(light).at(-1)).toBe("retry");
   });
 });
 

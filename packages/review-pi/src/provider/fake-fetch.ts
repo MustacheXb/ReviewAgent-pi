@@ -23,12 +23,32 @@ export interface FakeToolCall {
   readonly arguments: Record<string, unknown>;
 }
 
+/** 脚本化传输失败（#59 首字节前重试测试：网络错误 / 429 / 5xx） */
+export type FakeTransportFailure =
+  | { readonly kind: "network"; readonly message?: string }
+  | {
+      readonly kind: "http";
+      readonly status: number;
+      readonly retryAfter?: string;
+      /** 错误响应体（可携带 usage，用于失败尝试成本留痕） */
+      readonly body?: string;
+    };
+
 export interface FakeReply {
   /** 回复文本（工具调用回复可缺省） */
   readonly text?: string;
   /** 工具调用批次（有则 finish_reason 渲染为 "tool_calls"） */
   readonly toolCalls?: readonly FakeToolCall[];
   readonly usage: FakeUsage;
+  /**
+   * 覆盖 wire usage 对象原文（#58 缓存合同测试：OpenAI / DeepSeek 字段族
+   * 与缺字段形态）；缺省按 FakeUsage 渲染 DeepSeek 原生字段。
+   */
+  readonly rawUsage?: Record<string, unknown>;
+  /** 省略 usage 帧（模拟响应不报 usage；#58 未知字段路径） */
+  readonly omitUsage?: boolean;
+  /** 传输失败脚本（#59）：网络错误 / HTTP 错误响应；成功回复忽略该字段 */
+  readonly failWith?: FakeTransportFailure;
   /** 缺省：有 toolCalls 即 "tool_calls"，否则 "stop"；错误路径脚本用（如 "content_filter"） */
   readonly finishReason?: string;
 }
@@ -57,6 +77,20 @@ export function fakeFetch(replies: readonly FakeReply[]): FakeFetchScript {
       throw new Error(
         `fake adapter: no scripted reply for request ${calls} (scripted ${replies.length} replies)`,
       );
+    }
+    if (reply.failWith?.kind === "network") {
+      throw new TypeError(reply.failWith.message ?? "fake adapter: network failure");
+    }
+    if (reply.failWith?.kind === "http") {
+      return new Response(reply.failWith.body ?? "", {
+        status: reply.failWith.status,
+        headers: {
+          "content-type": "application/json",
+          ...(reply.failWith.retryAfter !== undefined
+            ? { "retry-after": reply.failWith.retryAfter }
+            : {}),
+        },
+      });
     }
     return sseResponse(sseBody(reply));
   };
@@ -90,7 +124,7 @@ export function sseBody(reply: FakeReply): string {
     ...contentDeltas(reply.text ?? "").map((delta) => contentChunk(delta)),
     ...(reply.toolCalls ?? []).map((call, index) => toolCallChunk(call, index)),
     finishChunk(reply.finishReason ?? defaultFinishReason(reply)),
-    usageChunk(reply.usage),
+    ...(reply.omitUsage ? [] : [usageChunk(reply.usage, reply.rawUsage)]),
     "data: [DONE]",
   ];
   return `${frames.join("\n\n")}\n\n`;
@@ -149,14 +183,15 @@ function finishChunk(finishReason: string): string {
   });
 }
 
-function usageChunk(usage: FakeUsage): string {
+function usageChunk(usage: FakeUsage, rawUsage?: Record<string, unknown>): string {
   return dataFrame({
     choices: [],
-    usage: {
-      prompt_tokens: usage.promptTokens,
-      completion_tokens: usage.completionTokens,
-      prompt_cache_hit_tokens: usage.cacheReadTokens,
-    },
+    usage:
+      rawUsage ?? {
+        prompt_tokens: usage.promptTokens,
+        completion_tokens: usage.completionTokens,
+        prompt_cache_hit_tokens: usage.cacheReadTokens,
+      },
   });
 }
 

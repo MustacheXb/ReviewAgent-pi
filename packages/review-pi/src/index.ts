@@ -15,6 +15,33 @@ export {
   type ReviewRunResult,
   type ReviewRunProgress,
 } from "./run/review-run.js";
+// #53 / ADR-0018：预算只经 runReview 内部输入注入（不进入协议 / CLI / 环境
+// 变量）；类型升公开面以便执行缝与评测线做受控消融。StopReason 为审计 /
+// AuditLight 的新可选键类型。
+export type { ReviewBudget, ReviewBudgetOverride } from "./loop/budget.js";
+export type { StopReason } from "./contracts/run.js";
+// #52 / ADR-0018 §3：Tool Profile 类型升公开面（审计 / 评测消融消费）；
+// profile 覆盖只经 runReview 内部输入，不进协议 / CLI / 环境变量。
+export type { ToolProfile, ToolProfileSource } from "./contracts/tool-profile.js";
+// #58 / ADR-0018 §6：缓存合同进公开面（审计 / RunRecord / 报告消费方共用）；
+// usage 字段族分类器同时供仓内手动探针脚本复用（探针不进产品 bin / CI）。
+export type {
+  CacheContract,
+  EndpointKind,
+  UsageFieldFamily,
+} from "./contracts/cache-contract.js";
+export {
+  cacheHitTokensOf,
+  classifyUsageFields,
+  endpointKindOf,
+  modelEchoOf,
+} from "./contracts/cache-contract.js";
+// #59 / ADR-0018 §7：首字节前重试留痕类型（审计 / 分析器消费）
+export type {
+  RetryAttemptRecord,
+  RetryReason,
+  RetryRecord,
+} from "./contracts/retry.js";
 export type {
   AuditLight,
   RunRecord,

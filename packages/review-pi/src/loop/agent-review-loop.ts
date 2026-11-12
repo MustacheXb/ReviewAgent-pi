@@ -10,9 +10,11 @@ import {
   type PhaseRecord,
   type ReviewRunProgress,
   type RunAudit,
+  type StopReason,
   type ToolCallRecord,
   type WireRequest,
 } from "../contracts/run.js";
+import type { RetryRecord } from "../contracts/retry.js";
 import { applyCandidateGate } from "../gate/candidate-gate.js";
 import {
   assistantText,
@@ -20,13 +22,27 @@ import {
   LOCKED_REASONING_EFFORT,
   reviewModelOf,
 } from "../provider/pi-client.js";
+import { createCacheContractCollector } from "../provider/cache-contract.js";
+import { createRetryingFetch } from "../provider/retrying-fetch.js";
 import { addUsage, piUsageToLlmUsage, ZERO_USAGE } from "../provider/usage-map.js";
 import { classifyCacheBreaks } from "./cache-break.js";
 import {
-  MAX_ROUNDS,
-  MAX_TOOL_CALLS,
+  FINDINGS_PHASE_REQUEST_FLOOR,
+  resolveReviewBudget,
+  type ReviewBudgetOverride,
+} from "./budget.js";
+import {
+  FORCED_FINALIZATION_INSTRUCTION,
+  MAX_FORCED_FINALIZATIONS_PER_PHASE,
+  PHASE_SKIPPED_REQUEST_BUDGET_EXHAUSTED_NOTE,
+  PHASE_SKIPPED_REQUEST_BUDGET_NOTE,
+  TOOL_ATTEMPTS_EXHAUSTED_SUMMARY,
   TOOL_BUDGET_EXHAUSTED_SUMMARY,
+  TRUNCATION_MAX_REQUESTS,
   TRUNCATION_MAX_ROUNDS,
+  TRUNCATION_OUTPUT_BUDGET,
+  TRUNCATION_REQUEST_BUDGET_SKIPPED,
+  TRUNCATION_TOOL_ATTEMPTS,
   TRUNCATION_TOOL_BUDGET,
 } from "./constants.js";
 import { parseCandidatesReply, parseVerificationReply, type VerificationVerdict } from "./parse.js";
@@ -37,25 +53,38 @@ import type { ReviewToolkit } from "../tools/toolkit.js";
 // agentLoop 钩子驱动循环（#6 P3a；#32 / ADR-0014 起唯一内核形态）：六阶段 +
 // 工具子循环跑在 pi-agent-core Agent 上，三个预定缝承载 review 语义——
 //
-// - shouldStopAfterTurn = review 状态机：工具轮恒继续（t-series 真源：预算
-//   耗尽也 recall，相位只在文本回复时完结，无 force-complete）；文本轮完结
-//   当前阶段（解析 + PhaseRecord 留痕），经 agent.followUp 注入下一阶段指令
-//   或下一轮 phase-1 指令；complete / 轮次上界即停；
+// - shouldStopAfterTurn = review 状态机：工具轮恒继续（t-series 真源：执行
+//   预算耗尽也 recall，相位只在文本回复时完结；尝试预算耗尽例外——#54
+//   Forced Phase Finalization：本批 terminate + 注入收尾指令，每阶段至多
+//   2 次）；文本轮完结当前阶段（解析 + PhaseRecord 留痕），经 agent.followUp
+//   注入下一阶段指令或下一轮 phase-1 指令；complete / 轮次上界即停；
 // - transformContext 不设（恒等透传）：消息前缀 append-only，Zone A/B/C
 //   稳定前缀由内核时序直接保证；
-// - state.tools = 七工具 AgentTool（name = wire 下划线名直达 wire function.name；
+// - state.tools = Tool Profile 投影的 AgentTool（#52：生产 core-5，语料存在
+//   时增补检索；name = wire 下划线名直达 wire function.name；
 //   prepareArguments 剥未知键对齐 DSH 容忍语义——pi-ai 严格校验缝的方言对冲）。
 //
-// 工具预算与审计在 execute 包装层：成功执行计数跨轮不重置（失败也计入），
-// 超出即返回 "Error: tool call budget exhausted"（= 审计 resultSummary =
-// wire tool 消息 content，t-series 真源字节）；truncationReasons 单列
-// TOOL_BUDGET_EXHAUSTED 但不翻转 truncated（截断语义只归 MAX_ROUNDS）。
+// 工具预算与审计在 beforeToolCall / execute 包装层（#54 起预算闸前移到
+// beforeToolCall，被拦调用不执行）：attempts 累计跨轮不重置（含被拒调用），
+// 达上限后本批结果全部 terminate；executed 成功/失败均计入；超执行预算返回
+// "Error: tool call budget exhausted"（= 审计 resultSummary = wire tool 消息
+// content，t-series 真源字节）；超尝试预算返回 "Error: tool attempt budget
+// exhausted"。truncationReasons 单列 TOOL_BUDGET_EXHAUSTED /
+// TOOL_ATTEMPTS_EXHAUSTED 但不翻转 truncated（截断语义只归 MAX_ROUNDS 与
+// 阶段/轮次跳过）。
+//
+// 请求 / 输出预算（#55 / ADR-0018 §2.2–§2.3）：请求预算只在阶段边界判定——
+// 剩余不足以按常规序推进到裁决时，跳过尚未完成的前四阶段直入候选（被跳过
+// 阶段逐条写 phaseLog，requestCount = 0）；候选/裁决保底 2 请求，候选一旦
+// 开始裁决允许完成；连保底都不足则 MAX_REQUESTS_REACHED 收尾。输出预算只在
+// 阶段完成后事后判定并停止后续请求（wire 不新增 max_tokens），超出即
+// OUTPUT_BUDGET_EXHAUSTED 收尾。
 
 export interface AgentReviewLoopInputs {
   readonly systemPrompt: string;
   /** 初始上下文消息（MR user 起始的 run 级组装，由调用方决定） */
   readonly initialContextMessages: readonly LlmMessage[];
-  /** 七工具执行面（含功能态 Context Ledger） */
+  /** Tool Profile 投影的工具执行面（含功能态 Context Ledger；#52） */
   readonly toolkit: ReviewToolkit;
   readonly apiKey: string;
   /** 网关 base URL 覆盖（REVIEWER_URL；缺省官方接入点） */
@@ -64,6 +93,11 @@ export interface AgentReviewLoopInputs {
   readonly modelId?: string;
   /** 传输层注入；离线测试恒注入 fake 适配器 */
   readonly fetch?: FetchFunction;
+  /**
+   * 预算覆盖（#53 / ADR-0018 §1）：内核内部输入，不进入协议 / CLI / 环境
+   * 变量；缺席字段取 `DEFAULT_REVIEW_BUDGET` 安全上界。
+   */
+  readonly budget?: ReviewBudgetOverride;
   /**
    * 取消信号（#23 S2 缝）：abort → agent.abort()（pi 内核取消面，spec #21
    * §6 / ADR-0012 决策 4）；prompt 返回后 signal 已中止 → 上抛
@@ -97,6 +131,10 @@ export async function runAgentReviewLoop(
   if (inputs.signal?.aborted) {
     throw new ReviewAbortedError();
   }
+  // 预算解析单点（#53）：缺省 + 覆盖 → 生效预算；非法覆盖在此显式抛错。
+  // maxRounds / maxExecutedToolCalls 在既有收口点；maxToolAttempts 由 #54
+  // 的尝试闸消费；maxRequests / maxOutputTokens 由 #55 的阶段边界判定消费。
+  const budget = resolveReviewBudget(inputs.budget);
   // 审计累积面（run 内顺序单写；产出时整体冻结为 readonly 投影）
   const requests: WireRequest[] = [];
   const toolCallLog: ToolCallRecord[] = [];
@@ -106,16 +144,32 @@ export async function runAgentReviewLoop(
   const truncationReasons: string[] = [];
   let usage: LlmUsage = ZERO_USAGE;
   let executedToolCalls = 0;
+  // 尝试计数（#54 / ADR-0018 §2.1）：模型每发出一个 toolCall 内容块计 1，
+  // 跨轮不重置；与 executed 是两个独立闸（attempt 含被拒调用）。
+  let attemptedToolCalls = 0;
+  // 尝试预算是否已耗尽（黏性：耗尽后不再执行任何工具，直到 run 结束）
+  let attemptsExhausted = false;
+  // 当前工具批的模型回复（批边界识别 + 尝试预算「整批 terminate」判定）
+  let currentBatchMessage: AssistantMessage | undefined;
+  let currentBatchReachesAttemptCap = false;
+  // 本批已走进 beforeToolCall 的调用数（对账内核即时拒绝的调用：
+  // 未知工具名 / 参数校验失败不经过该钩子，但仍计一次 attempt）
+  let currentBatchSeenCalls = 0;
   let round = 1;
   let phaseIndex = 0;
   let phaseRequestCount = 0;
   let phaseSkippedToolCalls = 0;
+  // 当前阶段强制收尾注入次数（#54：每阶段至多 2 次，阶段切换重置）
+  let phaseForcedFinalizations = 0;
   let roundCandidates: readonly unknown[] = [];
   let roundVerdicts: ReadonlyMap<string, VerificationVerdict> = new Map();
   let roundComplete = false;
   let emittedIds: ReadonlySet<string> = new Set();
   let truncated = false;
   let complete = false;
+  // 停止原因（#53 / ADR-0018 §2.4）：新 run 恒写；模型完成与轮次上界在此
+  // 骨架先落地，其余枚举值由后续批次（#54/#55）在各自收口点写入。
+  let stopReason: StopReason | undefined;
 
   const agentTools: AgentTool[] = inputs.toolkit.schemas.map((schema) => {
     const parameters = JSON.parse(schema.parametersJson) as Record<string, unknown>;
@@ -129,18 +183,6 @@ export async function runAgentReviewLoop(
       execute: async (_toolCallId, params) => {
         const args = params as Record<string, unknown>;
         const argumentsJson = JSON.stringify(args);
-        if (executedToolCalls >= MAX_TOOL_CALLS) {
-          phaseSkippedToolCalls += 1;
-          appendReason(truncationReasons, TRUNCATION_TOOL_BUDGET);
-          toolCallLog.push({
-            name: schema.name,
-            argumentsJson,
-            resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY,
-          });
-          return { content: [{ type: "text", text: TOOL_BUDGET_EXHAUSTED_SUMMARY }], details: {} };
-        }
-        // 预算预约同步于检查（批内调用序即预约序）；失败不退还（防失败死循环）
-        executedToolCalls += 1;
         try {
           const result = await inputs.toolkit.executeTool(schema.name, args);
           toolCallLog.push({ name: schema.name, argumentsJson, resultSummary: result });
@@ -157,11 +199,20 @@ export async function runAgentReviewLoop(
     return tool;
   });
 
+  // 缓存合同旁路采集（#58）：包装注入的 fetch，响应副本异步解析；原
+  // Response 原样返回，未观察到的字段在合同里记 unknown。
+  const cacheContractCollector = createCacheContractCollector();
+  // 首字节前薄重试（#59）在缓存合同采集之内：重试只发生在传输层，
+  // 缓存合同只观测最终返回的响应。
+  const retryingFetch = createRetryingFetch(inputs.fetch ?? globalThis.fetch);
+  const observedFetch = cacheContractCollector.wrap(retryingFetch.fetch);
+  const model = reviewModelOf(inputs.modelId, inputs.baseUrl);
+
   const streamFn: StreamFn = (model, context, options) =>
     deepseekProvider().stream(model as Model<"openai-completions">, context, {
       ...options,
       apiKey: inputs.apiKey,
-      ...(inputs.fetch !== undefined ? { fetch: inputs.fetch } : {}),
+      fetch: observedFetch,
       reasoningEffort: LOCKED_REASONING_EFFORT,
     });
 
@@ -174,13 +225,62 @@ export async function runAgentReviewLoop(
   const agent = new Agent({
     initialState: {
       systemPrompt: inputs.systemPrompt,
-      model: reviewModelOf(inputs.modelId, inputs.baseUrl),
+      model,
       messages: inputs.initialContextMessages.map(toUserMessage),
       tools: agentTools,
     },
     streamFn,
     // DSH 工具批为严格批序执行（审计记录顺序 = 批内顺序）；parallel 模式按完成序落账
     toolExecution: "sequential",
+    // 工具预算闸（#54 / ADR-0018 §2.1）：attempt 在模型发出时计数（含被拒
+    // 调用），执行预约在放行时同步发生（失败不退还）；超预算调用由
+    // beforeToolCall 拦截——工具本体不执行，审计与 wire 应答保持同字节。
+    beforeToolCall: async ({ assistantMessage, toolCall, args }) => {
+      if (assistantMessage !== currentBatchMessage) {
+        currentBatchMessage = assistantMessage;
+        currentBatchSeenCalls = 0;
+        // 整批 terminate 判定：本批放行后累计尝试达到/超过上限 → 批内全部
+        // 结果携带 terminate（pi 语义：批内 every 才生效）。
+        currentBatchReachesAttemptCap =
+          attemptedToolCalls + countToolCalls(assistantMessage) >= budget.maxToolAttempts;
+      }
+      currentBatchSeenCalls += 1;
+      attemptedToolCalls += 1;
+      if (currentBatchReachesAttemptCap && !attemptsExhausted) {
+        attemptsExhausted = true;
+        appendReason(truncationReasons, TRUNCATION_TOOL_ATTEMPTS);
+      }
+      const overAttempts = attemptedToolCalls > budget.maxToolAttempts;
+      const overExecuted = executedToolCalls >= budget.maxExecutedToolCalls;
+      if (overAttempts || overExecuted) {
+        phaseSkippedToolCalls += 1;
+        const reason = overAttempts
+          ? TOOL_ATTEMPTS_EXHAUSTED_SUMMARY
+          : TOOL_BUDGET_EXHAUSTED_SUMMARY;
+        if (!overAttempts) {
+          appendReason(truncationReasons, TRUNCATION_TOOL_BUDGET);
+        }
+        toolCallLog.push({
+          name: fromWireToolName(toolCall.name),
+          argumentsJson: JSON.stringify(args),
+          resultSummary: reason,
+        });
+        return {
+          block: true,
+          reason,
+          terminate: overAttempts || currentBatchReachesAttemptCap,
+        };
+      }
+      // 执行预约：放行即计数（失败不退还，防失败死循环）
+      executedToolCalls += 1;
+      return undefined;
+    },
+    // 已执行结果补齐批级 terminate（拦截路径在 beforeToolCall 直接带回）；
+    // 只认当前批的回复，避免跨批串写
+    afterToolCall: async ({ assistantMessage }) =>
+      assistantMessage === currentBatchMessage && currentBatchReachesAttemptCap
+        ? { terminate: true }
+        : undefined,
     onPayload: (payload) => {
       requests.push(auditWireCapture(payload));
       phaseRequestCount += 1;
@@ -194,9 +294,39 @@ export async function runAgentReviewLoop(
       const message = context.message;
       usage = addUsage(usage, piUsageToLlmUsage(message.usage));
       if (message.content.some((block) => block.type === "toolCall")) {
-        return false;
+        // 尝试对账（ADR-0018 §1）：内核即时拒绝的调用（未知工具 / 参数校验
+        // 失败）不经过 beforeToolCall，但同样是模型发出的 attempt。
+        const seenForMessage = currentBatchMessage === message ? currentBatchSeenCalls : 0;
+        attemptedToolCalls += countToolCalls(message) - seenForMessage;
+        if (attemptedToolCalls >= budget.maxToolAttempts && !attemptsExhausted) {
+          attemptsExhausted = true;
+          appendReason(truncationReasons, TRUNCATION_TOOL_ATTEMPTS);
+        }
+        // 整批都没有经过预算闸（全部被内核即时拒绝）时 terminate 不成立，
+        // 收尾指令会滞留 follow-up 队列并污染下一阶段——只在本批全部经闸时
+        // 注入。
+        const batchFullyGated =
+          currentBatchMessage === message && currentBatchSeenCalls === countToolCalls(message);
+        if (!attemptsExhausted || !batchFullyGated) {
+          return false;
+        }
+        // 尝试预算耗尽后的工具轮（#54 / ADR-0018 §2.1）：本批已被 terminate，
+        // 注入强制收尾指令让模型直接产出阶段 JSON；每阶段至多 2 次。
+        if (phaseForcedFinalizations < MAX_FORCED_FINALIZATIONS_PER_PHASE) {
+          phaseForcedFinalizations += 1;
+          enqueueFollowUp(forcedFinalizationMessage());
+          return false;
+        }
+        // 收尾注入用尽仍只发工具调用 → 以尝试预算耗尽终止
+        return stopTruncated(TRUNCATION_TOOL_ATTEMPTS);
       }
-      return advancePhase(assistantText(message), enqueueFollowUp);
+      const replyText = assistantText(message);
+      // 收尾指令仍不产出文本：以 PHASE_FORCED_INCOMPLETE 终止（#54）
+      if (phaseForcedFinalizations > 0 && replyText.trim().length === 0) {
+        // #54 审计形态保持：该路径只在 truncated/stopReason 留痕
+        return stopTruncated("PHASE_FORCED_INCOMPLETE", false);
+      }
+      return advancePhase(replyText, enqueueFollowUp);
     },
   });
   enqueueFollowUp = (message) => {
@@ -223,6 +353,9 @@ export async function runAgentReviewLoop(
   inputs.signal?.addEventListener("abort", onAbort, { once: true });
   try {
     await agent.prompt(phaseInstruction(0));
+  } catch (error) {
+    // 网络重试耗尽等传输失败：错误携带重试留痕（审计无法落盘的失败路径）
+    throw withRetryTrace(error, retryingFetch.summary(), inputs.signal);
   } finally {
     inputs.signal?.removeEventListener("abort", onAbort);
   }
@@ -240,11 +373,24 @@ export async function runAgentReviewLoop(
       message.role === "assistant" && message.stopReason === "error",
   );
   if (failed !== undefined) {
-    throw new Error(
-      `review turn failed: ${failed.errorMessage ?? "provider returned an error stop reason"}`,
+    throw withRetryTrace(
+      new Error(
+        `review turn failed: ${failed.errorMessage ?? "provider returned an error stop reason"}`,
+      ),
+      retryingFetch.summary(),
+      inputs.signal,
     );
   }
 
+  // 缓存合同观测落定（#58）：等待所有响应副本解析完成；观测失败只影响
+  // unknown 字段，不击穿主链。
+  await cacheContractCollector.settle();
+  const retrySummary = retryingFetch.summary();
+
+  // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）；
+  // 命中统计只在确有账本查询时落键（零工具 run 审计字节不变，#56）。
+  const ledger = inputs.toolkit.ledger.snapshot();
+  const ledgerStats = inputs.toolkit.ledger.stats();
   const audit: RunAudit = {
     requests,
     toolCallLog,
@@ -253,8 +399,22 @@ export async function runAgentReviewLoop(
     cacheBreaks: classifyCacheBreaks(requests),
     truncated,
     truncationReasons,
-    // Context Ledger 快照恒投影（E 唯一形态——零工具调用为空数组）
-    ledger: inputs.toolkit.ledger.snapshot(),
+    ledger,
+    ...(ledgerStats.ledgerHits + ledgerStats.ledgerMisses > 0 ? { ledgerStats } : {}),
+    // 兜底：模型未声明 complete、也未触达轮次上界即停止（ADR-0018 §2.4
+    // 的 MODEL_STOPPED）；正常路径均在 advancePhase 里显式赋值。
+    stopReason: stopReason ?? "MODEL_STOPPED",
+    // 缓存合同（#58 / ADR-0018 §6）：只含响应可观测事实与 unknown，不含密钥
+    cacheContract: cacheContractCollector.contract({
+      provider: model.provider,
+      requestedModel: model.id,
+      measuredAt: new Date().toISOString(),
+    }),
+    // 首字节前重试留痕（#59）：无重试省键
+    ...(retrySummary !== undefined ? { retry: retrySummary } : {}),
+    // Tool Profile（#52）：run 内固定，source = derived / override
+    toolProfile: inputs.toolkit.toolProfile,
+    toolProfileSource: inputs.toolkit.toolProfileSource,
   };
   return { findings, usage, rounds: round, toolCalls: executedToolCalls, complete, audit };
 
@@ -275,8 +435,46 @@ export async function runAgentReviewLoop(
       ...(notes.length > 0 ? { note: notes.join("; ") } : {}),
     });
 
+    // 输出预算（#55 / ADR-0018 §2.3）：收到 assistant usage 后累计，只在阶段
+    // 边界事后判定——本阶段文本已正常收尾，wire 不新增 max_tokens；超出即
+    // 停止后续请求（请求预算的 5/6 阶段保底不豁免输出预算）。
+    const outputBudgetExhausted = usage.outputTokens > budget.maxOutputTokens;
+
     if (phaseIndex < PHASE_COUNT - 1) {
-      phaseIndex += 1;
+      if (outputBudgetExhausted) {
+        return stopTruncated(TRUNCATION_OUTPUT_BUDGET);
+      }
+      // 请求预算（#55 / ADR-0018 §2.2）：只在阶段边界判定。剩余请求不足以
+      // 按常规序推进到裁决时，跳过尚未完成的前四阶段直入候选；候选一旦
+      // 开始，裁决允许完成（保底 2 请求），候选→裁决之间不再设请求闸。
+      const nextPhaseIndex = phaseIndex + 1;
+      const decision = requestBudgetDecision(nextPhaseIndex);
+      if (decision === "stop") {
+        // 前四阶段内的硬停仍是「跳过」：逐条留痕后再终止
+        if (nextPhaseIndex < CANDIDATES_PHASE_INDEX) {
+          recordSkippedPhases(
+            nextPhaseIndex,
+            CANDIDATES_PHASE_INDEX,
+            PHASE_SKIPPED_REQUEST_BUDGET_EXHAUSTED_NOTE,
+          );
+          appendReason(truncationReasons, TRUNCATION_REQUEST_BUDGET_SKIPPED);
+        }
+        return stopTruncated(TRUNCATION_MAX_REQUESTS);
+      }
+      if (decision === "skip") {
+        recordSkippedPhases(
+          nextPhaseIndex,
+          CANDIDATES_PHASE_INDEX,
+          PHASE_SKIPPED_REQUEST_BUDGET_NOTE,
+        );
+        appendReason(truncationReasons, TRUNCATION_REQUEST_BUDGET_SKIPPED);
+        phaseIndex = CANDIDATES_PHASE_INDEX;
+        resetPhaseCounters();
+        emitProgress();
+        followUp(phaseInstruction(phaseIndex));
+        return false;
+      }
+      phaseIndex = nextPhaseIndex;
       resetPhaseCounters();
       emitProgress();
       followUp(phaseInstruction(phaseIndex));
@@ -295,22 +493,85 @@ export async function runAgentReviewLoop(
     emittedIds = gate.emittedIds;
     complete = roundComplete;
     if (complete) {
+      stopReason = "MODEL_COMPLETE";
       return true;
     }
-    if (round >= MAX_ROUNDS) {
-      truncated = true;
-      appendReason(truncationReasons, TRUNCATION_MAX_ROUNDS);
-      return true;
+    if (outputBudgetExhausted) {
+      return stopTruncated(TRUNCATION_OUTPUT_BUDGET);
     }
+    if (round >= budget.maxRounds) {
+      return stopTruncated(TRUNCATION_MAX_ROUNDS);
+    }
+    // 新一轮的 phase-1 边界同样受请求预算约束：不足常规一轮时直入候选。
+    const decision = requestBudgetDecision(0);
+    if (decision === "stop") {
+      return stopTruncated(TRUNCATION_MAX_REQUESTS);
+    }
+    // 先推进轮次再留痕：被跳过阶段属于新一轮
     round += 1;
-    phaseIndex = 0;
+    if (decision === "skip") {
+      recordSkippedPhases(0, CANDIDATES_PHASE_INDEX, PHASE_SKIPPED_REQUEST_BUDGET_NOTE);
+      appendReason(truncationReasons, TRUNCATION_REQUEST_BUDGET_SKIPPED);
+    }
+    phaseIndex = decision === "skip" ? CANDIDATES_PHASE_INDEX : 0;
     resetPhaseCounters();
     roundCandidates = [];
     roundVerdicts = new Map();
     roundComplete = false;
     emitProgress();
-    followUp(phaseInstruction(0));
+    followUp(phaseInstruction(phaseIndex));
     return false;
+  }
+
+  /**
+   * 请求预算阶段边界决策（#55 / ADR-0018 §2.2）：
+   * - proceed：按常规序进入下一阶段；
+   * - skip：跳过下一阶段…第 4 阶段，直入候选；
+   * - stop：连候选/裁决的 2 请求保底都不足，终止 run。
+   */
+  function requestBudgetDecision(nextPhaseIndex: number): "proceed" | "skip" | "stop" {
+    const remainingRequests = budget.maxRequests - requests.length;
+    if (nextPhaseIndex < CANDIDATES_PHASE_INDEX) {
+      // 常规序从下一阶段到裁决每阶段至少 1 请求
+      if (remainingRequests >= PHASE_COUNT - nextPhaseIndex) {
+        return "proceed";
+      }
+      return remainingRequests < FINDINGS_PHASE_REQUEST_FLOOR ? "stop" : "skip";
+    }
+    if (nextPhaseIndex === CANDIDATES_PHASE_INDEX) {
+      return remainingRequests < FINDINGS_PHASE_REQUEST_FLOOR ? "stop" : "proceed";
+    }
+    // 候选 → 裁决之间：一旦开始允许完成
+    return "proceed";
+  }
+
+  /**
+   * 截断终止单点：truncated 翻转 + stopReason 赋值；默认把同名原因写入
+   * truncationReasons（appendReason 去重，事件已留痕时无重复）。
+   */
+  function stopTruncated(reason: StopReason, recordReason = true): true {
+    truncated = true;
+    if (recordReason) {
+      appendReason(truncationReasons, reason);
+    }
+    stopReason = reason;
+    return true;
+  }
+
+  /** 被请求预算跳过的阶段逐条留痕（requestCount = 0；显式标注原因） */
+  function recordSkippedPhases(
+    fromPhaseIndex: number,
+    toExclusive: number,
+    note: string,
+  ): void {
+    for (let index = fromPhaseIndex; index < toExclusive; index += 1) {
+      phaseLog.push({
+        round,
+        phase: phaseNameOf(index),
+        requestCount: 0,
+        note,
+      });
+    }
   }
 
   function parsePhaseReply(replyText: string): { readonly note?: string } {
@@ -331,6 +592,7 @@ export async function runAgentReviewLoop(
   function resetPhaseCounters(): void {
     phaseRequestCount = 0;
     phaseSkippedToolCalls = 0;
+    phaseForcedFinalizations = 0;
   }
 }
 
@@ -348,6 +610,11 @@ function phaseInstruction(phaseIndex: number): AgentMessage {
     throw new Error(`missing phase instruction at index ${phaseIndex}`);
   }
   return { role: "user", content: instruction, timestamp: 0 };
+}
+
+/** 强制阶段收尾指令（append-only user 消息；#54 / ADR-0018 §2.1） */
+function forcedFinalizationMessage(): AgentMessage {
+  return { role: "user", content: FORCED_FINALIZATION_INSTRUCTION, timestamp: 0 };
 }
 
 function phaseNameOf(phaseIndex: number): PhaseRecord["phase"] {
@@ -370,8 +637,12 @@ function auditWireCapture(payload: unknown): WireRequest {
   };
 }
 
-/** schema 已知入参键（prepareArguments 剥未知键的保留集） */
-function knownArgumentKeys(parameters: Record<string, unknown>): ReadonlySet<string> {
+/** 一条 assistant 回复携带的 toolCall 内容块数（= 本批 attempt 数） */
+function countToolCalls(message: AssistantMessage): number {
+  return message.content.filter((block) => block.type === "toolCall").length;
+}
+
+/** schema 已知入参键（prepareArguments 剥未知键的保留集） */function knownArgumentKeys(parameters: Record<string, unknown>): ReadonlySet<string> {
   const properties = parameters.properties;
   if (typeof properties !== "object" || properties === null) {
     return new Set();
@@ -400,4 +671,30 @@ function appendReason(reasons: string[], reason: string): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 失败路径的重试留痕（#59）：run 失败时审计无法落盘，把 retry 摘要挂到
+ * 错误 message 与 cause 上（取消 / AbortError 原样透传，不改语义）。
+ */
+function withRetryTrace(
+  error: unknown,
+  retry: RetryRecord | undefined,
+  signal: AbortSignal | undefined,
+): Error {
+  const original = error instanceof Error ? error : new Error(String(error));
+  if (
+    signal?.aborted === true ||
+    (error instanceof Error && error.name === "AbortError") ||
+    retry === undefined ||
+    !retry.exhausted
+  ) {
+    // 只给「重试耗尽导致的失败」挂留痕；其余错误原样透传（不张冠李戴）
+    return original;
+  }
+  return new Error(
+    `${original.message} (retry: ${retry.retries} retries, ` +
+      `${retry.failedAttempts} failed attempt(s), exhausted=${String(retry.exhausted)})`,
+    { cause: { retry, error: original } },
+  );
 }

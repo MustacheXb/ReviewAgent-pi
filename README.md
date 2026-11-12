@@ -1,8 +1,8 @@
 # ReviewAgent-pi（生产主线）
 
-低 Token、高质量 MR 代码检视 Agent：以**最小充分上下文**（Minimal Sufficient Context）与**缓存稳定循环**（Cache-Stable Review Loop）——七工具自主拉取 + Context Ledger 去重——用远低于全仓注入的 Token 成本获得接近全量上下文的检视质量。内核基座为 vendored pi 四包（ADR-0009），产品入口是自包含 npm 包 **`reviewagent`**（CLI 单次 / stdio 长驻 / HTTP server 三形态）。
+低 Token、高质量 MR 代码检视 Agent：以**最小充分上下文**（Minimal Sufficient Context）与**缓存稳定循环**（Cache-Stable Review Loop）——core-5 工具自主拉取（有知识语料时增补检索）+ Context Ledger 去重——用远低于全仓注入的 Token 成本获得接近全量上下文的检视质量。内核基座为 vendored pi 四包（ADR-0009），产品入口是自包含 npm 包 **`reviewagent`**（CLI 单次 / stdio 长驻 / HTTP server 三形态）。
 
-> **本分支定位（ADR-0014）**：生产主线 `main`（由 `production/e-only` 收口而来）——固定 Config E（七工具 + Context Ledger），协议 v3（无配置选择，ADR-0015）。研究侧（A–E 配置矩阵、判定链、Phase 2 复现资产）冻结在 **Demo 线** [`demo/config-matrix`]，基线标签 `demo-config-matrix-baseline-2026-11-03`，见「[研究背景](#研究背景)」。
+> **本分支定位（ADR-0014）**：生产主线 `main`（由 `production/e-only` 收口而来）——固定 Config E（core-5 + Context Ledger；#52 生产缺省），协议 v3（无配置选择，ADR-0015）。研究侧（A–E 配置矩阵、判定链、Phase 2 复现资产）冻结在 **Demo 线** [`demo/config-matrix`]，基线标签 `demo-config-matrix-baseline-2026-11-03`，见「[研究背景](#研究背景)」。
 >
 > **姊妹仓（DSH 内核线）**：[`MustacheXb/ReviewAgent`](https://github.com/MustacheXb/ReviewAgent)。跨仓/跨分支 ADR 限定语纪律：裸写「ADR-XXXX」一律指本仓主线序列；引用 DSH 兄弟仓须写「DSH 线 ADR-XXXX」，引用 Demo 线须写「Demo 线 ADR-XXXX」。
 >
@@ -111,7 +111,7 @@ packages/reviewagent/                  自包含产品包（reviewagent CLI；�
 packages/review-llm/                   LLM 接入共享缝（resolver / profile / reviewer）
 src/{gate,instrument,presentation}/    根面：模型迁移门 / 仪器契约 / 中文呈现投影
 scripts/                               迁移门与 demo 脚本入口（tsc 即编即跑，产物落 .tmp-gen/）
-docs/                                  ADR（0001–0017）/ 设计方案（docs/design，#34 回填）/ agent 协作约定
+docs/                                  ADR（0001–0018）/ 设计方案（docs/design，#34 回填）/ agent 协作约定
 GLOSSARY.md                            领域词汇表（术语唯一权威）
 ```
 
@@ -127,6 +127,7 @@ GLOSSARY.md                            领域词汇表（术语唯一权威）
 | `pnpm --filter review-pi build` | review-pi dist 构建 |
 | `pnpm build:reviewagent` | 产品包自包含 bundle + tarball（→ `.artifacts/`） |
 | `pnpm migration-gate -- --model <id>` | 模型迁移门（换模型/网关安全前置） |
+| `pnpm analyze:token -- --record <file>` | Token 分析报告（也支持 `--experiment <dir>` / `--runs-root <dir> --experiment-id <id>`；四行主表 + 循环计数，零网络零密钥） |
 | `pnpm build:presentation` | 中文呈现引擎构建（改 `src/presentation` 后） |
 
 CI（push / PR，零网络）：pi 四包 + review-llm + review-pi dist 前置构建 → 三面 typecheck → 三面测试。E 全链与协议 v3 契约在 CI 常开真跑；真实 E 产物闭环依赖 gitignored 本机快照（skipIf 守卫）；pack 冒烟与真网关探针走本地按需执行（`pnpm --filter review-pi test:e2e` / `reviewagent smoke`）。
@@ -179,7 +180,7 @@ cd reference_project/pi && git checkout 6671c604   # 其余同理
 | 文档 | 内容 |
 |---|---|
 | [`GLOSSARY.md`](GLOSSARY.md) | 领域词汇表（活代码词汇唯一权威；研究词条已修剪，全量见 Demo 线） |
-| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0017（POC1 harness / 模型钉扎 / 零构建代码情报 / S 级判据 / DSH 迁移与内核形态 / 对齐门 v2 / 模型可换 / pi 内核从 0 重写 / 检视语言钉英文 / 切流 config E / stdio 长驻 / HTTP server 线 / 分支策略 / **协议 v3** / **评测面隔离** / **Token 优化判据**） |
+| [`docs/adr/`](docs/adr/) | 架构决策记录 0001–0018（POC1 harness / 模型钉扎 / 零构建代码情报 / S 级判据 / DSH 迁移与内核形态 / 对齐门 v2 / 模型可换 / pi 内核从 0 重写 / 检视语言钉英文 / 切流 config E / stdio 长驻 / HTTP server 线 / 分支策略 / **协议 v3** / **评测面隔离** / **Token 优化判据** / **Token 控制面语义**） |
 | [`docs/design/`](docs/design/README.md) | 设计方案 22 份——按架构 / Agent 设计 / 内核 / 接入 / 评测 / 项目策略分类（#34 自 Demo 线回填的工程参考副本 + 分支策略底稿恢复件，ADR-0014 补记） |
 | [`docs/agents/`](docs/agents/) | agent 协作约定（issue tracker / triage labels / domain docs） |
 

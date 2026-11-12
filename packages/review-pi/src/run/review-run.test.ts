@@ -58,15 +58,13 @@ function readAudit(auditPath: string): {
   };
 }
 
-/** 七工具 wire 名序(REVIEW_TOOL_ORDER 下划线形态) */
+/** 生产缺省 core-5 wire 名序（#52：REVIEW_TOOL_ORDER 的子序列） */
 const WIRE_TOOL_NAMES = [
   "review_get_diff",
   "review_get_symbol",
   "review_get_file",
   "review_find_references",
   "review_get_call_chain",
-  "review_search_rule",
-  "review_search_history",
 ];
 /** 审计投影 tools 点分名序（fromWireToolName：仅首个下划线转点分） */
 const DOTTED_TOOL_NAMES = [
@@ -75,11 +73,9 @@ const DOTTED_TOOL_NAMES = [
   "review.get_file",
   "review.find_references",
   "review.get_call_chain",
-  "review.search_rule",
-  "review.search_history",
 ];
 
-test("E 工具驱动全链:配置内核单源派生恒 E,req0 = ZoneA+MR+Phase-1 + 七工具面,零工具调用 complete", async () => {
+test("E 工具驱动全链:配置内核单源派生恒 E,req0 = ZoneA+MR+Phase-1 + core-5 工具面,零工具调用 complete", async () => {
   const script = fakeFetch(sixPhaseNoToolCorpus());
   const runsRoot = tempRunsRoot();
   const { record, recordPath, auditPath, runId } = await runReview({
@@ -119,6 +115,11 @@ test("E 工具驱动全链:配置内核单源派生恒 E,req0 = ZoneA+MR+Phase-1
   const audit = readAudit(auditPath);
   expect(audit.configId).toBe("E");
   expect(audit.ledger).toEqual([]);
+  // #52：生产缺省 core-5（有意 Zone A 变更），来源 derived
+  expect(record.baseline.audit.toolProfile).toBe("core-5");
+  expect(record.baseline.audit.toolProfileSource).toBe("derived");
+  expect(audit.toolProfile).toBe("core-5");
+  expect(audit.toolProfileSource).toBe("derived");
 
   // req0:三条消息(system + MR + Phase-1) + 工具面(wire 下划线名;tool_choice 缺席为 pi 方言)
   const req0 = JSON.parse(audit.requests[0].wireBody) as {
@@ -290,8 +291,22 @@ test("工具轮:review.get_diff 执行记账 + recall 请求(工具结果进上�
   ]);
   // 工具调用恒进 Context Ledger(读取成功后登记;E 功能态账本)
   expect(record.baseline.audit.ledger).toEqual([
-    { id: "ctx#001", kind: "evidence", description: "review.get_diff" },
+    expect.objectContaining({
+      id: "ctx#001",
+      kind: "evidence",
+      description: "review.get_diff",
+      requestedRange: null,
+      deliveredRange: null,
+      complete: true,
+      hitCount: 0,
+    }),
   ]);
+  // 一次真实读取 = 一次未命中（账本统计随审计落盘，#56）
+  expect(record.baseline.audit.ledgerStats).toEqual({
+    ledgerHits: 0,
+    ledgerMisses: 1,
+    savedCharsEstimate: 0,
+  });
 
   // recall 请求 = 上一请求 + assistant(伴随文本 + tool_calls) + tool 应答
   const audit = readAudit(auditPath);
@@ -319,6 +334,69 @@ test("工具轮:review.get_diff 执行记账 + recall 请求(工具结果进上�
   });
 }, 120_000);
 
+test("Ledger 命中：同 run 重复 get_diff 返回引用，审计可读 ledgerStats 与命中条目", async () => {
+  const diff = goldenFixture("vul4j-1.diff");
+  const firstDiffResult = ["MR unified diff:", ...diff.split("\n")].join("\n");
+  const script = fakeFetch([
+    { text: "ok", usage: ZERO },
+    {
+      text: "Checking the diff.",
+      toolCalls: [{ id: "call-diff-1", name: "review_get_diff", arguments: {} }],
+      usage: ZERO,
+    },
+    { text: "ok", usage: ZERO },
+    {
+      text: "Checking the diff again.",
+      toolCalls: [{ id: "call-diff-2", name: "review_get_diff", arguments: {} }],
+      usage: ZERO,
+    },
+    { text: "ok", usage: ZERO },
+    { text: "ok", usage: ZERO },
+    { text: '{"candidates":[]}', usage: ZERO },
+    { text: '{"verdicts":[],"complete":true}', usage: ZERO },
+  ]);
+  const { record, auditPath } = await runReview({
+    caseId: "VUL4J-1",
+    repoPath: repoFixturePath("sample"),
+    diff,
+    issueDescription: "Ledger hit MR under review.",
+    apiKey: "offline-test",
+    fetch: script.fetch,
+    runsRoot: tempRunsRoot(),
+    experimentId: "phase2-smoke",
+    rep: 1,
+  });
+
+  // 首次真实读取 + 第二次引用：1 miss / 1 hit；节省字符 = 首次送达长度
+  expect(record.baseline.audit.ledgerStats).toEqual({
+    ledgerHits: 1,
+    ledgerMisses: 1,
+    savedCharsEstimate: firstDiffResult.length,
+  });
+  const entries = record.baseline.audit.ledger ?? [];
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({
+    id: "ctx#001",
+    kind: "evidence",
+    description: "review.get_diff",
+    requestedRange: null,
+    deliveredRange: null,
+    complete: true,
+    hitCount: 1,
+    charCount: firstDiffResult.length,
+  });
+  expect(entries[0]?.lastHitAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  expect(record.baseline.audit.toolCallLog[1]?.resultSummary).toBe(
+    "Already loaded: ctx#001 (review.get_diff; delivered whole result of requested whole result; complete=true)",
+  );
+  // 审计文件与 RunRecord 同源
+  expect(readAudit(auditPath).ledgerStats).toEqual({
+    ledgerHits: 1,
+    ledgerMisses: 1,
+    savedCharsEstimate: firstDiffResult.length,
+  });
+}, 120_000);
+
 test("截断路径:phase-6 恒 complete:false → MAX_ROUNDS 上界,正常返回(退出码 0)+ truncated 留痕", async () => {
   const replies: FakeReply[] = [];
   for (let round = 0; round < 5; round++) {
@@ -343,6 +421,9 @@ test("截断路径:phase-6 恒 complete:false → MAX_ROUNDS 上界,正常返回
     runsRoot,
     experimentId: "phase2-smoke",
     rep: 1,
+    // 请求预算放宽到「5 轮 × 6 相位」以隔离轮次上界（#55 起缺省 maxRequests=24
+    // 会先于 5 轮上界收口）
+    budget: { maxRequests: 30 },
   });
 
   // 5 轮 × 6 相位各一请求;runReview 正常返回(不抛——防御性路径退出码 0)
@@ -403,3 +484,38 @@ test(
   },
   300_000,
 );
+
+test("toolProfileOverride（内核内部缝）：强制 extended-7 且审计记录 override", async () => {
+  const script = fakeFetch(sixPhaseNoToolCorpus());
+  const runsRoot = tempRunsRoot();
+  const { record, auditPath } = await runReview({
+    caseId: "VUL4J-1",
+    repoPath: repoFixturePath("sample"),
+    diff: goldenFixture("vul4j-1.diff"),
+    issueDescription: "The MR under review may contain a vulnerability.",
+    apiKey: "offline-test",
+    fetch: script.fetch,
+    runsRoot,
+    experimentId: "phase2-smoke",
+    rep: 1,
+    toolProfileOverride: "extended-7",
+  });
+
+  expect(record.baseline.audit.toolProfile).toBe("extended-7");
+  expect(record.baseline.audit.toolProfileSource).toBe("override");
+  const audit = readAudit(auditPath);
+  expect(audit.toolProfile).toBe("extended-7");
+  expect(audit.toolProfileSource).toBe("override");
+  const req0 = JSON.parse(audit.requests[0]!.wireBody) as {
+    tools?: { function: { name: string } }[];
+  };
+  expect(req0.tools?.map((tool) => tool.function.name)).toEqual([
+    "review_get_diff",
+    "review_get_symbol",
+    "review_get_file",
+    "review_find_references",
+    "review_get_call_chain",
+    "review_search_rule",
+    "review_search_history",
+  ]);
+});

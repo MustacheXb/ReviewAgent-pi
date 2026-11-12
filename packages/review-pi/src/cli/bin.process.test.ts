@@ -376,7 +376,7 @@ test(
 );
 
 test(
-  "截断路径：phase-6 恒 complete:false → exit 0 + truncated=true + rounds=5（诚实截断不是失败）",
+  "截断路径：phase-6 恒 complete:false → exit 0 + truncated=true + rounds=4（缺省请求预算先于轮次上界；诚实截断不是失败）",
   async () => {
     const stub = await startLoopbackStub(truncationCorpus());
     try {
@@ -396,10 +396,11 @@ test(
         findings: unknown[];
       };
       expect(outcome.truncated).toBe(true);
-      expect(outcome.rounds).toBe(5);
+      // 缺省请求预算 24 = 4 轮 × 6 相位（#55）；第 5 轮之前预算即收口
+      expect(outcome.rounds).toBe(4);
       expect(outcome.findings).toEqual([]);
-      // 5 轮 × 6 相位 = 30 回合全走真 HTTP
-      expect(stub.requests()).toHaveLength(30);
+      // 4 轮 × 6 相位 = 24 回合全走真 HTTP
+      expect(stub.requests()).toHaveLength(24);
       expectNoKeyLeak([{ label: "stdout", text: run.stdout }, { label: "stderr", text: run.stderr }]);
     } finally {
       await stub.close();

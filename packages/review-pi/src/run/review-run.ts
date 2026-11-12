@@ -3,9 +3,11 @@ import type { FetchFunction } from "@earendil-works/pi-ai";
 import { buildAuditFileContent, buildRunId, writeAuditFile } from "../audit/audit-writer.js";
 import { CONFIG_E, type ConfigId } from "../contracts/config.js";
 import type { LlmMessage } from "../contracts/llm.js";
+import type { ToolProfile } from "../contracts/tool-profile.js";
 import { ReviewAbortedError, type RunResult, type ReviewRunProgress } from "../contracts/run.js";
 import { buildRunRecord, writeRunRecord, type RunRecord } from "../experiment/run-record.js";
 import { runAgentReviewLoop } from "../loop/agent-review-loop.js";
+import type { ReviewBudgetOverride } from "../loop/budget.js";
 import { buildInitialUserMessage } from "../loop/messages.js";
 import { LOCKED_EFFORT_LABEL, REVIEW_MODEL_ID } from "../provider/pi-client.js";
 import { buildReviewToolkit } from "../tools/toolkit.js";
@@ -18,7 +20,7 @@ export { ReviewAbortedError } from "../contracts/run.js";
 export type { ReviewRunProgress } from "../contracts/run.js";
 
 // 单案全链入口（#3 P1a 离线全链；#6 P3a 起工具驱动 agentLoop）：
-// 组装（Zone A + MR）→ agentLoop（七工具 + Context Ledger + 轮次上界）→
+// 组装（Zone A + MR）→ agentLoop（core-5 + Context Ledger + 轮次上界）→
 // 审计投影落盘。
 //
 // fake 适配器与真适配器同缝：传输层经注入的 FetchFunction——离线开发/测试
@@ -50,6 +52,17 @@ export interface ReviewRunInput {
   /** 实验标识（目录名，如 "phase2-smoke"） */
   readonly experimentId: string;
   readonly rep: number;
+  /**
+   * 预算覆盖（#53 / ADR-0018 §1）：内核内部输入，只供评测线的受控消融使用。
+   * 不进入协议字段、CLI 参数或环境变量；缺省字段取安全上界
+   * （24 请求 / 5 轮 / 6 执行 / 12 尝试 / 48k 输出）。
+   */
+  readonly budget?: ReviewBudgetOverride;
+  /**
+   * Tool Profile 覆盖（#52 / ADR-0018 §3）：内核内部输入，评测消融专用；
+   * 不进入协议、CLI 参数或环境变量。缺省按可用知识语料派生（生产 core-5）。
+   */
+  readonly toolProfileOverride?: ToolProfile;
   /**
    * 记录落盘开关（#8 runner 执行缝）：缺省 true（内核自写 RunRecord——
    * CLI / e2e 直跑形态）；false = 执行缝模式——runner 是记录唯一写者，
@@ -100,11 +113,14 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     { role: "user", content: buildInitialUserMessage(input.caseId, input.issueDescription, input.diff) },
   ];
 
-  // 七工具执行面：RepoContext 懒加载（模型不调用工具的 run 不产生仓库读取
+  // Tool Profile 工具执行面（生产 core-5）：RepoContext 懒加载（模型不调用工具的 run 不产生仓库读取
   // 成本）；Context Ledger 功能态（E 去重面）
   const toolkit = buildReviewToolkit({
     repoPath: input.repoPath,
     diff: input.diff,
+    ...(input.toolProfileOverride !== undefined
+      ? { toolProfileOverride: input.toolProfileOverride }
+      : {}),
   });
   const outcome = await runAgentReviewLoop({
     systemPrompt: SYSTEM_PROMPT,
@@ -114,6 +130,7 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
     ...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
     fetch: input.fetch,
+    ...(input.budget !== undefined ? { budget: input.budget } : {}),
     ...(input.signal !== undefined ? { signal: input.signal } : {}),
     ...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
   });

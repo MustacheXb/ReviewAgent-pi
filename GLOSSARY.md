@@ -19,12 +19,16 @@ _Avoid_: 精简上下文、恰好够用的上下文
 _Avoid_: Diff-only
 
 **Context Ledger**:
-本次检视会话已加载上下文（文件/区间/符号/证据）的登记账；重复请求返回引用而非原文。
-_Avoid_: 上下文缓存（与前缀缓存混淆）
+本次检视会话已送达上下文（文件/区间/符号/证据）的登记账；身份键 = 种类 + 规范化工具参数 + 内容哈希 + 请求范围。只有实际送达范围完整覆盖请求范围才返回引用：完全重复请求命中，整文件完整送达后可命中子区间；未覆盖（含截断读取、越界 clamp）一律重读并登记新条目。引用文本带请求范围、实际送达范围与 `complete`；审计以 `ledgerStats`（命中 / 未命中 / 节省字符估算）留痕。
+_Avoid_: 上下文缓存（与前缀缓存混淆）、把部分送达当已加载、部分命中拼接补缺口
 
 **Stable Prefix（Zone A）**:
-一次模型请求中字节级稳定不变的头部：检视角色、政策、工具与输出 Schema。
+一次模型请求中字节级稳定不变的头部：检视角色、政策、按 Tool Profile 冻结的工具与输出 Schema。
 _Avoid_: 系统提示词（过窄，仅指角色描述）、Immutable Prefix
+
+**Tool Profile（工具画像）**:
+一次检视 run 内固定暴露的只读工具集合，由可用知识语料推导（无语料为 core-5；仅有 rule 为 core-5+rule；仅有 history 为 core-5+history；两者皆有才为 extended-7）；profile 在 run 内不变化，选择与来源进入审计。
+_Avoid_: 动态工具集（run 内增减工具会击穿前缀稳定）、空工具补位（暴露无语料的检索工具）
 
 **Append-only Context（Zone C）**:
 动态上下文只追加、不重排、不改写的构造纪律。
@@ -58,6 +62,22 @@ _Avoid_: 判级（judge 属评测链，已随研究线退役；处置是人工�
 _Avoid_: 相对锚口径（不依赖评测结论）、把 reject/false-positive 计入接受
 
 ### 运行时边界
+
+**Attempt Budget（尝试预算）**:
+模型发起工具调用的总次数封顶，与真正执行的调用数是两个独立闸；尝试耗尽不终止检视，而是迫使当前阶段以文本收尾。
+_Avoid_: 执行预算（那是执行上界）、把尝试耗尽当整轮终止
+
+**Request Budget（请求预算）**:
+发往 provider 的请求总数上界（缺省 24）；只在阶段边界判定（阶段内工具 recall 不设闸）。剩余请求不足以按常规序推进到裁决时，跳过尚未完成的前四阶段直入候选——候选与裁决保底 2 请求，候选一旦开始裁决允许完成。连保底都不足时按 `MAX_REQUESTS_REACHED` 收尾。
+_Avoid_: 在工具轮中途掐断请求（判定只在阶段边界）、用请求预算替代尝试预算
+
+**Output Budget（输出预算）**:
+累计 output token 封顶（缺省 48,000）；只在阶段边界事后判定并停止后续请求，绝不在 wire 上新增 `max_tokens`、也不改写已完成阶段。超限按 `OUTPUT_BUDGET_EXHAUSTED` 收尾。
+_Avoid_: wire `max_tokens`（改变请求字节并击穿缓存合同）、把输出预算当请求参数
+
+**Forced Phase Finalization（强制阶段收尾）**:
+工具尝试预算耗尽后的收口方式：本批工具调用终止，向模型注入「直接输出本阶段 JSON」指令（每阶段至多 2 次），保证候选与裁决阶段仍能产出结论；注入用尽仍只发工具调用按 `TOOL_ATTEMPTS_EXHAUSTED` 收尾，返回空文本才按 `PHASE_FORCED_INCOMPLETE` 收尾。
+_Avoid_: 预算耗尽即终止整轮（会丢失 Finding）、静默跳过阶段
 
 **核内（Review Runtime）**:
 检视会话运行时的全部行为：loop 策略、`review.*` 工具、上下文决策、缓存纪律、检视政策与 Evidence Gate；在 pi 内核上实现（`packages/review-pi`，ADR-0009）。
@@ -124,6 +144,10 @@ _Avoid_: 用 review-pi 指产品（对外名恒 reviewagent）
 _Avoid_: CWE（那是通用公共分类）、把语料当预取注入（研究线 Zone B 形态，已退役）
 
 ### 模型接入
+
+**Cache Contract（缓存合同）**:
+对一次检视所用 provider / 网关缓存能力的可验证声明：usage 字段族、模型回显、缓存计量、预热与块对齐、路由亲和、价目与时间窗；缺字段如实记 unknown / N/A。
+_Avoid_: 按固定折扣率假设缓存价格、把缓存命中率当成本结论
 
 **被测模型（reviewer）**:
 检视执行的 LLM：model id 走请求参数（CLI `--model`，缺省 `deepseek-v4-flash`），无 model 环境变量；url / key 经角色命名环境变量（`REVIEWER_*` > 旧 `DEEPSEEK_*`，`.env.local` 自动装载——已有环境变量优先，#46）；进审计留痕（model + baseUrl，绝不记 key，ADR-0008）。自定义网关换端点/模型先过模型迁移门自证再放行。

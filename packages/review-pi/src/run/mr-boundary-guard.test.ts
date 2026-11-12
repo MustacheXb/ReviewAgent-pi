@@ -312,7 +312,14 @@ test("全链超界（11 文件）：照常出 findings + domainWarning + 审计 
     reason: "too-many-files",
   });
   const auditKeys = Object.keys(audit);
-  expect(auditKeys[auditKeys.length - 1]).toBe("mrBoundary");
+  // 历史尾键次序不变（mrBoundary → stopReason）；#58/#59/#52 尾键依次追加
+  expect(auditKeys.slice(-5)).toEqual([
+    "mrBoundary",
+    "stopReason",
+    "cacheContract",
+    "toolProfile",
+    "toolProfileSource",
+  ]);
 
   // 记录落盘：domainWarning 经 toRunSnapshot 透传进 rep-1.json
   const onDisk = JSON.parse(readFileSync(recordPath, "utf8")) as {
@@ -380,7 +387,7 @@ test("全链边界内零漂移（E 工具驱动生产入口）：护栏键全缺
   const audit = readAudit(auditPath);
   expect("mrBoundary" in audit).toBe(false);
 
-  // 请求字节面：req0 = Zone A + MR + Phase-1 三条（E 无全仓注入），七工具面在场
+  // 请求字节面：req0 = Zone A + MR + Phase-1 三条（E 无全仓注入），生产 core-5 工具面在场
   const req0 = JSON.parse(audit.requests[0].wireBody) as {
     messages: { role: string; content: string }[];
     tools?: { function: { name: string } }[];
@@ -397,8 +404,6 @@ test("全链边界内零漂移（E 工具驱动生产入口）：护栏键全缺
     "review_get_file",
     "review_find_references",
     "review_get_call_chain",
-    "review_search_rule",
-    "review_search_history",
   ]);
   // E 恒投影 ledger 键（零工具 → 空数组）
   expect(record.baseline.audit.ledger).toEqual([]);

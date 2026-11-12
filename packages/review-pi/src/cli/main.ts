@@ -8,7 +8,7 @@
  * - review：统一 ReviewRequest 校验（validateReviewRequest 单源，#27——
  *   旗标投影为统一模型，与 stdio/HTTP 同一实现；v3 起无 configId——服务端
  *   /CLI 派生恒 E，#32 / ADR-0014 §10）→ 凭据 fail fast
- *   （resolveReviewerEndpoint 构造期）→ config E 全链（七工具 + Context
+ *   （resolveReviewerEndpoint 构造期）→ config E 全链（core-5 工具 + Context
  *   Ledger；无 --config 旗标，传入即用法错误）→ 审计/记录落盘（--out）→
  *   呈现投影（ADR-0010：REVIEW_PI_PRESENTATION_ENGINE 注入引擎时 stdout
  *   呈现档译中文，失败降级英文源；未配置恒等直通）→ stdout 单 JSON 文档

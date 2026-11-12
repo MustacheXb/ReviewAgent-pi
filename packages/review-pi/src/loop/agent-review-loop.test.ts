@@ -9,13 +9,14 @@ import { repoFixturePath } from "../testing/repos.js";
 import { buildReviewToolkit } from "../tools/toolkit.js";
 import type { LlmMessage } from "../contracts/llm.js";
 import type { WireMessage } from "../contracts/llm.js";
+import type { KnowledgeCorpus } from "../contracts/knowledge.js";
+import type { ReviewToolkit } from "../tools/toolkit.js";
 import {
-  MAX_TOOL_CALLS,
-  MAX_ROUNDS,
   TOOL_BUDGET_EXHAUSTED_SUMMARY,
   TRUNCATION_MAX_ROUNDS,
   TRUNCATION_TOOL_BUDGET,
 } from "./constants.js";
+import { DEFAULT_REVIEW_BUDGET, type ReviewBudgetOverride } from "./budget.js";
 import { PHASE_COUNT, PHASE_INSTRUCTIONS } from "./phases.js";
 import { runAgentReviewLoop } from "./agent-review-loop.js";
 
@@ -105,9 +106,15 @@ function singleRoundScript(): readonly FakeReply[] {
   ];
 }
 
-function scriptedLoop(replies: readonly FakeReply[], initial = INITIAL): ScriptedRun {
+function scriptedLoop(
+  replies: readonly FakeReply[],
+  initial = INITIAL,
+  budget?: ReviewBudgetOverride,
+  toolkitOverride?: ReviewToolkit,
+): ScriptedRun {
   const script = fakeFetch([...replies]);
-  const toolkit = buildReviewToolkit({ repoPath: repoFixturePath("sample"), diff: DIFF });
+  const toolkit =
+    toolkitOverride ?? buildReviewToolkit({ repoPath: repoFixturePath("sample"), diff: DIFF });
   const run = () =>
     runAgentReviewLoop({
       systemPrompt: SYSTEM,
@@ -115,12 +122,14 @@ function scriptedLoop(replies: readonly FakeReply[], initial = INITIAL): Scripte
       toolkit,
       apiKey: "test-key",
       fetch: script.fetch,
+      ...(budget !== undefined ? { budget } : {}),
     });
   return { run, requestUrls: script.requests.map((request) => request.url) };
 }
 
-test("循环常量与 DSH 线一致（工具预算 + 截断原因 + 预算耗尽应答字节）", () => {
-  expect(MAX_TOOL_CALLS).toBe(6);
+test("预算缺省与 DSH 线一致（五类安全上界 + 截断原因 + 预算耗尽应答字节）", () => {
+  expect(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls).toBe(6);
+  expect(DEFAULT_REVIEW_BUDGET.maxRounds).toBe(5);
   expect(TRUNCATION_TOOL_BUDGET).toBe("TOOL_BUDGET_EXHAUSTED");
   expect(TOOL_BUDGET_EXHAUSTED_SUMMARY).toBe("Error: tool call budget exhausted");
 });
@@ -163,12 +172,14 @@ test("单轮直驱 + 工具子循环：phase-2 执行 get_diff 后 recall 收尾
   expect(outcome.audit.truncationReasons).toEqual([]);
 });
 
-test("Zone A 稳定：七工具面跨请求字节恒定（审计点分名 / wire 下划线名），消息前缀 append-only", async () => {
+test("Zone A 稳定：core-5 工具面跨请求字节恒定（审计点分名 / wire 下划线名），消息前缀 append-only", async () => {
   const { run } = scriptedLoop(singleRoundScript());
   const outcome = await run();
   const requests = outcome.audit.requests;
 
-  // 审计投影：七工具、点分名、顺序与注册表一致
+  // 审计投影：生产缺省 core-5、点分名、顺序与注册表一致（#52）
+  expect(outcome.audit.toolProfile).toBe("core-5");
+  expect(outcome.audit.toolProfileSource).toBe("derived");
   for (const request of requests) {
     expect(request.tools.map((tool) => tool.name)).toEqual([
       "review.get_diff",
@@ -176,8 +187,6 @@ test("Zone A 稳定：七工具面跨请求字节恒定（审计点分名 / wire
       "review.get_file",
       "review.find_references",
       "review.get_call_chain",
-      "review.search_rule",
-      "review.search_history",
     ]);
   }
   // wire 体：工具名为下划线形态
@@ -190,9 +199,12 @@ test("Zone A 稳定：七工具面跨请求字节恒定（审计点分名 / wire
     "review_get_file",
     "review_find_references",
     "review_get_call_chain",
-    "review_search_rule",
-    "review_search_history",
   ]);
+  // wire tools 字节跨请求恒定（重复读取字节稳定，P1-2）
+  const toolsBytes = new Set(
+    requests.map((request) => JSON.stringify(JSON.parse(request.wireBody).tools)),
+  );
+  expect(toolsBytes.size).toBe(1);
   // 锁档：reasoning_effort high
   expect(JSON.parse(requests[0]!.wireBody).reasoning_effort).toBe(LOCKED_REASONING_EFFORT);
 
@@ -244,7 +256,7 @@ test("协议完备性：assistant tool_calls 后紧跟覆盖全部 id 的 tool �
 test("预算耗尽：第 7+ 次调用获 Error 应答、计数留痕、截断原因单列但不翻转 truncated", async () => {
   // 预算批用互异区间（get_file 不同 start/end）——账本恒功能态（E 语义：
   // 同一规范化请求重复调用命中去重返回引用），互异请求才能真实执行满预算
-  const budgetCalls = Array.from({ length: MAX_TOOL_CALLS }, (_, index) => ({
+  const budgetCalls = Array.from({ length: DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls }, (_, index) => ({
     id: `call-e${index}`,
     name: "review_get_file",
     args: { path: "src/main/java/com/example/Alpha.java", startLine: 1, endLine: 1 + index },
@@ -269,17 +281,19 @@ test("预算耗尽：第 7+ 次调用获 Error 应答、计数留痕、截断原
   const outcome = await run();
 
   expect(outcome.complete).toBe(true);
-  expect(outcome.toolCalls).toBe(MAX_TOOL_CALLS);
+  expect(outcome.toolCalls).toBe(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls);
   expect(outcome.audit.truncated).toBe(false);
   expect(outcome.audit.truncationReasons).toEqual([TRUNCATION_TOOL_BUDGET]);
 
   // toolCallLog：6 条执行（真实读取，非预算拒绝）+ 2 条 Error 跳过（批序）
   const log = outcome.audit.toolCallLog;
-  expect(log).toHaveLength(MAX_TOOL_CALLS + overflowCalls.length);
+  expect(log).toHaveLength(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls + overflowCalls.length);
   expect(
-    log.slice(0, MAX_TOOL_CALLS).every((entry) => entry.resultSummary !== TOOL_BUDGET_EXHAUSTED_SUMMARY),
+    log
+      .slice(0, DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls)
+      .every((entry) => entry.resultSummary !== TOOL_BUDGET_EXHAUSTED_SUMMARY),
   ).toBe(true);
-  expect(log.slice(MAX_TOOL_CALLS)).toEqual([
+  expect(log.slice(DEFAULT_REVIEW_BUDGET.maxExecutedToolCalls)).toEqual([
     { name: "review.get_diff", argumentsJson: "{}", resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY },
     { name: "review.get_diff", argumentsJson: "{}", resultSummary: TOOL_BUDGET_EXHAUSTED_SUMMARY },
   ]);
@@ -300,25 +314,29 @@ test("轮次上界：complete 恒 false → rounds=5、truncated=true、正常�
   const verdicts = '{"verdicts":[{"id":"F001","pass":true,"reason":"ok"}],"complete":false}';
   const replies: FakeReply[] = [];
   let index = 0;
-  for (let round = 1; round <= MAX_ROUNDS; round++) {
+  for (let round = 1; round <= DEFAULT_REVIEW_BUDGET.maxRounds; round++) {
     for (let phaseIndex = 0; phaseIndex < PHASE_COUNT; phaseIndex++) {
       const text = phaseIndex === 5 ? verdicts : phaseText(phaseIndex);
       replies.push(textReply(text, index));
       index += 1;
     }
   }
-  const { run } = scriptedLoop(replies);
+  // 请求预算放宽到「5 轮 × 6 阶段」以隔离轮次上界：#55 起缺省 maxRequests=24
+  // 会先于 5 轮上界收口（见 review-run-budget.test.ts 的缺省请求预算用例）。
+  const { run } = scriptedLoop(replies, INITIAL, {
+    maxRequests: DEFAULT_REVIEW_BUDGET.maxRounds * PHASE_COUNT,
+  });
   const outcome = await run();
 
   expect(outcome.complete).toBe(false);
-  expect(outcome.rounds).toBe(MAX_ROUNDS);
+  expect(outcome.rounds).toBe(DEFAULT_REVIEW_BUDGET.maxRounds);
   expect(outcome.audit.truncated).toBe(true);
   expect(outcome.audit.truncationReasons).toEqual([TRUNCATION_MAX_ROUNDS]);
-  expect(outcome.audit.requests).toHaveLength(MAX_ROUNDS * PHASE_COUNT);
-  expect(outcome.audit.phaseLog).toHaveLength(MAX_ROUNDS * PHASE_COUNT);
+  expect(outcome.audit.requests).toHaveLength(DEFAULT_REVIEW_BUDGET.maxRounds * PHASE_COUNT);
+  expect(outcome.audit.phaseLog).toHaveLength(DEFAULT_REVIEW_BUDGET.maxRounds * PHASE_COUNT);
   // 每轮各产出 1 条 finding（同 id 跨轮去重：首轮后 DUPLICATE_ID 拒绝）
   expect(outcome.findings).toHaveLength(1);
-  expect(outcome.audit.rejections).toHaveLength(MAX_ROUNDS - 1);
+  expect(outcome.audit.rejections).toHaveLength(DEFAULT_REVIEW_BUDGET.maxRounds - 1);
   expect(outcome.audit.rejections.every((entry) => entry.stage === "DUPLICATE_ID")).toBe(true);
 });
 
@@ -335,4 +353,43 @@ test("provider 错误（stopReason error）：显式抛错，不静默成成功 
       expect((error as Error).message).toMatch(/review turn failed/i);
     },
   );
+});
+
+test("单语料 profile：run 内固定 core-5+rule / core-5+history，审计 derived", async () => {
+  const cases: readonly {
+    knowledge: KnowledgeCorpus;
+    expected: "core-5+rule" | "core-5+history";
+    included: string;
+    excluded: string;
+  }[] = [
+    {
+      knowledge: { rules: [{ id: "R-1", title: "Rule", text: "rule body" }] },
+      expected: "core-5+rule",
+      included: "review.search_rule",
+      excluded: "review.search_history",
+    },
+    {
+      knowledge: { history: [{ id: "H-1", title: "History", text: "history body" }] },
+      expected: "core-5+history",
+      included: "review.search_history",
+      excluded: "review.search_rule",
+    },
+  ];
+
+  for (const item of cases) {
+    const toolkit = buildReviewToolkit({
+      repoPath: repoFixturePath("sample"),
+      diff: DIFF,
+      knowledge: item.knowledge,
+    });
+    const outcome = await scriptedLoop(singleRoundScript(), INITIAL, undefined, toolkit).run();
+    expect(outcome.audit.toolProfile).toBe(item.expected);
+    expect(outcome.audit.toolProfileSource).toBe("derived");
+    for (const request of outcome.audit.requests) {
+      const names = request.tools.map((tool) => tool.name);
+      expect(names).toHaveLength(6);
+      expect(names).toContain(item.included);
+      expect(names).not.toContain(item.excluded);
+    }
+  }
 });

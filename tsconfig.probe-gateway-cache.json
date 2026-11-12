@@ -1,0 +1,16 @@
+{
+  // 网关缓存主动探针编译程序（#58）：入口 scripts/probe-gateway-cache.ts。
+  // 只编入口 + import 闭包；产物 .tmp-gen/scripts/probe-gateway-cache.js。
+  // 手动 runbook 专用：不进 CI、不进产品 bin（见 docs/runbooks/cache-contract-probe.md）。
+  // 运行时经 node_modules 解析 review-pi dist；探针前先 pnpm --filter review-pi build。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": ".tmp-gen"
+  },
+  "files": ["scripts/probe-gateway-cache.ts"],
+  "include": [],
+  "exclude": ["node_modules", "dist", ".tmp-gen"]
+}

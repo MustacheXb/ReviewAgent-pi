@@ -1,4 +1,6 @@
 import type { ToolSchema } from "../contracts/llm.js";
+import type { KnowledgeCorpus } from "../contracts/knowledge.js";
+import type { ToolProfile } from "../contracts/tool-profile.js";
 
 // 七个 review.* 工具注册表（#6 P3a）：schema 字节一致口径的唯一真源。
 // 与 DSH 线语义等价的契约面：
@@ -25,6 +27,58 @@ export const REVIEW_TOOL_ORDER = [
 ] as const;
 
 export type ReviewToolName = (typeof REVIEW_TOOL_ORDER)[number];
+
+/** 知识检索工具（profile 的可选增补项；其余为 core-5） */
+const SEARCH_TOOL_NAMES: ReadonlySet<ReviewToolName> = new Set([
+  "review.search_rule",
+  "review.search_history",
+]);
+
+/** core-5：注册表序中除知识检索工具外的固定五工具 */
+const CORE_TOOL_NAMES: readonly ReviewToolName[] = REVIEW_TOOL_ORDER.filter(
+  (name) => !SEARCH_TOOL_NAMES.has(name),
+);
+
+/**
+ * Tool Profile → 工具名序（#52 / ADR-0018 §3）。
+ * 恒为注册表序的子序列：core-5 为基础，按语料增补检索工具。
+ */
+export function toolNamesForProfile(profile: ToolProfile): readonly ReviewToolName[] {
+  switch (profile) {
+    case "core-5":
+      return CORE_TOOL_NAMES;
+    case "core-5+rule":
+      return REVIEW_TOOL_ORDER.filter((name) => name !== "review.search_history");
+    case "core-5+history":
+      return REVIEW_TOOL_ORDER.filter((name) => name !== "review.search_rule");
+    case "extended-7":
+      return REVIEW_TOOL_ORDER;
+    default:
+      throw new Error(`unknown tool profile: ${JSON.stringify(profile)}`);
+  }
+}
+
+/** 知识语料 → Tool Profile（run 内固定；生产不注入语料 = core-5） */
+export function deriveToolProfile(knowledge?: KnowledgeCorpus): ToolProfile {
+  const hasRules = (knowledge?.rules?.length ?? 0) > 0;
+  const hasHistory = (knowledge?.history?.length ?? 0) > 0;
+  if (hasRules && hasHistory) {
+    return "extended-7";
+  }
+  if (hasRules) {
+    return "core-5+rule";
+  }
+  if (hasHistory) {
+    return "core-5+history";
+  }
+  return "core-5";
+}
+
+/** 注册表投影：按 profile 过滤完整 schema 集（单工具字节不变、顺序不变） */
+export function reviewToolSchemasForProfile(profile: ToolProfile): readonly ToolSchema[] {
+  const allowed = new Set<string>(toolNamesForProfile(profile));
+  return reviewToolSchemas().filter((schema) => allowed.has(schema.name));
+}
 
 /** 点分名（审计口径）→ 下划线名（pi-ai Tool.name / wire function.name 直达） */
 export function toWireToolName(name: string): string {

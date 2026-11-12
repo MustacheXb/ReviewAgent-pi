@@ -13,16 +13,34 @@ import { enclosingLabel, findReferenceSites } from "./reference-sites.js";
  * - Callee hop 1：变更方法体内（base 版本）的名字级调用点。
  */
 
+/** 单个方法声明的调用链分段（工具层排序截断按段选择；#57） */
+export interface CallChainSection {
+  /** 声明头：限定名 - 种类 at 文件:行 */
+  readonly header: string;
+  readonly hop1: readonly string[];
+  readonly hop2: readonly string[];
+  readonly callees: readonly string[];
+}
+
 export async function buildCallChainBlocks(
   repo: RepoContext,
   methodRefs: readonly ChangedSymbolRef[],
 ): Promise<readonly (readonly string[])[]> {
+  const sections = await buildCallChainSections(repo, methodRefs);
+  return sections.map((section) => [section.header, ...section.hop1, ...section.hop2, ...section.callees]);
+}
+
+/** 结构化分段（get_call_chain 截断时按 hop 优先级整段选择） */
+export async function buildCallChainSections(
+  repo: RepoContext,
+  methodRefs: readonly ChangedSymbolRef[],
+): Promise<readonly CallChainSection[]> {
   const sitesByName = new Map<string, readonly ReferenceSite[]>();
-  const blocks: (readonly string[])[] = [];
+  const sections: CallChainSection[] = [];
   for (const ref of methodRefs) {
-    blocks.push(await buildChainForMethod(repo, ref, (name) => loadSites(repo, sitesByName, name)));
+    sections.push(await buildChainForMethod(repo, ref, (name) => loadSites(repo, sitesByName, name)));
   }
-  return blocks;
+  return sections;
 }
 
 async function loadSites(
@@ -43,7 +61,7 @@ async function buildChainForMethod(
   repo: RepoContext,
   ref: ChangedSymbolRef,
   sitesOf: (name: string) => Promise<readonly ReferenceSite[]>,
-): Promise<readonly string[]> {
+): Promise<CallChainSection> {
   const header = `${qualifiedName(ref)} - ${ref.symbol.kind} at ${ref.file}:${ref.symbol.line}`;
   const sites = await sitesOf(ref.symbol.name);
   const callSites = sites.filter((site) => !site.isDeclaration);
@@ -67,7 +85,7 @@ async function buildChainForMethod(
   const callees = await calleesOf(repo, ref);
   const calleeLines = ["  Callees (hop 1):", ...renderEntries(callees)];
 
-  return [header, ...hop1, ...hop2, ...calleeLines];
+  return { header, hop1, hop2, callees: calleeLines };
 }
 
 /** 引用点 → 展示条目：限定名 - 文件:行 */

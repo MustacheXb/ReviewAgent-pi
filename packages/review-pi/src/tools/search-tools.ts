@@ -1,14 +1,20 @@
 import type { ChangedSymbolRef } from "../zoneb/changed-symbols.js";
 import { qualifiedName } from "../zoneb/changed-symbols.js";
-import { buildCallChainBlocks } from "../zoneb/call-chain.js";
+import { buildCallChainSections } from "../zoneb/call-chain.js";
 import type { ReferenceSite } from "../zoneb/reference-sites.js";
 import { enclosingLabel, findReferenceSites } from "../zoneb/reference-sites.js";
 import type { RepoContext } from "../zoneb/repo-context.js";
 import type { JavaSymbol } from "../zoneb/symbols.js";
+import type { LedgerDelivery } from "../contracts/ledger.js";
 import type { KnowledgeEntry } from "../contracts/knowledge.js";
 import { boundedEcho, requireStringArg } from "./args.js";
-import { readThroughLedger } from "./ledger.js";
-import { applyLineBudget } from "./result-budget.js";
+import {
+  completeWholeResultDelivery,
+  readThroughLedger,
+  wholeResultDelivery,
+  wholeResultRequest,
+} from "./ledger.js";
+import { applyRankedBudget, standardTruncationNotice } from "./result-budget.js";
 import type { ReviewToolHandler } from "./toolkit-types.js";
 
 /**
@@ -17,7 +23,7 @@ import type { ReviewToolHandler } from "./toolkit-types.js";
  * - review.find_references：ripgrep 名字级全词引用匹配（词法天花板为已知限制，
  *   重载/override 误报可接受——实验内各配置共享同一精度）；
  * - review.get_call_chain：1~2 层名字级引用链（复用 config B 固定管线的
- *   buildCallChainBlocks，不越界实现）；
+ *   buildCallChainSections，不越界实现；#57 截断按 hop 段选择）；
  * - review.search_rule / review.search_history：C3 Knowledge 语料的
  *   大小写不敏感子串文本检索（语料静态注入，默认空）。
  *
@@ -29,32 +35,43 @@ import type { ReviewToolHandler } from "./toolkit-types.js";
 
 export const findReferencesTool: ReviewToolHandler = async (args, context): Promise<string> => {
   const name = requireStringArg("review.find_references", args, "symbol");
-  return readThroughLedger(context.ledger, "symbol", `review.find_references "${name}"`, async () => {
-    const repo = await context.repo();
-    const sites = await searchReferenceSites("review.find_references", repo, name);
-    return renderReferenceSites(sites, name, context.resultBudgetChars);
-  });
+  return readThroughLedger(
+    context.ledger,
+    wholeResultRequest("symbol", `review.find_references "${name}"`),
+    async () => {
+      const repo = await context.repo();
+      const sites = await searchReferenceSites("review.find_references", repo, name);
+      return renderReferenceSites(sites, name, context.resultBudgetChars);
+    },
+  );
 };
 
 export const getCallChainTool: ReviewToolHandler = async (args, context): Promise<string> => {
   const name = requireStringArg("review.get_call_chain", args, "symbol");
-  return readThroughLedger(context.ledger, "symbol", `review.get_call_chain "${name}"`, async () => {
-    const repo = await context.repo();
-    return renderCallChain(repo, name, context.resultBudgetChars);
-  });
+  return readThroughLedger(
+    context.ledger,
+    wholeResultRequest("symbol", `review.get_call_chain "${name}"`),
+    async () => {
+      const repo = await context.repo();
+      return renderCallChain(repo, name, context.resultBudgetChars);
+    },
+  );
 };
 
 export const searchRuleTool: ReviewToolHandler = async (args, context): Promise<string> => {
   const query = requireStringArg("review.search_rule", args, "query");
-  return readThroughLedger(context.ledger, "evidence", `review.search_rule "${query}"`, async () =>
-    renderKnowledgeSearch({
-      label: "Rule",
-      corpusLabel: "rule",
-      unit: "rule(s)",
-      entries: context.rules,
-      query,
-      budgetChars: context.resultBudgetChars,
-    }),
+  return readThroughLedger(
+    context.ledger,
+    wholeResultRequest("evidence", `review.search_rule "${query}"`),
+    async () =>
+      renderKnowledgeSearch({
+        label: "Rule",
+        corpusLabel: "rule",
+        unit: "rule(s)",
+        entries: context.rules,
+        query,
+        budgetChars: context.resultBudgetChars,
+      }),
   );
 };
 
@@ -62,8 +79,7 @@ export const searchHistoryTool: ReviewToolHandler = async (args, context): Promi
   const query = requireStringArg("review.search_history", args, "query");
   return readThroughLedger(
     context.ledger,
-    "evidence",
-    `review.search_history "${query}"`,
+    wholeResultRequest("evidence", `review.search_history "${query}"`),
     async () =>
       renderKnowledgeSearch({
         label: "History",
@@ -76,47 +92,60 @@ export const searchHistoryTool: ReviewToolHandler = async (args, context): Promi
   );
 };
 
-/** find_references 的结果渲染 */
+/** find_references 的结果渲染（#57：截断时声明优先，其后按原文件/行序） */
 function renderReferenceSites(
   sites: readonly ReferenceSite[],
   name: string,
   budgetChars: number,
-): string {
+): LedgerDelivery {
   const filesWithMatches = new Set(sites.map((site) => site.file)).size;
   const header = `References to "${name}" (name-level whole-word match, no type resolution): ${sites.length} match(es) across ${filesWithMatches} file(s)`;
   if (sites.length === 0) {
-    return header;
+    return completeWholeResultDelivery(header);
   }
-  const lines = sites.flatMap((site) => [
-    `  ${site.file}:${site.line} [${site.isDeclaration ? "declaration" : "usage"}] ${enclosingLabel(site.enclosing)}`,
-    `      ${site.text.trim()}`,
-  ]);
-  const budget = applyLineBudget(
-    [header, ...lines],
-    budgetChars,
-    (shown, total) =>
-      `Tool result truncated: showing ${shown} of ${total} result lines (tool result budget ${budgetChars} chars exceeded).`,
+  const items = sites.map((site) => ({
+    // 声明优先；平局保持引用点的原有顺序（文件 / 行）
+    rank: [site.isDeclaration ? 0 : 1],
+    lines: [
+      `  ${site.file}:${site.line} [${site.isDeclaration ? "declaration" : "usage"}] ${enclosingLabel(site.enclosing)}`,
+      `      ${site.text.trim()}`,
+    ],
+  }));
+  const budget = applyRankedBudget([header], items, budgetChars, (shown, total) =>
+    standardTruncationNotice(shown, total, budgetChars),
   );
-  return budget.lines.join("\n");
+  return wholeResultDelivery(budget.lines.join("\n"), budget);
 }
 
 /** get_call_chain 的结果渲染 */
-async function renderCallChain(repo: RepoContext, name: string, budgetChars: number): Promise<string> {
+async function renderCallChain(
+  repo: RepoContext,
+  name: string,
+  budgetChars: number,
+): Promise<LedgerDelivery> {
   const refs = await findMethodRefs(repo, name);
   const header = `Call chain for "${name}" (name-level, up to 2 hops, no type resolution): ${refs.length} method declaration(s) matched`;
   if (refs.length === 0) {
-    return `Call chain for "${name}" (name-level, up to 2 hops, no type resolution): no method or constructor named "${name}" found across ${repo.javaFiles.length} Java file(s)`;
+    return completeWholeResultDelivery(
+      `Call chain for "${name}" (name-level, up to 2 hops, no type resolution): no method or constructor named "${name}" found across ${repo.javaFiles.length} Java file(s)`,
+    );
   }
-  const blocks = await buildCallChainBlocks(repo, refs).catch((error: unknown) => {
+  const sections = await buildCallChainSections(repo, refs).catch((error: unknown) => {
     throw new Error(`review.get_call_chain: ${errorMessage(error)}`, { cause: error });
   });
-  const budget = applyLineBudget(
-    [header, "", ...blocks.flatMap((block) => [...block, ""])],
-    budgetChars,
-    (shown, total) =>
-      `Tool result truncated: showing ${shown} of ${total} result lines (tool result budget ${budgetChars} chars exceeded).`,
+  // #57 相关性：hop 1 > hop 2 > callee；平局按块的限定名 / 文件 / 行原序
+  const items = sections.flatMap((section, blockIndex) => {
+    const group = { id: `chain#${blockIndex}`, header: ["", section.header] };
+    return [
+      { rank: [1, blockIndex], group, lines: section.hop1 },
+      { rank: [2, blockIndex], group, lines: section.hop2 },
+      { rank: [3, blockIndex], group, lines: section.callees },
+    ];
+  });
+  const budget = applyRankedBudget([header], items, budgetChars, (shown, total) =>
+    standardTruncationNotice(shown, total, budgetChars),
   );
-  return budget.lines.join("\n").trimEnd();
+  return wholeResultDelivery(budget.lines.join("\n"), budget);
 }
 
 /** findReferenceSites 的工具边界包装：错误带工具名前缀（有界失败，可归因到工具） */
@@ -187,29 +216,32 @@ interface KnowledgeSearchInput {
 /** query 回显上限（自由文本输入，防止超长 query 侵占结果预算） */
 const QUERY_ECHO_MAX_CHARS = 120;
 
-function renderKnowledgeSearch(input: KnowledgeSearchInput): string {
+function renderKnowledgeSearch(input: KnowledgeSearchInput): LedgerDelivery {
   const header = `${input.label} search "${boundedEcho(input.query, QUERY_ECHO_MAX_CHARS)}" (case-insensitive substring):`;
   if (input.entries.length === 0) {
-    return `${header} ${input.corpusLabel} corpus is empty (0 entries configured for this run)`;
+    return completeWholeResultDelivery(
+      `${header} ${input.corpusLabel} corpus is empty (0 entries configured for this run)`,
+    );
   }
   const needle = input.query.toLowerCase();
   const matches = input.entries.filter(
     (entry) => entry.title.toLowerCase().includes(needle) || entry.text.toLowerCase().includes(needle),
   );
   if (matches.length === 0) {
-    return `${header} 0 of ${input.entries.length} ${input.unit} matched`;
+    return completeWholeResultDelivery(
+      `${header} 0 of ${input.entries.length} ${input.unit} matched`,
+    );
   }
-  const lines = [
-    `${header} ${matches.length} of ${input.entries.length} ${input.unit} matched`,
-    ...matches.flatMap(renderKnowledgeEntry),
-  ];
-  const budget = applyLineBudget(
-    lines,
-    input.budgetChars,
-    (shown, total) =>
-      `Tool result truncated: showing ${shown} of ${total} result lines (tool result budget ${input.budgetChars} chars exceeded).`,
+  const items = matches.map((entry) => ({
+    // 标题命中优先于正文命中；平局保持语料原序
+    rank: [entry.title.toLowerCase().includes(needle) ? 0 : 1],
+    lines: renderKnowledgeEntry(entry),
+  }));
+  const summary = `${header} ${matches.length} of ${input.entries.length} ${input.unit} matched`;
+  const budget = applyRankedBudget([summary], items, input.budgetChars, (shown, total) =>
+    standardTruncationNotice(shown, total, input.budgetChars),
   );
-  return budget.lines.join("\n");
+  return wholeResultDelivery(budget.lines.join("\n"), budget);
 }
 
 /** 单条语料条目渲染："[id] title" + 缩进正文行（多行正文逐行缩进） */

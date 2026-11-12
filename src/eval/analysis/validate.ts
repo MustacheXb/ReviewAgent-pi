@@ -31,6 +31,9 @@ export function validateAnalysisInput(input: unknown): asserts input is Analysis
   if (input.toolCost !== undefined) {
     validateToolCost(input.toolCost);
   }
+  if (input.priceTable !== undefined) {
+    validatePriceTable(input.priceTable);
+  }
   const seen = new Set<string>();
   const truthKindByCase = new Map<string, string>();
   for (const run of input.runs) {
@@ -60,6 +63,18 @@ export function validateAnalysisInput(input: unknown): asserts input is Analysis
     truthKindByCase.set(caseId, kind);
     validateTruth(run.truth, where);
     validateJudge(run.judgeCounts, where);
+    validateOptionalCost(run.retryCostTokens, "retryCostTokens", where);
+    validateOptionalCost(run.summaryCostTokens, "summaryCostTokens", where);
+    validateWireBodies(run.wireBodies, where);
+  }
+}
+
+function validateWireBodies(value: unknown, where: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value) || value.some((body) => typeof body !== "string")) {
+    throw new Error(`${where}: field "wireBodies" must be an array of strings when provided`);
   }
 }
 
@@ -189,6 +204,33 @@ function validateToolCost(toolCost: unknown): void {
   }
   requireNonNegativeNumber(toolCost.fixedCostPerCall, "toolCost.fixedCostPerCall");
   requireNonNegativeNumber(toolCost.costPerResultChar, "toolCost.costPerResultChar");
+}
+
+function validatePriceTable(priceTable: unknown): void {
+  if (!isRecord(priceTable)) {
+    throw new Error('analysis input: field "priceTable" must be an AnalysisPriceTable object');
+  }
+  requireNonEmptyString(priceTable.currency, "currency", "analysis input priceTable");
+  requireNonEmptyString(priceTable.priceValidFrom, "priceValidFrom", "analysis input priceTable");
+  for (const field of [
+    "cacheHitPrice",
+    "cacheMissPrice",
+    "outputPrice",
+  ] as const) {
+    requireNonNegativeNumber(priceTable[field], `priceTable.${field}`);
+  }
+  if (priceTable.cacheWritePrice !== undefined) {
+    requireNonNegativeNumber(priceTable.cacheWritePrice, "priceTable.cacheWritePrice");
+  }
+}
+
+function validateOptionalCost(value: unknown, field: string, where: string): void {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${where}: field "${field}" must be null or a non-negative finite number`);
+  }
 }
 
 function requireRecord(value: unknown, field: string, where: string): Record<string, unknown> {

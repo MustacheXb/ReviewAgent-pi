@@ -1,6 +1,13 @@
+import type { LedgerDelivery } from "../contracts/ledger.js";
 import type { ReviewToolHandler, ToolRunContext } from "./toolkit-types.js";
-import { readThroughLedger } from "./ledger.js";
-import { applyLineBudget } from "./result-budget.js";
+import {
+  completeWholeResultDelivery,
+  readThroughLedger,
+  wholeResultDelivery,
+  wholeResultRequest,
+} from "./ledger.js";
+import { applyRankedBudget, standardTruncationNotice } from "./result-budget.js";
+import type { RankedBudgetItem } from "./result-budget.js";
 import { requireStringArg } from "./args.js";
 import type { JavaSymbol } from "../zoneb/symbols.js";
 import { formatSymbolSignature } from "../zoneb/symbols.js";
@@ -21,18 +28,18 @@ export const getSymbolTool: ReviewToolHandler = async (args, context): Promise<s
   const name = requireStringArg("review.get_symbol", args, "symbol");
   return readThroughLedger(
     context.ledger,
-    "symbol",
-    `review.get_symbol "${name}"`,
+    wholeResultRequest("symbol", `review.get_symbol "${name}"`),
     async () => renderSymbolLookup(name, context),
   );
 };
 
 /** 真实读取路径：全仓符号索引扫描 + 签名渲染（含零命中显式留痕） */
-async function renderSymbolLookup(name: string, context: ToolRunContext): Promise<string> {
+async function renderSymbolLookup(name: string, context: ToolRunContext): Promise<LedgerDelivery> {
   const repo = await context.repo();
-  const lines: string[] = [];
+  const header: string[] = [];
   let matchCount = 0;
   let parseErrorFiles = 0;
+  const items: RankedBudgetItem[] = [];
 
   for (const file of repo.javaFiles) {
     const index = await repo.symbolIndex(file).catch((error: unknown) => {
@@ -51,30 +58,49 @@ async function renderSymbolLookup(name: string, context: ToolRunContext): Promis
     }
     matchCount += matches.length;
     const packageName = index.packageName.length > 0 ? index.packageName : "(default package)";
-    lines.push(`${file} (package ${packageName})`);
+    const group = {
+      id: file,
+      header: [`${file} (package ${packageName})`],
+    };
     for (const match of matches) {
-      lines.push(...renderSymbolLines(match, 1));
+      items.push({
+        // #57 相关性：精确名命中中类型声明 > 方法/构造器 > 字段；平局保持文件/行原序
+        rank: [symbolPriority(match)],
+        group,
+        lines: renderSymbolLines(match, 1),
+      });
     }
   }
 
-  const header = [
-    `Symbol "${name}": ${matchCount} match(es) across ${repo.javaFiles.length} Java file(s)`,
-  ];
+  header.push(`Symbol "${name}": ${matchCount} match(es) across ${repo.javaFiles.length} Java file(s)`);
   if (parseErrorFiles > 0) {
     header.push(
       `Note: ${parseErrorFiles} file(s) with matching symbols contain parse errors; signatures may be incomplete.`,
     );
   }
   if (matchCount === 0) {
-    return header.join("\n");
+    return completeWholeResultDelivery(header.join("\n"));
   }
-  const budget = applyLineBudget(
-    [...header, ...lines],
-    context.resultBudgetChars,
-    (shown, total) =>
-      `Tool result truncated: showing ${shown} of ${total} result lines (tool result budget ${context.resultBudgetChars} chars exceeded).`,
+  const budget = applyRankedBudget(header, items, context.resultBudgetChars, (shown, total) =>
+    standardTruncationNotice(shown, total, context.resultBudgetChars),
   );
-  return budget.lines.join("\n");
+  return wholeResultDelivery(budget.lines.join("\n"), budget);
+}
+
+/** 符号优先级（越小越优先）：类型声明 > 方法/构造器 > 字段 / 枚举常量 */
+function symbolPriority(symbol: JavaSymbol): number {
+  switch (symbol.kind) {
+    case "class":
+    case "interface":
+    case "enum":
+    case "record":
+      return 0;
+    case "method":
+    case "constructor":
+      return 1;
+    default:
+      return 2;
+  }
 }
 
 /** 递归收集名字命中的符号（文档顺序） */

@@ -30,6 +30,9 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
       totalTokens: 1100,
       cacheHitRate: 0.6,
       toolCostTokens: 0,
+      retryCostTokens: null,
+      summaryCostTokens: null,
+      currencyCost: null,
       carc: 500,
     });
   });
@@ -55,6 +58,9 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
       totalTokens: null,
       cacheHitRate: null,
       toolCostTokens: 0,
+      retryCostTokens: null,
+      summaryCostTokens: null,
+      currencyCost: null,
       carc: 18850,
     });
   });
@@ -86,6 +92,375 @@ describe("analyzeRuns: 四行 token 记账（cached / uncached / output / CARC�
 
     expect(report.runs[0]?.cost.toolCostTokens).toBe(7);
     expect(report.runs[0]?.cost.carc).toBe(117);
+  });
+  it("retry / summary 成本缺省为 null（N/A）；提供时独立报告，不改变 CARC", () => {
+    const base = {
+      record: record({
+        baseline: snapshot({ usage: { inputTokens: 100, outputTokens: 10 } }),
+      }),
+    };
+
+    const missing = analyzeRuns({ runs: [base] });
+    expect(missing.runs[0]?.cost.retryCostTokens).toBeNull();
+    expect(missing.runs[0]?.cost.summaryCostTokens).toBeNull();
+    expect(missing.runs[0]?.cost.carc).toBe(110);
+
+    const provided = analyzeRuns({
+      runs: [{ ...base, retryCostTokens: 7, summaryCostTokens: 3 }],
+    });
+    expect(provided.runs[0]?.cost.retryCostTokens).toBe(7);
+    expect(provided.runs[0]?.cost.summaryCostTokens).toBe(3);
+    expect(provided.runs[0]?.cost.carc).toBe(110);
+  });
+
+  it("skippedToolCalls = attempted − executed（历史记录缺字段仍可读，不为负）", () => {
+    const report = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({
+              usage: { inputTokens: 1, outputTokens: 1 },
+              toolCalls: 2,
+              audit: {
+                toolCallLog: [
+                  { name: "review.get_file", argumentsJson: "{}", resultSummary: "a" },
+                  { name: "review.get_file", argumentsJson: "{}", resultSummary: "b" },
+                  { name: "review.get_file", argumentsJson: "{}", resultSummary: "budget" },
+                ],
+                phaseLog: [],
+                rejections: [],
+                truncated: false,
+                truncationReasons: [],
+              },
+            }),
+          }),
+        },
+      ],
+    });
+
+    expect(report.runs[0]?.loop.skippedToolCalls).toBe(1);
+    expect(report.summary.loop.skippedToolCalls).toEqual({ count: 1, mean: 1, std: 0 });
+  });
+
+  it("缺价目表时 currency / priceValidFrom 为 null；提供时回显", () => {
+    const runs = [{ record: record() }];
+
+    const missing = analyzeRuns({ runs });
+    expect(missing.currency).toBeNull();
+    expect(missing.priceValidFrom).toBeNull();
+
+    const priced = analyzeRuns({
+      runs,
+      priceTable: {
+        currency: "CNY",
+        priceValidFrom: "2026-11-01T00:00:00Z",
+        cacheHitPrice: 0.1,
+        cacheMissPrice: 1,
+        outputPrice: 2,
+      },
+    });
+    expect(priced.currency).toBe("CNY");
+    expect(priced.priceValidFrom).toBe("2026-11-01T00:00:00Z");
+  });
+
+  it("提供价目时输出货币成本；缺价目 / 缺缓存计量 → currencyCost 为 null", () => {
+    const usage = {
+      inputTokens: 1_000,
+      outputTokens: 500,
+      cacheReadTokens: 2_000,
+      cacheWriteTokens: 100,
+    };
+    const priceTable = {
+      currency: "USD",
+      priceValidFrom: "2026-11-01T00:00:00Z",
+      cacheHitPrice: 0.1,
+      cacheMissPrice: 1,
+      cacheWritePrice: 0.5,
+      outputPrice: 2,
+    } as const;
+    const priced = analyzeRuns({
+      runs: [{ record: record({ baseline: snapshot({ usage }) }) }],
+      priceTable,
+    });
+    // 1000×1 + 2000×0.1 + 100×0.5 + 500×2
+    expect(priced.runs[0]?.cost.currencyCost).toBe(2_250);
+    expect(priced.summary.cost.currencyCost).toEqual({ count: 1, mean: 2_250, std: 0 });
+
+    const unpriced = analyzeRuns({ runs: [{ record: record({ baseline: snapshot({ usage }) }) }] });
+    expect(unpriced.runs[0]?.cost.currencyCost).toBeNull();
+    expect(unpriced.summary.cost.currencyCost).toBeNull();
+
+    // 缺 cacheReadTokens（缓存计量未知）→ 无法拆分计价，记 null 而非按 0
+    const noCacheUsage = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({ usage: { inputTokens: 10, outputTokens: 2 } }),
+          }),
+        },
+      ],
+      priceTable,
+    });
+    expect(noCacheUsage.runs[0]?.cost.currencyCost).toBeNull();
+
+    // 提供写价但写量未上报（缺字段）→ 无法计价，不按 0 假设
+    const unknownWrites = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({ usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 5 } }),
+          }),
+        },
+      ],
+      priceTable,
+    });
+    expect(unknownWrites.runs[0]?.cost.currencyCost).toBeNull();
+  });
+
+  it("cacheWriteTokens > 0 但价目缺 cacheWritePrice → currencyCost 为 null（不按固定折扣假设）", () => {
+    const report = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({
+              usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 50, cacheWriteTokens: 5 },
+            }),
+          }),
+        },
+      ],
+      priceTable: {
+        currency: "USD",
+        priceValidFrom: "2026-11-01T00:00:00Z",
+        cacheHitPrice: 0.1,
+        cacheMissPrice: 1,
+        outputPrice: 2,
+      },
+    });
+    expect(report.runs[0]?.cost.currencyCost).toBeNull();
+  });
+
+  it("cacheContract 有则进报告、缺则省键", () => {
+    const contract = {
+      provider: "deepseek",
+      endpointKind: "chat-completions" as const,
+      requestedModel: "deepseek-v4-flash",
+      respondedModel: "deepseek-v4-flash",
+      deploymentVersion: "unknown",
+      usageFieldFamily: "deepseek-native" as const,
+      cacheMetering: true as const,
+      cacheBlockTokens: "unknown" as const,
+      cacheWarmupMs: "unknown" as const,
+      providerAffinityRequired: "unknown" as const,
+      measuredAt: "2026-11-12T00:00:00.000Z",
+    };
+    const withContract = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({
+              audit: {
+                toolCallLog: [],
+                phaseLog: [],
+                rejections: [],
+                truncated: false,
+                truncationReasons: [],
+                cacheContract: contract,
+              },
+            }),
+          }),
+        },
+      ],
+    });
+    expect(withContract.runs[0]?.cacheContract).toEqual(contract);
+
+    // 提供静态价目表时，报告层把价目三元组 / 币种 / 生效时间附加到合同
+    const priceTable = {
+      currency: "USD",
+      priceValidFrom: "2026-11-01T00:00:00Z",
+      cacheHitPrice: 0.1,
+      cacheMissPrice: 1,
+      cacheWritePrice: 0.5,
+      outputPrice: 2,
+    } as const;
+    const priced = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({
+              audit: {
+                toolCallLog: [],
+                phaseLog: [],
+                rejections: [],
+                truncated: false,
+                truncationReasons: [],
+                cacheContract: contract,
+              },
+            }),
+          }),
+        },
+      ],
+      priceTable,
+    });
+    expect(priced.runs[0]?.cacheContract).toMatchObject({
+      ...contract,
+      cacheHitPrice: 0.1,
+      cacheMissPrice: 1,
+      cacheWritePrice: 0.5,
+      currency: "USD",
+      priceValidFrom: "2026-11-01T00:00:00Z",
+    });
+
+    const without = analyzeRuns({ runs: [{ record: record() }] });
+    expect("cacheContract" in (without.runs[0] ?? {})).toBe(false);
+  });
+
+  it("retryCostTokens：从 audit.retry 失败尝试 usage 派生；缺失记 null；显式输入优先", () => {
+    const retry = {
+      retries: 1,
+      failedAttempts: 2,
+      exhausted: false,
+      records: [
+        {
+          request: 1,
+          attempt: 1,
+          reason: "network" as const,
+          delayMs: 500,
+          retried: true,
+          usage: { inputTokens: 80, outputTokens: 5, cacheReadTokens: 20 },
+        },
+        {
+          request: 1,
+          attempt: 2,
+          reason: "http_5xx" as const,
+          status: 500,
+          delayMs: 0,
+          retried: false,
+          usage: { inputTokens: 10, outputTokens: 1 },
+        },
+      ],
+    };
+    const retried = record({
+      baseline: snapshot({
+        audit: {
+          toolCallLog: [],
+          phaseLog: [],
+          rejections: [],
+          truncated: false,
+          truncationReasons: [],
+          retry,
+        },
+      }),
+    });
+    const report = analyzeRuns({ runs: [{ record: retried }] });
+    // 80+5+20 + 10+1 = 116
+    expect(report.runs[0]?.cost.retryCostTokens).toBe(116);
+    expect(report.summary.cost.retryCostTokens).toEqual({ count: 1, mean: 116, std: 0 });
+
+    // 失败尝试 usage 缺失 → null（不按已知部分冒充完整成本）
+    const missingUsage = record({
+      baseline: snapshot({
+        audit: {
+          toolCallLog: [],
+          phaseLog: [],
+          rejections: [],
+          truncated: false,
+          truncationReasons: [],
+          retry: {
+            ...retry,
+            records: [
+              { request: 1, attempt: 1, reason: "network", delayMs: 500, retried: true },
+            ],
+          },
+        },
+      }),
+    });
+    expect(analyzeRuns({ runs: [{ record: missingUsage }] }).runs[0]?.cost.retryCostTokens).toBeNull();
+
+    // 历史记录无 retry 键 → null（N/A）
+    expect(analyzeRuns({ runs: [{ record: record() }] }).runs[0]?.cost.retryCostTokens).toBeNull();
+
+    // 显式输入优先（评测线可注入已复算成本）
+    const overridden = analyzeRuns({ runs: [{ record: retried, retryCostTokens: 7 }] });
+    expect(overridden.runs[0]?.cost.retryCostTokens).toBe(7);
+  });
+
+  it("wireBodies → reusablePrefix（估算标注 + actual / gap）；缺省省键", () => {
+    const base = "x".repeat(8);
+    const withBodies = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({
+              usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 5 },
+            }),
+          }),
+          wireBodies: [base, `${base}y`],
+        },
+      ],
+    });
+    expect(withBodies.runs[0]?.reusablePrefix).toEqual({
+      estimated: true,
+      estimateMethod: "chars/4",
+      requestCount: 2,
+      pairCount: 1,
+      predictedReusableTokens: 2,
+      actualCacheReadTokens: 5,
+      gap: 3,
+    });
+
+    const without = analyzeRuns({ runs: [{ record: record() }] });
+    expect("reusablePrefix" in (without.runs[0] ?? {})).toBe(false);
+
+    // 缺 cacheRead（历史记录）→ actual / gap 为 null，predicted 仍可算
+    const noActual = analyzeRuns({
+      runs: [
+        {
+          record: record({
+            baseline: snapshot({ usage: { inputTokens: 100, outputTokens: 10 } }),
+          }),
+          wireBodies: [base, `${base}y`],
+        },
+      ],
+    });
+    expect(noActual.runs[0]?.reusablePrefix).toMatchObject({
+      predictedReusableTokens: 2,
+      actualCacheReadTokens: null,
+      gap: null,
+    });
+  });
+
+  it("wireBodies 形态非法时 fail fast", () => {
+    const input = {
+      runs: [{ record: record(), wireBodies: [1, 2] }],
+    };
+    expect(() => validateAnalysisInput(input)).toThrow(/wireBodies/);
+  });
+
+  it("价目表字段非法时 fail fast", () => {
+    expect(() =>
+      analyzeRuns({
+        runs: [{ record: record() }],
+        priceTable: {
+          currency: "",
+          priceValidFrom: "2026-11-01",
+          cacheHitPrice: 0,
+          cacheMissPrice: 0,
+          outputPrice: 0,
+        },
+      }),
+    ).toThrow(/currency/);
+    expect(() =>
+      analyzeRuns({
+        runs: [{ record: record() }],
+        priceTable: {
+          currency: "CNY",
+          priceValidFrom: "2026-11-01",
+          cacheHitPrice: -1,
+          cacheMissPrice: 0,
+          outputPrice: 0,
+        },
+      }),
+    ).toThrow(/cacheHitPrice/);
   });
 });
 
@@ -562,6 +937,7 @@ describe("analyzeRuns: 工具 / 截断指标", () => {
       rounds: 1,
       attemptedToolCalls: 3,
       executedToolCalls: 2,
+      skippedToolCalls: 1,
       truncated: false,
       truncationReasons: ["TOOL_BUDGET_EXHAUSTED"],
     });

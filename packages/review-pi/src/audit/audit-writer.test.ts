@@ -10,7 +10,7 @@ import { buildAuditFileContent, buildRunId, writeAuditFile, type AuditFileConten
 // 逐键一致（E 主相位序列为真源口径），requests[] = onPayload 序列化点捕获
 // （model/effort/messages/tools/wireBody）。历史 B/C 尾键（prefetch /
 // fullRepo）已随研究装置根除（#32 / ADR-0014）——键序冻结面由本文件的
-// 字面 AUDIT_KEYS 列表单源锁定（t-series runs/ 对照随研究线退役）。
+// 字面 AUDIT_PREFIX_KEYS 列表单源锁定（t-series runs/ 对照随研究线退役）。
 
 const STARTED = new Date("2026-09-14T18:08:46.922Z");
 const FINISHED = new Date("2026-09-14T18:09:20.100Z");
@@ -23,10 +23,12 @@ const EMPTY_AUDIT: RunAudit = {
   cacheBreaks: [],
   truncated: false,
   truncationReasons: [],
+  stopReason: "MODEL_COMPLETE",
 };
 
-/** 键序冻结面（E 审计文件的完整键序；ledger / mrBoundary 为条件尾键） */
-const AUDIT_KEYS = [
+/** 键序冻结面（E 审计文件的前缀键序；ledger / mrBoundary 为条件尾键，
+ * stopReason 恒写；#58 cacheContract 为追加在 stopReason 之后的可选尾键） */
+const AUDIT_PREFIX_KEYS = [
   "runId",
   "caseId",
   "configId",
@@ -90,16 +92,150 @@ describe("buildRunId", () => {
 });
 
 describe("buildAuditFileContent", () => {
-  test("字段集与键序冻结（E 审计文件完整键序）", () => {
+  test("字段集与键序冻结（E 审计文件完整键序；stopReason 恒写于尾部）", () => {
     const content = contentFixture();
-    expect(Object.keys(content)).toEqual([...AUDIT_KEYS]);
+    expect(Object.keys(content)).toEqual([...AUDIT_PREFIX_KEYS, "stopReason"]);
+    expect(content.stopReason).toBe("MODEL_COMPLETE");
   });
 
-  test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序恒在尾部（ledger 之后）", () => {
+  test("cacheContract（#58）：可选尾键追加在 stopReason 之后，历史键序不变", () => {
+    const withContract = buildAuditFileContent({
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
+      caseId: "VUL4J-1",
+      configId: CONFIG_E,
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 0,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: {
+        ...EMPTY_AUDIT,
+        cacheContract: {
+          provider: "deepseek",
+          endpointKind: "chat-completions",
+          requestedModel: "deepseek-v4-flash",
+          respondedModel: "deepseek-v4-flash",
+          deploymentVersion: "unknown",
+          usageFieldFamily: "deepseek-native",
+          cacheMetering: true,
+          cacheBlockTokens: "unknown",
+          cacheWarmupMs: "unknown",
+          providerAffinityRequired: "unknown",
+          measuredAt: "2026-11-12T00:00:00.000Z",
+        },
+      },
+    });
+    expect(Object.keys(withContract)).toEqual([
+      ...AUDIT_PREFIX_KEYS,
+      "stopReason",
+      "cacheContract",
+    ]);
+  });
+
+  test("retry（#59）：可选尾键追加在 cacheContract 之后", () => {
+    const withRetry = buildAuditFileContent({
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
+      caseId: "VUL4J-1",
+      configId: CONFIG_E,
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 0,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: {
+        ...EMPTY_AUDIT,
+        cacheContract: {
+          provider: "deepseek",
+          endpointKind: "chat-completions",
+          requestedModel: "deepseek-v4-flash",
+          respondedModel: "deepseek-v4-flash",
+          deploymentVersion: "unknown",
+          usageFieldFamily: "deepseek-native",
+          cacheMetering: true,
+          cacheBlockTokens: "unknown",
+          cacheWarmupMs: "unknown",
+          providerAffinityRequired: "unknown",
+          measuredAt: "2026-11-12T00:00:00.000Z",
+        },
+        retry: {
+          retries: 1,
+          failedAttempts: 1,
+          exhausted: false,
+          records: [
+            {
+              request: 1,
+              attempt: 1,
+              reason: "http_429",
+              status: 429,
+              delayMs: 500,
+              retried: true,
+            },
+          ],
+        },
+      },
+    });
+    expect(Object.keys(withRetry)).toEqual([
+      ...AUDIT_PREFIX_KEYS,
+      "stopReason",
+      "cacheContract",
+      "retry",
+    ]);
+  });
+
+  test("toolProfile/toolProfileSource（#52）：尾键追加在 retry 之后", () => {
+    const content = buildAuditFileContent({
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
+      caseId: "VUL4J-1",
+      configId: CONFIG_E,
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 0,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: {
+        ...EMPTY_AUDIT,
+        retry: {
+          retries: 1,
+          failedAttempts: 1,
+          exhausted: false,
+          records: [
+            {
+              request: 1,
+              attempt: 1,
+              reason: "http_429",
+              status: 429,
+              delayMs: 500,
+              retried: true,
+            },
+          ],
+        },
+        toolProfile: "core-5",
+        toolProfileSource: "derived",
+      },
+    });
+    expect(Object.keys(content)).toEqual([
+      ...AUDIT_PREFIX_KEYS,
+      "stopReason",
+      "retry",
+      "toolProfile",
+      "toolProfileSource",
+    ]);
+  });
+
+  test("mrBoundary（#12 护栏留痕）：只在传入时在场，键序在 stopReason 之前（ledger 之后）", () => {
     // 界内（不传 mrBoundary）：键缺席——护栏零介入的投影面证明
     const bare = contentFixture();
     expect("mrBoundary" in bare).toBe(false);
-    expect(Object.keys(bare).at(-1)).toBe("toolCallLog");
+    expect(Object.keys(bare).at(-1)).toBe("stopReason");
 
     // 降级（传入 mrBoundary）：度量值与决策留痕，尾键扩展不扰动冻结前缀
     const degraded = buildAuditFileContent({
@@ -119,13 +255,47 @@ describe("buildAuditFileContent", () => {
       mrBoundary: { files: 11, changedLines: 22, degraded: true, reason: "too-many-files" },
     });
     const keys = Object.keys(degraded);
-    expect(keys.slice(0, -1)).toEqual([...AUDIT_KEYS, "ledger"]);
-    expect(keys.at(-1)).toBe("mrBoundary");
+    expect(keys.slice(0, -1)).toEqual([...AUDIT_PREFIX_KEYS, "ledger", "mrBoundary"]);
+    expect(keys.at(-1)).toBe("stopReason");
     expect(degraded.mrBoundary).toEqual({
       files: 11,
       changedLines: 22,
       degraded: true,
       reason: "too-many-files",
+    });
+  });
+
+  test("ledgerStats（#56）：有账本查询时在场，键序在 ledger 之后、mrBoundary 之前", () => {
+    const content = buildAuditFileContent({
+      runId: `20260914T180846.922-${CONFIG_E}-VUL4J-1`,
+      caseId: "VUL4J-1",
+      configId: CONFIG_E,
+      model: "deepseek-v4-flash",
+      effort: "default",
+      startedAt: STARTED,
+      finishedAt: FINISHED,
+      rounds: 1,
+      toolCalls: 1,
+      usage: { inputTokens: 9579, outputTokens: 14484, cacheReadTokens: 24064 },
+      findings: [],
+      audit: {
+        ...EMPTY_AUDIT,
+        ledgerStats: { ledgerHits: 1, ledgerMisses: 2, savedCharsEstimate: 30 },
+      },
+      ledger: [],
+      mrBoundary: { files: 11, changedLines: 22, degraded: true, reason: "too-many-files" },
+    });
+    expect(Object.keys(content)).toEqual([
+      ...AUDIT_PREFIX_KEYS,
+      "ledger",
+      "ledgerStats",
+      "mrBoundary",
+      "stopReason",
+    ]);
+    expect(content.ledgerStats).toEqual({
+      ledgerHits: 1,
+      ledgerMisses: 2,
+      savedCharsEstimate: 30,
     });
   });
 

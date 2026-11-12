@@ -19,6 +19,7 @@ export {
   EMPTY_EVIDENCE_GATE_COUNTS,
   EVIDENCE_GATE_STAGES,
   type AnalysisInput,
+  type AnalysisPriceTable,
   type AnalysisReport,
   type AnalysisRunInput,
   type AnalysisSummary,
@@ -37,6 +38,7 @@ export {
   type RunCostMetrics,
   type RunLoopMetrics,
   type RunQualityMetrics,
+  type ReusablePrefixMetrics,
   type Stat,
   type ToolCostPricing,
   type TruncationSummary,
@@ -44,4 +46,5 @@ export {
   type ZeroFindingRate,
 } from "./contracts.js";
 export { analyzeRuns } from "./analyze.js";
+export { renderAnalysisMarkdown } from "./markdown.js";
 export { validateAnalysisInput } from "./validate.js";

@@ -80,6 +80,19 @@ it("报告 schema golden：key 序 / N/A null 语义 / 汇总形状稳定", () =
               rejections: [{ candidateId: "F003", stage: "NO_EVIDENCE", reason: "no evidence" }],
               truncated: false,
               truncationReasons: ["TOOL_BUDGET_EXHAUSTED"],
+              cacheContract: {
+                provider: "deepseek",
+                endpointKind: "chat-completions",
+                requestedModel: "deepseek-v4-flash",
+                respondedModel: "deepseek-v4-flash",
+                deploymentVersion: "unknown",
+                usageFieldFamily: "deepseek-native",
+                cacheMetering: true,
+                cacheBlockTokens: "unknown",
+                cacheWarmupMs: "unknown",
+                providerAffinityRequired: "unknown",
+                measuredAt: "2026-11-12T00:00:00.000Z",
+              },
             },
           }),
         }),
@@ -103,6 +116,8 @@ it("报告 schema golden：key 序 / N/A null 语义 / 汇总形状稳定", () =
           }),
         }),
         truth: null,
+        // #60：相邻 wireBody 供 reusable-prefix 预测（chars/4 估算）
+        wireBodies: [`${"x".repeat(8)}`, `${"x".repeat(8)}y`],
       },
     ],
   });

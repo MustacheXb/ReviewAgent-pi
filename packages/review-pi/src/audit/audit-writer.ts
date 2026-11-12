@@ -1,15 +1,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { CacheContract } from "../contracts/cache-contract.js";
 import type { ConfigId } from "../contracts/config.js";
 import type { Finding } from "../contracts/finding.js";
-import type { LedgerEntry } from "../contracts/ledger.js";
+import type { LedgerEntry, LedgerStats } from "../contracts/ledger.js";
 import type { LlmUsage } from "../contracts/llm.js";
+import type { RetryRecord } from "../contracts/retry.js";
+import type { ToolProfile, ToolProfileSource } from "../contracts/tool-profile.js";
 import type {
   CacheBreakRecord,
   CandidateRejection,
   MrBoundaryRecord,
   PhaseRecord,
   RunAudit,
+  StopReason,
   ToolCallRecord,
   WireRequest,
 } from "../contracts/run.js";
@@ -49,12 +53,29 @@ export interface AuditFileContent {
   readonly toolCallLog: readonly ToolCallRecord[];
   /** Context Ledger 快照（恒投影；DSH 真源键序在 toolCallLog 尾段） */
   readonly ledger?: readonly LedgerEntry[];
+  /** Context Ledger 命中统计（#56；有账本查询时在场，零工具省键） */
+  readonly ledgerStats?: LedgerStats;
   /**
    * MR 边界护栏降级留痕（#12：度量值 + 降级决策；界内缺省省键）。
    * 键序纪律：pi 线新增可选尾键，只加在 AuditFileContent 尾部
    * （同 ledger 先例）。
    */
   readonly mrBoundary?: MrBoundaryRecord;
+  /**
+   * 停止原因（#53 / ADR-0018 §2.4）：新 run 恒写（含 MODEL_COMPLETE）；
+   * schema 可选只为历史审计文件读取兼容。
+   */
+  readonly stopReason?: StopReason;
+  /**
+   * 缓存合同（#58 / ADR-0018 §6）：可选尾键，缺省省键；只含响应可观测
+   * 事实与 unknown，不含任何密钥，可外发。
+   */
+  readonly cacheContract?: CacheContract;
+  /** 首字节前重试留痕（#59）：可选尾键，无重试省键 */
+  readonly retry?: RetryRecord;
+  /** Tool Profile 与来源（#52）：新 run 恒写；历史缺键兼容 */
+  readonly toolProfile?: ToolProfile;
+  readonly toolProfileSource?: ToolProfileSource;
 }
 
 /** runId：毫秒时间戳 + 配置 + 用例，文件名安全 */
@@ -101,7 +122,21 @@ export function buildAuditFileContent(args: {
     requests: args.audit.requests,
     toolCallLog: args.audit.toolCallLog,
     ...(args.ledger !== undefined ? { ledger: args.ledger } : {}),
+    ...(args.audit.ledgerStats !== undefined ? { ledgerStats: args.audit.ledgerStats } : {}),
     ...(args.mrBoundary !== undefined ? { mrBoundary: args.mrBoundary } : {}),
+    // RunAudit.stopReason 为必填（新 run 恒写）——无需条件 spread
+    stopReason: args.audit.stopReason,
+    // #58 新增可选尾键：只追加（在既有 stopReason 之后），历史键序不变
+    ...(args.audit.cacheContract !== undefined
+      ? { cacheContract: args.audit.cacheContract }
+      : {}),
+    ...(args.audit.retry !== undefined ? { retry: args.audit.retry } : {}),
+    ...(args.audit.toolProfile !== undefined
+      ? { toolProfile: args.audit.toolProfile }
+      : {}),
+    ...(args.audit.toolProfileSource !== undefined
+      ? { toolProfileSource: args.audit.toolProfileSource }
+      : {}),
   };
 }
 

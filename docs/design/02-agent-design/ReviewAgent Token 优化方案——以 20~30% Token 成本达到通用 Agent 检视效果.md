@@ -233,7 +233,7 @@ CARC
 ```text
 totalTokens
 cacheHitRate
-requestCount
+requests
 executedToolCalls
 attemptedToolCalls
 skippedToolCalls
@@ -251,9 +251,9 @@ CARC = uncachedInputTokens
      + cacheWriteTokens
      + outputTokens
      + toolCostTokens
-     + retryCostTokens
-     + summaryCostTokens
 ```
+
+retry / summary 成本独立报告（字段缺失记 null）；是否纳入 CARC 需先修订 ADR-0017 的 L2 主指标定义，不随本方案默认改变。
 
 若提供价目表，再输出货币口径：
 
@@ -270,13 +270,10 @@ outputCost = outputTokens × outputPrice
 ```mermaid
 flowchart LR
   A[RunRecord] --> C[Record Loader]
-  B[Audit wireBody / toolCallLog] --> C
+  B[Audit toolCallLog / phaseLog] --> C
   C --> D[Normalize Metrics]
   D --> E[Group by case/config/rep]
-  E --> F[Cold rep1]
-  E --> G[Hot rep2+]
-  F --> H[JSON / Markdown / CSV]
-  G --> H
+  E --> H[JSON / Markdown]
 ```
 
 设计要求：
@@ -284,8 +281,8 @@ flowchart LR
 - 单命令可从 RunRecord / Audit 复算；
 - 不读取 API key，不发起网络请求；
 - 输出确定性，不依赖当前时间或文件遍历顺序；
-- 同时输出请求数、工具尝试数和截断原因；
-- 冷 rep1 与热 rep2+ 分开。
+- 同时输出请求数、工具尝试数、执行数、跳过数与截断原因；
+- 冷热分层（rep1 冷口径 vs rep2+ 热口径）属评测 campaign，不在主线分析器实现（#49 §1）。
 
 ### 3.4 Provider 缓存合同
 
@@ -1038,7 +1035,7 @@ flowchart LR
 
 执行顺序：
 
-1. 先做 P0-1 / P0-2，建立统一账本；
+1. 先做 P0-1 / P0-2，建立统一成本报告；
 2. 并行做 P0-7 的网关口径调查；
 3. 再做 P0-3、P0-4、P0-5、P0-6 的行为改造；
 4. 最后用同一套报告和质量门做联合消融。
@@ -1049,7 +1046,7 @@ flowchart LR
 
 | 编号 | 事项 | 目标 | 验收门 |
 |---|---|---|---|
-| P0-1 | 恢复只读 Token 分析脚本 | usage → cached/uncached/output/CARC/冷热分层 | 单命令从 RunRecord 复算 |
+| P0-1 | 恢复只读 Token 分析脚本 | usage → cached/uncached/output/CARC/请求与工具计数 | 单命令从 RunRecord 复算 |
 | P0-2 | 报告改为四行主表 | 区分真正省钱的项 | cacheHit 不再单独作为结论 |
 | P0-3 | 增加请求 / 尝试 / 输出硬上界 | 防止 attempts 继续膨胀 | attempts 不越界，截断显式 |
 | P0-4 | 处理空知识工具 | 保留或删除均需证据 | 空语料调用大幅下降 |
@@ -1061,16 +1058,16 @@ flowchart LR
 
 **问题**
 
-主线只有 RunRecord 和 Audit，没有一键复算 Token、请求数、工具尝试数和冷热分层的脚本。
+主线只有 RunRecord 和 Audit，没有一键复算 Token、请求数、工具尝试数与执行/跳过数的脚本。
 
 **设计**
 
-建议落位：
+建议落位（#51 落地；替换本节早期草案的 `src/metrics/` 设想）：
 
 ```text
-scripts/analyze-token.ts
-src/metrics/token-analysis.ts
-src/metrics/token-analysis.test.ts
+scripts/analyze-token.ts          # 单命令入口（I/O 薄壳；pnpm analyze:token）
+src/eval/analysis/                # 纯分析器（#37：零 fs / 零网络 / 零密钥）
+tests/eval/analyze-cli.test.ts    # 进程级与确定性测试
 ```
 
 输入支持：
@@ -1082,27 +1079,23 @@ src/metrics/token-analysis.test.ts
 输出：
 
 - `token-analysis.json`；
-- `token-analysis.md`；
-- 可选 CSV。
+- `token-analysis.md`。
 
 ```mermaid
 flowchart LR
   A[RunRecord] --> C[Record Loader]
-  B[Audit wireBody / toolCallLog] --> C
+  B[Audit toolCallLog / phaseLog] --> C
   C --> D[Normalize Metrics]
   D --> E[Group by case/config/rep]
-  E --> F[Cold rep1]
-  E --> G[Hot rep2+]
-  F --> H[JSON / Markdown / CSV]
-  G --> H
+  E --> H[JSON / Markdown]
 ```
 
 **验收门**
 
-- 单命令可从现有 `runs/phase2-pi` 复算 dashboard 的 E 均值；
+- 单命令可从单条 RunRecord、实验目录、`runs` 根 + experimentId 三种输入复算；本机无历史 `runs/` 数据，验收以离线夹具 + 进程级确定性测试为准（#49）；
 - usage 与审计一致；
-- executed / attempted 分开输出；
-- 冷热分层可筛选；
+- executed / attempted / skipped 分开输出；
+- 冷热分层不在主线分析器（属评测 campaign，见 #49 §1）；
 - 输出确定；
 - 不读 key，不联网。
 
@@ -1132,16 +1125,22 @@ CARC
 ```text
 totalTokens
 cacheHitRate
+requests
+attemptedToolCalls
+executedToolCalls
+skippedToolCalls
 toolCostTokens
 retryCostTokens
 summaryCostTokens
 ```
 
+缺价目表时 `currency` 为 null（N/A）；`retryCostTokens` / `summaryCostTokens` 在对应机制落地前恒 null（N/A，不记 0）。
+
 ```mermaid
 flowchart LR
   A[Token Metrics] --> D[Cost Calculator]
   B[PricingProfile] --> D
-  C[Tool / Retry / Summary Usage] --> D
+  C[Tool Usage] --> D
   D --> E[cached / uncached / output / CARC]
   D --> F[totalTokens / cacheHitRate]
   E --> G[Markdown Report]
@@ -1153,7 +1152,7 @@ flowchart LR
 - 任一机制能回答“省的是 cached、uncached、output 还是工具次数”；
 - 高 cacheHit + 高 totalTokens 不会被误判为成本优化；
 - 无缓存计量时输出 N/A；
-- 重试、摘要、子调用成本独立；
+- 重试、摘要、子调用成本独立（机制未落地前记 N/A）；
 - 缺价目表时标记 currency unavailable。
 
 **回滚**
@@ -1212,6 +1211,30 @@ flowchart TD
 
 实验环境启用候选预算，生产先保留安全上界。
 
+**落地记录（#53，2026-11-12）**
+
+- 预算载体收敛为内核内部输入 `ReviewBudget`（`packages/review-pi/src/loop/budget.ts`），命名以 ADR-0018 为准：`maxRequests` / `maxRounds` / `maxExecutedToolCalls` / `maxToolAttempts` / `maxOutputTokens`；缺省 24 / 5 / 6 / 12 / 48,000 为安全上界。只经 `runReview` 内部输入注入，协议 v3、CLI 参数与环境变量零新增。
+- #53 只落地注入面与计数：`maxRounds` 与 `maxExecutedToolCalls` 在既有收口点生效（原 `MAX_ROUNDS` / `MAX_TOOL_CALLS` 常量并入缺省档）；`maxRequests` / `maxToolAttempts` / `maxOutputTokens` 的收口语义分别由 #55、#54、#55 落地。
+- 审计新增可选 `stopReason`（审计顶层与 RunRecord `AuditLight` 尾部），新 run 恒写；#53 先产出 `MODEL_COMPLETE` / `MAX_ROUNDS_REACHED`，其余枚举值随 #54 / #55 在各自收口点写入。历史记录缺键按 `MODEL_COMPLETE` 解释，不回填、不改写。
+- requests / attempted / executed / skipped 不新增审计计数器：继续由 `phaseLog` 与 `toolCallLog` 派生（ADR-0018 §1），分析器口径不变。
+- 未触发预算的 run 与基线 wireBody 逐字节一致（行为缝测试锁定）。
+
+**落地记录（#54，2026-11-12）**
+
+- 尝试闸前移到 `beforeToolCall`（被拦调用不进入 `execute`）：attempt 按模型发出的 toolCall 内容块计数（含被拒调用），整批判定——本批放行后累计尝试达到上限时，批内全部结果携带 `terminate`，pi 内核据此终止本批并消费收尾 follow-up。
+- 超尝试预算的调用应答 `Error: tool attempt budget exhausted`；attempts 耗尽后 append-only 注入 `FORCED_FINALIZATION_INSTRUCTION`（每阶段至多 2 次，阶段切换重置）。
+- 终止原因分流：收尾注入用尽后模型仍只发工具调用 → `TOOL_ATTEMPTS_EXHAUSTED`；收尾后返回空文本 → `PHASE_FORCED_INCOMPLETE`。两种终态 `truncated=true`；收尾成功则阶段照常完成、`truncated` 不翻转。
+- 审计 `truncationReasons` 新增事件 `TOOL_ATTEMPTS_EXHAUSTED`（与 StopReason 同名，只作事件留痕）；执行预算路径的应答文案与 wire 字节不变。
+- 行为缝测试：`packages/review-pi/src/loop/forced-finalization.test.ts`（收尾指令、整批 terminate、每阶段 2 次上限、truncated 表驱动）；run 级落盘见 `review-run-budget.test.ts`。
+
+**落地记录（#55，2026-11-12）**
+
+- 请求预算在阶段边界生效：边界处以剩余请求（`maxRequests − 已发请求数`）判定——下一阶段仍在第 1–4 阶段时，剩余不足以按常规序推进到裁决就跳过尚未完成的前四阶段直入候选；被跳过阶段逐条写 `phaseLog`（`requestCount = 0` + note），`truncationReasons` 记 `REQUEST_BUDGET_PHASES_SKIPPED`。
+- 候选与裁决保底 2 请求：进入候选前剩余 < 2 或跳过时连保底都不足 → 不再开始候选，`stopReason = MAX_REQUESTS_REACHED`（`truncated = true`）；候选 → 裁决之间不设请求闸，裁决允许完成。轮次边界视同阶段边界；跳过本身不翻转 `truncated`。
+- 输出预算只做事后判定：阶段完成后累计 `usage.outputTokens` 严格超限才在边界停止后续请求（含候选 → 裁决之间；5/6 保底不豁免），`stopReason = OUTPUT_BUDGET_EXHAUSTED`、`truncated = true`；wire 不新增 `max_tokens`，已完成阶段文本保留。裁决收尾且模型声明 complete 时按 `MODEL_COMPLETE` 收尾。
+- 缺省请求预算 24 先于 5 轮上界（30 请求）收口：不完成脚本缺省停在 4 轮、`MAX_REQUESTS_REACHED`。这是有意的控制面行为；轮次上界测试改为显式放宽 `maxRequests` 以隔离被测语义。
+- 行为缝测试：`packages/review-pi/src/loop/request-output-budget.test.ts`（跳保底、硬停、候选后完成、输出边界、wire 无 `max_tokens`）；run 级落盘见 `review-run-budget.test.ts`。
+
 ### P0-4：处理空知识工具
 
 **问题**
@@ -1252,6 +1275,15 @@ flowchart LR
 **回滚**
 
 保留七工具对照组。裁剪失败时回退并接入真实知识源。
+
+**落地记录（#52，2026-11-12）**
+
+- 派生 / 投影单点：`packages/review-pi/src/tools/registry.ts`。`deriveToolProfile` 按 ADR-0018 §3 四档派生（空数组等同无语料）；`toolNamesForProfile` 恒为 `REVIEW_TOOL_ORDER` 的子序列；`reviewToolSchemasForProfile` 从完整注册表投影，单工具字节与 extended-7 真源一致。
+- Toolkit：只挂载 profile 内的 schema / handler，被裁掉的工具按 unknown tool 有界拒绝；`profile` / `toolProfileSource` 随 toolkit 带出，run 内固定。内部 `toolProfileOverride`（`runReview` / `buildReviewToolkit`）供评测消融，来源记 `override`，不进入协议 / CLI / 环境变量。
+- **生产缺省 core-5 是有意的 Zone A 变更**：生产入口不注入知识语料，wire tools 从七件降为五件；质量面不在主线验证，须在评测线复核（L2）。PR 与本文档显式记录。产品侧语料来源 / 版本管理属父 spec out-of-scope（另行立项），单语料档位目前只在 toolkit 装配缝可达。
+- 审计：`RunAudit` / `AuditFileContent` / `AuditLight` 追加可选 `toolProfile` / `toolProfileSource` 尾键（`retry` 之后；新 run 恒写、历史缺键兼容）。
+- Golden / P1-2：现有 DSH 七工具真源保留为 extended-7，新增 `review-tools-core5.json` / `review-tools-wire-core5.json`；断言 core-5 与 extended-7 共享工具逐字节一致、工具序为注册表子序列、重复组装字节稳定。
+- 测试缝：`tools/registry.test.ts`（派生 / 投影 / 双 profile golden）、`tools/toolkit.test.ts`（缺省 core-5 / 单语料 / override / 非 profile 工具拒绝 / 重复组装）、`run/review-run.test.ts`（生产 wire core-5、override extended-7 审计留痕）、审计键序测试。
 
 ### P0-5：Context Ledger 身份键、送达范围、complete 与命中计数
 
@@ -1314,6 +1346,14 @@ flowchart TD
 
 新旧 Ledger 双实现，由实验开关选择。
 
+**落地记录（#56，2026-11-12）**
+
+- 实现载体：契约 `packages/review-pi/src/contracts/ledger.ts`、实现 `packages/review-pi/src/tools/ledger.ts`。命中桶按 `resourceKey`（工具名 + 决定资源内容的参数，不含请求范围）分组——整读与子区间读同桶才能做覆盖判定；`kind` 只进条目身份键。`requestedRange / deliveredRange` 为 1-based 闭区间（`endLine = null` 表示到结尾），整结果工具 `requestedRange` 为 null、完整送达时 `deliveredRange` 为 null。
+- 覆盖命中：只有 `deliveredRange ⊇ requestedRange` 才返回引用。范围工具另记 `totalLines`：起点 / 终点越过文件总行数一律不覆盖；整文件完整送达后子区间命中；截断整文件（delivered 1-N）不覆盖整文件请求，重复整读会重跑并登记新条目；`get_file` 的 `endLine` 越界 clamp 同样 `complete=false`、未覆盖原请求。不做部分命中拼接。
+- 条目字段：`key / kind / description / requestedRange / deliveredRange / complete / contentHash / contentVersion / charCount / totalLines / hitCount / lastHitAt`；内容哈希与版本进入身份键但不参与预读查询；`runId / toolCallId / messageId` 暂不落位（Agent 桥接可后续追加）。引用单行：`Already loaded: ctx#NNN (<请求回显>; delivered <送达范围> of requested <请求范围>; complete=<bool>)`，`complete` 描述条目自身送达完整性，是否可引用由覆盖关系单独保证。
+- 审计新增可选尾键 `ledgerStats: { ledgerHits, ledgerMisses, savedCharsEstimate }`（有账本查询时在场，零工具 run 省键）。`savedCharsEstimate`：精确重复取送达字符数，覆盖子区间按请求/送达行数比例折算（`endLine = null` 用 `totalLines` 折算）。
+- 正常未命中路径渲染层未改：七工具输出逐字节不变（`toolkit.test.ts` 渲染断言与全链黄金不变）；行为缝见 `tools/ledger.test.ts`、`tools/toolkit.test.ts` 与 run 级 `review-run.test.ts`。
+
 ### P0-6：截断提示与检索结果语义修正
 
 **问题**
@@ -1355,6 +1395,14 @@ flowchart LR
 **回滚**
 
 按工具逐个迁移，失败时恢复 head-only。
+
+**落地记录（#57，2026-11-12）**
+
+- 实现载体：`packages/review-pi/src/tools/result-budget.ts` 新增 `applyRankedBudget`（rank 字典序贪心选整条目、输出保原序、分组头按组首次入选输出一次）。未超预算直接返回完整行集，七工具未截断输出逐字节不变（既有渲染断言全绿）。
+- 各工具 rank：`get_file` 头部保留 + 提示下一段 `startLine/endLine`（长度与本次已送达行数一致；预算连一行正文都放不下时不给无效建议）；`get_diff` 头部保留 + 未完全展开文件清单（`diff --git` b 侧路径，含截断边界所在文件，上限 5 个 + `(+N more)`，建议 `review.get_file(path=...)`）；`get_symbol` 精确名命中中类型声明 > 方法/构造器 > 字段；`find_references` 声明 > 使用；`get_call_chain` hop1 > hop2 > callee（段级选择，块头仅在有段入选时输出）；`search_rule` / `search_history` 标题命中 > 正文命中。平局一律保持原顺序；超预算只选完整条目，不输出半条目。
+- 所有截断提示统一为 `Tool result truncated: showing <shown> of <total> result lines (tool result budget <budget> chars exceeded; complete=false).`，`get_file` / `get_diff` 追加可行动续读建议；提示不触发额外工具轮次。
+- Ledger：整结果工具的非连续送达登记 `deliveredRange = null`、`complete = false`、`shownResultLines / totalResultLines`；整结果请求只被 `complete = true` 的整结果送达覆盖，截断结果重复读取仍走真实执行路径。`get_file` 仍按实际送达行区间登记。
+- 测试缝：`tools/toolkit.test.ts`（七工具输出 + 截断选择 + Ledger 快照）、`tools/ledger.test.ts`（覆盖判定与送达计数）；新增 `testdata/repos/ranking` 合成仓库承载符号 / 调用链排序夹具。
 
 ### P0-7：Provider / 网关缓存合同
 
@@ -1430,6 +1478,34 @@ flowchart TD
 **回滚**
 
 探针纯观测，网关拒绝时标记 unknown，不影响主链。
+
+**落地记录（#58，2026-11-12）**
+
+- 契约与采集：`packages/review-pi/src/contracts/cache-contract.ts`（类型 + usage 字段族 / endpoint 纯分类器）、`provider/cache-contract.ts`（FetchFunction 旁路采集器）。包装后的 fetch 返回原 Response，响应副本异步解析 SSE / JSON；原链路与请求字节不变，观测失败只落 unknown。
+- 字段族：`deepseek-native`（`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`）、`openai-cached-tokens`（`prompt_tokens_details.cached_tokens` / 顶层 `cached_tokens`）；有 usage 无缓存字段 → family unknown + `cacheMetering=false`；无 usage → `cacheMetering="unknown"`。模型回显取响应 `model`；`cacheBlockTokens / cacheWarmupMs / providerAffinityRequired` 恒 unknown（被动不可得），`deploymentVersion` 仅取非密钥响应头。
+- 留痕：审计 `cacheContract` 与 RunRecord `AuditLight.cacheContract` 同源，可选尾键（追加在 stopReason 之后）、新 run 恒写、历史缺键兼容、不含密钥。
+- 价目：分析器新增 `currencyCost`（per run + 汇总 + Markdown 行/列）与 `cacheContract` 透传（报告 schema v3，缺省省键）；提供静态价目表时在报告层给合同附加价目三元组 / 币种 / 价目生效时间。无价目 / 缓存计量缺失 / 有写缓存量但无写价 / 有写价但写量未上报 → `null`；`currency` / `priceValidFrom` 仍随价目缺失为 null。`analyze-token --pricing <json>` 为唯一入口，示例见 runbook。
+- 主动探针：`scripts/probe-gateway-cache.ts` + `docs/runbooks/cache-contract-probe.md`，`pnpm probe:gateway-cache` 手动执行；不进 CI、不进产品 bin、不进 review-pi CLI。观测项：health、usage 字段族、模型回显、warmup、块对齐、路由亲和；结论只标 observed / unknown。
+- 测试缝：`run/cache-contract.test.ts`（fake 响应推导字段族 / 模型回显 / 缺字段 unknown / 无密钥）、`tests/eval/analyze.test.ts`（货币成本与 N/A）、`tests/instrument/cache-probe-runbook.test.ts`（探针边界护栏）。
+
+### P1-5：首字节前薄重试
+
+**落地记录（#59，2026-11-12）**
+
+- 实现载体：`packages/review-pi/src/provider/retrying-fetch.ts`（FetchFunction 包装）+ `contracts/retry.ts`（`RetryRecord`）。只对网络错误 / 429 / 5xx 重试，最多 2 次（硬上限）；退避 500ms / 1500ms + ±20% 抖动，`Retry-After`（秒或 HTTP-date）按服务端值优先；退避等待可被 signal 中止；Abort / signal 中止不重试；2xx 原样返回（输出已开始）后不再重试。网络错误收窄为原生 fetch TypeError（非法 URL 除外）或 Node / undici 网络错误码。
+- 接线顺序：重试包装在缓存合同采集之内（前缀记录最终响应）；失败响应的 usage 由重试层克隆解析并随记录留痕（input 与主账同口径扣除 cacheRead/cacheWrite），原响应体在重试前 cancel。
+- 审计：`RunAudit` / `AuditFileContent` / `AuditLight` 新增可选 `retry` 尾键（追加在 `cacheContract` 之后；无失败尝试省键），含 `retries / failedAttempts / exhausted / records[]`（`request / attempt` 归属、原因、状态码、实际退避、是否重试、失败 usage）。run 因重试耗尽失败无法落盘时，错误 message 与 `cause.retry` 携带同一留痕；非耗尽错误原样透传。
+- 分析：`computeRetryCostTokens` 取失败尝试 usage 之和；无 retry 键或任一失败 usage 缺失 → null（不按已知部分冒充完整成本）；显式 `retryCostTokens` 输入优先。`retryCostTokens` 仍独立于 CARC。
+- 测试缝：`provider/retrying-fetch.test.ts`（fake timers 锁定 500/1500、Retry-After、上限 2、Abort、2xx 不重试）、`run/retry.test.ts`（fake 适配器 429/耗尽全链留痕）、`tests/eval/analyze.test.ts`（成本派生与 N/A）。
+
+### P1-3：离线 reusable-prefix 预测
+
+**落地记录（#60，2026-11-12）**
+
+- 实现载体：`src/eval/analysis/reusable-prefix.ts` 纯函数（零文件系统 / 零网络 / 零密钥）。对相邻请求 `wireBody` 求最长公共前缀（UTF-16 code unit），按 `floor(LCP chars / 4)` 逐对求和得 `predictedReusableTokens`；`actualCacheReadTokens = usage.cacheReadTokens ?? null`；`gap = actual − predicted`（actual 缺失 → null）。
+- 报告：`RunAnalysis.reusablePrefix` 可选字段（schema v4，无输入省键），含 `estimated: true` / `estimateMethod: "chars/4"` / `requestCount` / `pairCount` / predicted / actual / gap；Markdown 单列「可复用前缀（估算）」并注明不冒充真实计费。单请求 predicted=0；空输入省键。
+- 输入面：分析器只消费调用方注入的 `wireBodies`；`analyze-token` 从 `record.baseline.auditPath` 的 `requests[].wireBody` 只读加载（相对路径以记录文件目录为基准），单记录 / experiment / runs-root 三种输入一致；审计缺失 / 不可读 / 任一 request 缺 wireBody → N/A 省略（不压缩相邻性、不用部分数据冒充 run 级预测），不阻塞报告。
+- 测试缝：`tests/eval/reusable-prefix.test.ts`（LCP / 估算 / gap / N/A / 确定性）、`analyze.test.ts`（报告字段与校验）、`analyze-cli.test.ts`（单记录与目录一致、审计缺失省键、无密钥无网络）。
 
 ## 15. P1/P2 路线
 
