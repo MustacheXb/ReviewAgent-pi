@@ -14,7 +14,7 @@ import {
   TRUNCATION_MAX_ROUNDS,
   TRUNCATION_TOOL_BUDGET,
 } from "./constants.js";
-import { DEFAULT_REVIEW_BUDGET } from "./budget.js";
+import { DEFAULT_REVIEW_BUDGET, type ReviewBudgetOverride } from "./budget.js";
 import { PHASE_COUNT, PHASE_INSTRUCTIONS } from "./phases.js";
 import { runAgentReviewLoop } from "./agent-review-loop.js";
 
@@ -104,7 +104,11 @@ function singleRoundScript(): readonly FakeReply[] {
   ];
 }
 
-function scriptedLoop(replies: readonly FakeReply[], initial = INITIAL): ScriptedRun {
+function scriptedLoop(
+  replies: readonly FakeReply[],
+  initial = INITIAL,
+  budget?: ReviewBudgetOverride,
+): ScriptedRun {
   const script = fakeFetch([...replies]);
   const toolkit = buildReviewToolkit({ repoPath: repoFixturePath("sample"), diff: DIFF });
   const run = () =>
@@ -114,6 +118,7 @@ function scriptedLoop(replies: readonly FakeReply[], initial = INITIAL): Scripte
       toolkit,
       apiKey: "test-key",
       fetch: script.fetch,
+      ...(budget !== undefined ? { budget } : {}),
     });
   return { run, requestUrls: script.requests.map((request) => request.url) };
 }
@@ -309,7 +314,11 @@ test("轮次上界：complete 恒 false → rounds=5、truncated=true、正常�
       index += 1;
     }
   }
-  const { run } = scriptedLoop(replies);
+  // 请求预算放宽到「5 轮 × 6 阶段」以隔离轮次上界：#55 起缺省 maxRequests=24
+  // 会先于 5 轮上界收口（见 review-run-budget.test.ts 的缺省请求预算用例）。
+  const { run } = scriptedLoop(replies, INITIAL, {
+    maxRequests: DEFAULT_REVIEW_BUDGET.maxRounds * PHASE_COUNT,
+  });
   const outcome = await run();
 
   expect(outcome.complete).toBe(false);

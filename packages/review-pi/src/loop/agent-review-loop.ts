@@ -23,13 +23,22 @@ import {
 } from "../provider/pi-client.js";
 import { addUsage, piUsageToLlmUsage, ZERO_USAGE } from "../provider/usage-map.js";
 import { classifyCacheBreaks } from "./cache-break.js";
-import { resolveReviewBudget, type ReviewBudgetOverride } from "./budget.js";
+import {
+  FINDINGS_PHASE_REQUEST_FLOOR,
+  resolveReviewBudget,
+  type ReviewBudgetOverride,
+} from "./budget.js";
 import {
   FORCED_FINALIZATION_INSTRUCTION,
   MAX_FORCED_FINALIZATIONS_PER_PHASE,
+  PHASE_SKIPPED_REQUEST_BUDGET_EXHAUSTED_NOTE,
+  PHASE_SKIPPED_REQUEST_BUDGET_NOTE,
   TOOL_ATTEMPTS_EXHAUSTED_SUMMARY,
   TOOL_BUDGET_EXHAUSTED_SUMMARY,
+  TRUNCATION_MAX_REQUESTS,
   TRUNCATION_MAX_ROUNDS,
+  TRUNCATION_OUTPUT_BUDGET,
+  TRUNCATION_REQUEST_BUDGET_SKIPPED,
   TRUNCATION_TOOL_ATTEMPTS,
   TRUNCATION_TOOL_BUDGET,
 } from "./constants.js";
@@ -59,6 +68,13 @@ import type { ReviewToolkit } from "../tools/toolkit.js";
 // exhausted"。truncationReasons 单列 TOOL_BUDGET_EXHAUSTED /
 // TOOL_ATTEMPTS_EXHAUSTED 但不翻转 truncated（截断语义只归 MAX_ROUNDS 与
 // 阶段/轮次跳过）。
+//
+// 请求 / 输出预算（#55 / ADR-0018 §2.2–§2.3）：请求预算只在阶段边界判定——
+// 剩余不足以按常规序推进到裁决时，跳过尚未完成的前四阶段直入候选（被跳过
+// 阶段逐条写 phaseLog，requestCount = 0）；候选/裁决保底 2 请求，候选一旦
+// 开始裁决允许完成；连保底都不足则 MAX_REQUESTS_REACHED 收尾。输出预算只在
+// 阶段完成后事后判定并停止后续请求（wire 不新增 max_tokens），超出即
+// OUTPUT_BUDGET_EXHAUSTED 收尾。
 
 export interface AgentReviewLoopInputs {
   readonly systemPrompt: string;
@@ -112,8 +128,8 @@ export async function runAgentReviewLoop(
     throw new ReviewAbortedError();
   }
   // 预算解析单点（#53）：缺省 + 覆盖 → 生效预算；非法覆盖在此显式抛错。
-  // #53 只接线 maxRounds / maxExecutedToolCalls 的既有收口点；maxRequests /
-  // maxToolAttempts / maxOutputTokens 的收口语义分别由 #55 / #54 / #55 落地。
+  // maxRounds / maxExecutedToolCalls 在既有收口点；maxToolAttempts 由 #54
+  // 的尝试闸消费；maxRequests / maxOutputTokens 由 #55 的阶段边界判定消费。
   const budget = resolveReviewBudget(inputs.budget);
   // 审计累积面（run 内顺序单写；产出时整体冻结为 readonly 投影）
   const requests: WireRequest[] = [];
@@ -289,16 +305,13 @@ export async function runAgentReviewLoop(
           return false;
         }
         // 收尾注入用尽仍只发工具调用 → 以尝试预算耗尽终止
-        truncated = true;
-        stopReason = "TOOL_ATTEMPTS_EXHAUSTED";
-        return true;
+        return stopTruncated(TRUNCATION_TOOL_ATTEMPTS);
       }
       const replyText = assistantText(message);
       // 收尾指令仍不产出文本：以 PHASE_FORCED_INCOMPLETE 终止（#54）
       if (phaseForcedFinalizations > 0 && replyText.trim().length === 0) {
-        truncated = true;
-        stopReason = "PHASE_FORCED_INCOMPLETE";
-        return true;
+        // #54 审计形态保持：该路径只在 truncated/stopReason 留痕
+        return stopTruncated("PHASE_FORCED_INCOMPLETE", false);
       }
       return advancePhase(replyText, enqueueFollowUp);
     },
@@ -382,8 +395,46 @@ export async function runAgentReviewLoop(
       ...(notes.length > 0 ? { note: notes.join("; ") } : {}),
     });
 
+    // 输出预算（#55 / ADR-0018 §2.3）：收到 assistant usage 后累计，只在阶段
+    // 边界事后判定——本阶段文本已正常收尾，wire 不新增 max_tokens；超出即
+    // 停止后续请求（请求预算的 5/6 阶段保底不豁免输出预算）。
+    const outputBudgetExhausted = usage.outputTokens > budget.maxOutputTokens;
+
     if (phaseIndex < PHASE_COUNT - 1) {
-      phaseIndex += 1;
+      if (outputBudgetExhausted) {
+        return stopTruncated(TRUNCATION_OUTPUT_BUDGET);
+      }
+      // 请求预算（#55 / ADR-0018 §2.2）：只在阶段边界判定。剩余请求不足以
+      // 按常规序推进到裁决时，跳过尚未完成的前四阶段直入候选；候选一旦
+      // 开始，裁决允许完成（保底 2 请求），候选→裁决之间不再设请求闸。
+      const nextPhaseIndex = phaseIndex + 1;
+      const decision = requestBudgetDecision(nextPhaseIndex);
+      if (decision === "stop") {
+        // 前四阶段内的硬停仍是「跳过」：逐条留痕后再终止
+        if (nextPhaseIndex < CANDIDATES_PHASE_INDEX) {
+          recordSkippedPhases(
+            nextPhaseIndex,
+            CANDIDATES_PHASE_INDEX,
+            PHASE_SKIPPED_REQUEST_BUDGET_EXHAUSTED_NOTE,
+          );
+          appendReason(truncationReasons, TRUNCATION_REQUEST_BUDGET_SKIPPED);
+        }
+        return stopTruncated(TRUNCATION_MAX_REQUESTS);
+      }
+      if (decision === "skip") {
+        recordSkippedPhases(
+          nextPhaseIndex,
+          CANDIDATES_PHASE_INDEX,
+          PHASE_SKIPPED_REQUEST_BUDGET_NOTE,
+        );
+        appendReason(truncationReasons, TRUNCATION_REQUEST_BUDGET_SKIPPED);
+        phaseIndex = CANDIDATES_PHASE_INDEX;
+        resetPhaseCounters();
+        emitProgress();
+        followUp(phaseInstruction(phaseIndex));
+        return false;
+      }
+      phaseIndex = nextPhaseIndex;
       resetPhaseCounters();
       emitProgress();
       followUp(phaseInstruction(phaseIndex));
@@ -405,21 +456,82 @@ export async function runAgentReviewLoop(
       stopReason = "MODEL_COMPLETE";
       return true;
     }
-    if (round >= budget.maxRounds) {
-      truncated = true;
-      appendReason(truncationReasons, TRUNCATION_MAX_ROUNDS);
-      stopReason = "MAX_ROUNDS_REACHED";
-      return true;
+    if (outputBudgetExhausted) {
+      return stopTruncated(TRUNCATION_OUTPUT_BUDGET);
     }
+    if (round >= budget.maxRounds) {
+      return stopTruncated(TRUNCATION_MAX_ROUNDS);
+    }
+    // 新一轮的 phase-1 边界同样受请求预算约束：不足常规一轮时直入候选。
+    const decision = requestBudgetDecision(0);
+    if (decision === "stop") {
+      return stopTruncated(TRUNCATION_MAX_REQUESTS);
+    }
+    // 先推进轮次再留痕：被跳过阶段属于新一轮
     round += 1;
-    phaseIndex = 0;
+    if (decision === "skip") {
+      recordSkippedPhases(0, CANDIDATES_PHASE_INDEX, PHASE_SKIPPED_REQUEST_BUDGET_NOTE);
+      appendReason(truncationReasons, TRUNCATION_REQUEST_BUDGET_SKIPPED);
+    }
+    phaseIndex = decision === "skip" ? CANDIDATES_PHASE_INDEX : 0;
     resetPhaseCounters();
     roundCandidates = [];
     roundVerdicts = new Map();
     roundComplete = false;
     emitProgress();
-    followUp(phaseInstruction(0));
+    followUp(phaseInstruction(phaseIndex));
     return false;
+  }
+
+  /**
+   * 请求预算阶段边界决策（#55 / ADR-0018 §2.2）：
+   * - proceed：按常规序进入下一阶段；
+   * - skip：跳过下一阶段…第 4 阶段，直入候选；
+   * - stop：连候选/裁决的 2 请求保底都不足，终止 run。
+   */
+  function requestBudgetDecision(nextPhaseIndex: number): "proceed" | "skip" | "stop" {
+    const remainingRequests = budget.maxRequests - requests.length;
+    if (nextPhaseIndex < CANDIDATES_PHASE_INDEX) {
+      // 常规序从下一阶段到裁决每阶段至少 1 请求
+      if (remainingRequests >= PHASE_COUNT - nextPhaseIndex) {
+        return "proceed";
+      }
+      return remainingRequests < FINDINGS_PHASE_REQUEST_FLOOR ? "stop" : "skip";
+    }
+    if (nextPhaseIndex === CANDIDATES_PHASE_INDEX) {
+      return remainingRequests < FINDINGS_PHASE_REQUEST_FLOOR ? "stop" : "proceed";
+    }
+    // 候选 → 裁决之间：一旦开始允许完成
+    return "proceed";
+  }
+
+  /**
+   * 截断终止单点：truncated 翻转 + stopReason 赋值；默认把同名原因写入
+   * truncationReasons（appendReason 去重，事件已留痕时无重复）。
+   */
+  function stopTruncated(reason: StopReason, recordReason = true): true {
+    truncated = true;
+    if (recordReason) {
+      appendReason(truncationReasons, reason);
+    }
+    stopReason = reason;
+    return true;
+  }
+
+  /** 被请求预算跳过的阶段逐条留痕（requestCount = 0；显式标注原因） */
+  function recordSkippedPhases(
+    fromPhaseIndex: number,
+    toExclusive: number,
+    note: string,
+  ): void {
+    for (let index = fromPhaseIndex; index < toExclusive; index += 1) {
+      phaseLog.push({
+        round,
+        phase: phaseNameOf(index),
+        requestCount: 0,
+        note,
+      });
+    }
   }
 
   function parsePhaseReply(replyText: string): { readonly note?: string } {

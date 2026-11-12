@@ -36,6 +36,12 @@ export const DEFAULT_REVIEW_BUDGET: ReviewBudget = {
   maxOutputTokens: 48_000,
 };
 
+/**
+ * 候选与裁决阶段保底请求数（#55 / ADR-0018 §2.2）：进入候选前必须剩余至少
+ * 2 个请求，否则 run 会停在没有 Finding 的阶段。
+ */
+export const FINDINGS_PHASE_REQUEST_FLOOR = 2;
+
 /** 补全缺省并校验覆盖值（预算必须是正整数——0 会静默关闭整类预算） */
 export function resolveReviewBudget(override: ReviewBudgetOverride = {}): ReviewBudget {
   return {

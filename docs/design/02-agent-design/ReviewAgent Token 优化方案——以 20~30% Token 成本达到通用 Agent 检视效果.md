@@ -1227,6 +1227,14 @@ flowchart TD
 - 审计 `truncationReasons` 新增事件 `TOOL_ATTEMPTS_EXHAUSTED`（与 StopReason 同名，只作事件留痕）；执行预算路径的应答文案与 wire 字节不变。
 - 行为缝测试：`packages/review-pi/src/loop/forced-finalization.test.ts`（收尾指令、整批 terminate、每阶段 2 次上限、truncated 表驱动）；run 级落盘见 `review-run-budget.test.ts`。
 
+**落地记录（#55，2026-11-12）**
+
+- 请求预算在阶段边界生效：边界处以剩余请求（`maxRequests − 已发请求数`）判定——下一阶段仍在第 1–4 阶段时，剩余不足以按常规序推进到裁决就跳过尚未完成的前四阶段直入候选；被跳过阶段逐条写 `phaseLog`（`requestCount = 0` + note），`truncationReasons` 记 `REQUEST_BUDGET_PHASES_SKIPPED`。
+- 候选与裁决保底 2 请求：进入候选前剩余 < 2 或跳过时连保底都不足 → 不再开始候选，`stopReason = MAX_REQUESTS_REACHED`（`truncated = true`）；候选 → 裁决之间不设请求闸，裁决允许完成。轮次边界视同阶段边界；跳过本身不翻转 `truncated`。
+- 输出预算只做事后判定：阶段完成后累计 `usage.outputTokens` 严格超限才在边界停止后续请求（含候选 → 裁决之间；5/6 保底不豁免），`stopReason = OUTPUT_BUDGET_EXHAUSTED`、`truncated = true`；wire 不新增 `max_tokens`，已完成阶段文本保留。裁决收尾且模型声明 complete 时按 `MODEL_COMPLETE` 收尾。
+- 缺省请求预算 24 先于 5 轮上界（30 请求）收口：不完成脚本缺省停在 4 轮、`MAX_REQUESTS_REACHED`。这是有意的控制面行为；轮次上界测试改为显式放宽 `maxRequests` 以隔离被测语义。
+- 行为缝测试：`packages/review-pi/src/loop/request-output-budget.test.ts`（跳保底、硬停、候选后完成、输出边界、wire 无 `max_tokens`）；run 级落盘见 `review-run-budget.test.ts`。
+
 ### P0-4：处理空知识工具
 
 **问题**

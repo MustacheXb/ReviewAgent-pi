@@ -343,6 +343,9 @@ test("截断路径:phase-6 恒 complete:false → MAX_ROUNDS 上界,正常返回
     runsRoot,
     experimentId: "phase2-smoke",
     rep: 1,
+    // 请求预算放宽到「5 轮 × 6 相位」以隔离轮次上界（#55 起缺省 maxRequests=24
+    // 会先于 5 轮上界收口）
+    budget: { maxRequests: 30 },
   });
 
   // 5 轮 × 6 相位各一请求;runReview 正常返回(不抛——防御性路径退出码 0)

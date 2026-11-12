@@ -58,13 +58,31 @@ test("预算覆盖：maxRounds=2 经内部输入生效（2 轮收口）；缺省
   expect(override.record.baseline.audit.truncated).toBe(true);
   expect(override.record.baseline.audit.truncationReasons).toEqual(["MAX_ROUNDS_REACHED"]);
 
-  // 缺省预算生效：同一脚本无预算输入 → 5 轮上界（30 请求）
+  // 缺省 maxRounds 生效（5 轮）；请求预算放宽到 30 以隔离轮次上界（#55 起
+  // 缺省 maxRequests=24 会先于 5 轮收口——缺省请求预算见下一条用例）
   const defaultScript = fakeFetch(incompleteRoundsCorpus(5));
-  const defaults = await runReview(runInput(defaultScript, tempRunsRoot("review-pi-budget-")));
+  const defaults = await runReview({
+    ...runInput(defaultScript, tempRunsRoot("review-pi-budget-")),
+    budget: { maxRequests: 30 },
+  });
 
   expect(defaultScript.requests).toHaveLength(30);
   expect(defaults.record.baseline.rounds).toBe(5);
   expect(defaults.record.baseline.audit.truncated).toBe(true);
+}, 120_000);
+
+test("请求预算缺省 24：先于 5 轮上界收口（24 请求、4 轮、MAX_REQUESTS_REACHED）", async () => {
+  const script = fakeFetch(incompleteRoundsCorpus(5));
+  const { record, auditPath } = await runReview(
+    runInput(script, tempRunsRoot("review-pi-budget-")),
+  );
+
+  expect(script.requests).toHaveLength(DEFAULT_REVIEW_BUDGET.maxRequests);
+  expect(record.baseline.rounds).toBe(4);
+  expect(record.baseline.audit.stopReason).toBe("MAX_REQUESTS_REACHED");
+  expect(record.baseline.audit.truncated).toBe(true);
+  expect(record.baseline.audit.truncationReasons).toEqual(["MAX_REQUESTS_REACHED"]);
+  expect(readAuditJson(auditPath).stopReason).toBe("MAX_REQUESTS_REACHED");
 }, 120_000);
 
 test("预算覆盖：maxExecutedToolCalls=1 生效——同批第二次调用获预算耗尽应答", async () => {
@@ -148,6 +166,27 @@ test("停止原因可观测：收尾注入用尽仍调用工具 → TOOL_ATTEMPT
   expect(record.baseline.audit.stopReason).toBe("TOOL_ATTEMPTS_EXHAUSTED");
   expect(record.baseline.audit.truncated).toBe(true);
   expect(readAuditJson(auditPath).stopReason).toBe("TOOL_ATTEMPTS_EXHAUSTED");
+}, 120_000);
+
+test("停止原因可观测：输出预算超限 → OUTPUT_BUDGET_EXHAUSTED 落审计与 RunRecord", async () => {
+  const script = fakeFetch([
+    { text: "ok", usage: { promptTokens: 0, completionTokens: 2, cacheReadTokens: 0 } },
+  ]);
+  const { record, auditPath } = await runReview({
+    ...runInput(script, tempRunsRoot("review-pi-budget-")),
+    budget: { maxOutputTokens: 1 },
+  });
+
+  // 第 1 阶段收尾后累计输出 2 > 1：阶段边界停止后续请求（仅 1 个请求发出）
+  expect(script.requests).toHaveLength(1);
+  expect(record.baseline.audit.stopReason).toBe("OUTPUT_BUDGET_EXHAUSTED");
+  expect(record.baseline.audit.truncated).toBe(true);
+  expect(record.baseline.audit.truncationReasons).toEqual(["OUTPUT_BUDGET_EXHAUSTED"]);
+  expect(readAuditJson(auditPath).stopReason).toBe("OUTPUT_BUDGET_EXHAUSTED");
+  // 输出预算不改变请求字节：wire 上无 max_tokens
+  for (const request of readAuditJson(auditPath).requests) {
+    expect(request.wireBody).not.toContain("max_tokens");
+  }
 }, 120_000);
 
 interface AuditJson {

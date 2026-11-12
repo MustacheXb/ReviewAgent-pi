@@ -67,6 +67,14 @@ _Avoid_: 相对锚口径（不依赖评测结论）、把 reject/false-positive 
 模型发起工具调用的总次数封顶，与真正执行的调用数是两个独立闸；尝试耗尽不终止检视，而是迫使当前阶段以文本收尾。
 _Avoid_: 执行预算（那是执行上界）、把尝试耗尽当整轮终止
 
+**Request Budget（请求预算）**:
+发往 provider 的请求总数上界（缺省 24）；只在阶段边界判定（阶段内工具 recall 不设闸）。剩余请求不足以按常规序推进到裁决时，跳过尚未完成的前四阶段直入候选——候选与裁决保底 2 请求，候选一旦开始裁决允许完成。连保底都不足时按 `MAX_REQUESTS_REACHED` 收尾。
+_Avoid_: 在工具轮中途掐断请求（判定只在阶段边界）、用请求预算替代尝试预算
+
+**Output Budget（输出预算）**:
+累计 output token 封顶（缺省 48,000）；只在阶段边界事后判定并停止后续请求，绝不在 wire 上新增 `max_tokens`、也不改写已完成阶段。超限按 `OUTPUT_BUDGET_EXHAUSTED` 收尾。
+_Avoid_: wire `max_tokens`（改变请求字节并击穿缓存合同）、把输出预算当请求参数
+
 **Forced Phase Finalization（强制阶段收尾）**:
 工具尝试预算耗尽后的收口方式：本批工具调用终止，向模型注入「直接输出本阶段 JSON」指令（每阶段至多 2 次），保证候选与裁决阶段仍能产出结论；注入用尽仍只发工具调用按 `TOOL_ATTEMPTS_EXHAUSTED` 收尾，返回空文本才按 `PHASE_FORCED_INCOMPLETE` 收尾。
 _Avoid_: 预算耗尽即终止整轮（会丢失 Finding）、静默跳过阶段
