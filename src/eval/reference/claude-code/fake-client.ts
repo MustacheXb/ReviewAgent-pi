@@ -1,7 +1,8 @@
-import type {
-  ClaudeCodeClient,
-  ClaudeCodeOutcome,
-  ClaudeCodeRequest,
+import {
+  CLAUDE_CODE_MAX_TURNS,
+  type ClaudeCodeClient,
+  type ClaudeCodeOutcome,
+  type ClaudeCodeRequest,
 } from "./contracts.js";
 
 /**
@@ -65,6 +66,7 @@ export function emptyOutcome(): ClaudeCodeOutcome {
     durationMs: null,
     error: null,
     truncated: false,
+    maxTurns: CLAUDE_CODE_MAX_TURNS,
     resultText: "[]",
   };
 }

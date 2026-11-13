@@ -109,17 +109,31 @@ describe("createClaudeCodeClient", () => {
     expect(outcome.findings).toHaveLength(1);
   });
 
-  it("--model 透传；maxTurns 不允许超过 5", async () => {
+  it("--model 透传；显式 maxTurns 透传；null = ceiling 省略 --max-turns", async () => {
     const { runner, calls } = capturingRunner();
-    const client = createClaudeCodeClient({ runner, model: "claude-sonnet-5-0", maxTurns: 10 });
+    const client = createClaudeCodeClient({
+      runner,
+      model: "deepseek-v4-flash",
+      maxTurns: 20,
+    });
 
     await client.run({ caseId: "VUL4J-1", mrCase: mrCase("VUL4J-1"), rep: 1 });
 
     const call = calls[0] as ClaudeCodeCommandInput;
     const turnsIndex = call.args.indexOf("--max-turns");
-    expect(call.args[turnsIndex + 1]).toBe("5");
+    expect(call.args[turnsIndex + 1]).toBe("20");
     expect(call.args).toContain("--model");
-    expect(call.args).toContain("claude-sonnet-5-0");
+    expect(call.args).toContain("deepseek-v4-flash");
+
+    const ceiling = capturingRunner();
+    const ceilingClient = createClaudeCodeClient({ runner: ceiling.runner, maxTurns: null });
+    const outcome = await ceilingClient.run({
+      caseId: "VUL4J-1",
+      mrCase: mrCase("VUL4J-1"),
+      rep: 1,
+    });
+    expect((ceiling.calls[0] as ClaudeCodeCommandInput).args).not.toContain("--max-turns");
+    expect(outcome.maxTurns).toBeNull();
   });
 
   it("非零退出且 stdout 不可用 → 显式抛错；非零但 JSON 完整 → 保留截断记录", async () => {

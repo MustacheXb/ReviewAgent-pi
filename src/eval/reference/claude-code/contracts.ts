@@ -57,6 +57,8 @@ export interface ClaudeCodeOutcome {
   readonly error: string | null;
   /** max-turns 等截断（正常为 false） */
   readonly truncated: boolean;
+  /** 本轮配置的 turn 上界；null = ceiling 模式（不传 --max-turns） */
+  readonly maxTurns: number | null;
   /** CLI 最终文本（`result` 字段；原样留痕，便于复算归一化） */
   readonly resultText: string;
 }
@@ -73,7 +75,8 @@ export interface ClaudeCodeReferenceRecord {
   readonly evalOnly: true;
   readonly caseId: string;
   readonly rep: number;
-  readonly maxTurns: typeof CLAUDE_CODE_MAX_TURNS;
+  /** 本轮 turn 上界；null = ceiling（无 --max-turns，安全超时兜底） */
+  readonly maxTurns: number | null;
   readonly allowedTools: typeof CLAUDE_CODE_ALLOWED_TOOLS;
   readonly cliVersion: string | null;
   readonly requestedModel: string | null;

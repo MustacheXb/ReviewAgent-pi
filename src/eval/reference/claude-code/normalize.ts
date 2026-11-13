@@ -132,7 +132,7 @@ function normalizeEntry(
  */
 export function parseClaudeCodeStdout(
   stdout: string,
-): Omit<ClaudeCodeOutcome, "cliVersion" | "requestedModel"> {
+): Omit<ClaudeCodeOutcome, "cliVersion" | "requestedModel" | "maxTurns"> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout) as unknown;

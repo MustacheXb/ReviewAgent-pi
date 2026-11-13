@@ -33,6 +33,7 @@ import {
 } from "../src/eval/campaign/store.js";
 import {
   buildClaudeCodeColumn,
+  CLAUDE_CODE_MAX_TURNS,
   createClaudeCodeClient,
   detectClaudeCodeVersion,
   renderClaudeCodeColumnMarkdown,
@@ -61,6 +62,8 @@ interface SmokeOptions {
   readonly model: string;
   readonly judgeModel: string;
   readonly rep: number;
+  /** Claude Code 口径：ceiling = 不传 --max-turns；bounded = 5 轮 */
+  readonly claudeMode: "ceiling" | "bounded";
 }
 
 function parseArgs(argv: readonly string[]): SmokeOptions {
@@ -95,6 +98,10 @@ function parseArgs(argv: readonly string[]): SmokeOptions {
   if (!Number.isInteger(rep) || rep <= 0) {
     throw new Error("--rep must be a positive integer");
   }
+  const claudeMode = values.get("--claude-mode") ?? "ceiling";
+  if (claudeMode !== "ceiling" && claudeMode !== "bounded") {
+    throw new Error("--claude-mode must be ceiling or bounded");
+  }
   const date = new Date().toISOString().slice(0, 10);
   return {
     kind,
@@ -107,6 +114,7 @@ function parseArgs(argv: readonly string[]): SmokeOptions {
     model: values.get("--model") ?? "deepseek-v4-flash",
     judgeModel: values.get("--judge-model") ?? "glm-5.2",
     rep,
+    claudeMode,
   };
 }
 
@@ -213,9 +221,13 @@ async function main(argv: readonly string[]): Promise<number> {
     const cliVersion = await detectClaudeCodeVersion();
     // Harness 同模型对照（用户口径）：Claude Code 必须使用与 ReviewAgent-pi
     // 评测相同的模型 id；不允许回落到 CLI 默认模型（可能是 glm/其它网关模型）。
+    // ceiling：不传 --max-turns，测通用 Agent 能力上限；timeout 兜底。
+    // bounded：5 轮，作为有界性 / 收敛单列。
     const client = createClaudeCodeClient({
       ...(cliVersion !== null ? { cliVersion } : {}),
       model: options.model,
+      maxTurns: options.claudeMode === "ceiling" ? null : CLAUDE_CODE_MAX_TURNS,
+      timeoutMs: options.claudeMode === "ceiling" ? 30 * 60_000 : 10 * 60_000,
     });
     const records: ClaudeCodeReferenceRecord[] = [];
     for (const rawCase of cases) {

@@ -51,8 +51,12 @@ export interface CreateClaudeCodeClientOptions {
   readonly cliPath?: string;
   /** 请求模型（可选；实际模型以 modelUsage 为准） */
   readonly model?: string;
-  /** 轮次上界（缺省 / 上限 5；不允许调高） */
-  readonly maxTurns?: number;
+  /**
+   * 轮次上界：
+   * - number（缺省 5）= bounded 口径（`--max-turns N`）；
+   * - null = ceiling 口径（不传 `--max-turns`，靠 timeout 兜底）。
+   */
+  readonly maxTurns?: number | null;
   readonly timeoutMs?: number;
   /** CLI 版本（真实装配可先跑 `claude --version`；缺省 null = N/A） */
   readonly cliVersion?: string | null;
@@ -64,9 +68,9 @@ export function createClaudeCodeClient(
   options: CreateClaudeCodeClientOptions = {},
 ): ClaudeCodeClient {
   const cliPath = options.cliPath ?? "claude";
-  const maxTurns = Math.min(options.maxTurns ?? CLAUDE_CODE_MAX_TURNS, CLAUDE_CODE_MAX_TURNS);
-  if (!Number.isInteger(maxTurns) || maxTurns <= 0) {
-    throw new Error(`claude-code: maxTurns must be a positive integer (got ${maxTurns})`);
+  const maxTurns = options.maxTurns === undefined ? CLAUDE_CODE_MAX_TURNS : options.maxTurns;
+  if (maxTurns !== null && (!Number.isInteger(maxTurns) || maxTurns <= 0)) {
+    throw new Error(`claude-code: maxTurns must be a positive integer or null (got ${maxTurns})`);
   }
   const runner = options.runner ?? defaultClaudeCodeRunner;
   const timeoutMs = options.timeoutMs ?? DEFAULT_CLAUDE_CODE_TIMEOUT_MS;
@@ -97,6 +101,7 @@ export function createClaudeCodeClient(
         ...parsed,
         cliVersion: options.cliVersion ?? null,
         requestedModel: options.model ?? null,
+        maxTurns,
       };
     },
   };
@@ -113,7 +118,7 @@ export function toClaudeCodeReferenceRecord(
     evalOnly: true,
     caseId: request.caseId,
     rep: request.rep,
-    maxTurns: CLAUDE_CODE_MAX_TURNS,
+    maxTurns: outcome.maxTurns,
     allowedTools: CLAUDE_CODE_ALLOWED_TOOLS,
     cliVersion: outcome.cliVersion,
     requestedModel: outcome.requestedModel,
@@ -163,13 +168,15 @@ export async function detectClaudeCodeVersion(options: {
   }
 }
 
-export function buildArgs(maxTurns: number, model: string | undefined): readonly string[] {
+export function buildArgs(
+  maxTurns: number | null,
+  model: string | undefined,
+): readonly string[] {
   return [
     "-p",
     "--output-format",
     "json",
-    "--max-turns",
-    String(maxTurns),
+    ...(maxTurns === null ? [] : ["--max-turns", String(maxTurns)]),
     // 硬限制可用工具集（--allowedTools 只是免提示放行，不限制工具面）
     "--tools",
     CLAUDE_CODE_ALLOWED_TOOLS.join(","),

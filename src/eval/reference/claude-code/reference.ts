@@ -56,6 +56,7 @@ export interface ClaudeCodeColumn {
   readonly cases: number;
   readonly findings: number;
   readonly zeroFindingRate: number | null;
+  readonly truncatedRuns: number;
   readonly totalCostUsd: number | null;
   readonly avgTurns: number | null;
   readonly permissionDenials: number | null;
@@ -83,6 +84,7 @@ export function buildClaudeCodeColumn(
     cases,
     findings,
     zeroFindingRate: cases === 0 ? null : zeroFindings / cases,
+    truncatedRuns: records.filter((record) => record.truncated).length,
     totalCostUsd: sumOrNull(records.map((record) => record.totalCostUsd)),
     avgTurns: meanOrNull(records.map((record) => record.numTurns)),
     permissionDenials: sumOrNull(records.map((record) => record.permissionDenials)),
@@ -136,6 +138,7 @@ export function renderClaudeCodeColumnMarkdown(column: ClaudeCodeColumn): string
     `| cases | ${column.cases} |`,
     `| findings | ${column.findings} |`,
     `| zero-finding rate | ${fmt(column.zeroFindingRate)} |`,
+    `| truncated runs | ${column.truncatedRuns} |`,
     `| total cost (USD) | ${fmt(column.totalCostUsd, 6)} |`,
     `| avg turns | ${fmt(column.avgTurns)} |`,
     `| permission denials | ${column.permissionDenials ?? "N/A"} |`,
