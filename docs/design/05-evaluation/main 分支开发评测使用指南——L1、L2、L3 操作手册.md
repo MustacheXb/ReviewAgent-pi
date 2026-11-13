@@ -7,10 +7,10 @@
 > [ADR-0017 Token 优化判据](../../adr/0017-token-optimization-gates.md)、
 > [治理 runbook](../../report/token-eval/GOVERNANCE.md)。
 >
-> **重要边界**：本文按当前已落地的评测能力写。L1 与空对照校准可直接执行；L2 的
-> **同代码诊断**可执行，但 **baseline vs candidate 跨 commit 真实配对**目前仍需
-> 调用方提供 baseline kernel（runner 有 `armKernels` 注入缝，尚无 CLI 一键装配）。
-> 未完成这一步前，L2 结果只能作诊断，不能作为合并硬门通过证据。
+> **重要边界**：本文按当前已落地的评测能力写。L1 与空对照校准可直接执行；
+> L2 的真实跨 commit 配对通过 `--baseline-repo <baseline-worktree>` 装配
+> baseline 子进程内核（该 worktree 检出冻结 ref 并已构建 `review-pi`）；
+> 未提供 `--baseline-repo` 时两臂共用当前 checkout，只能作同代码诊断。
 
 ## 0. 分支与评测面拓扑
 
@@ -128,24 +128,67 @@ CAMPAIGN_REAL=1 pnpm campaign -- \
 同 ref 双 arm 会被识别为空对照校准；用于检查 harness、随机臂序、coverage /
 failures 与噪声底。**不能据此宣称优化收益。**
 
-### 5.2 真实 paired L2（当前缺一键装配）
+### 5.2 真实 paired L2（`--baseline-repo` 跨 commit 装配）
 
-需要：
+#### 5.2.1 准备 baseline worktree
 
-1. **baseline kernel** 来自冻结 tag `eval-e-baseline-2026-11-11`（`e724958`）；
-2. **candidate kernel** 来自 `<candidate-sha>`（eval harness + candidate 代码）；
-3. 通过 `CampaignDeps.armKernels` 注入两个 kernel，同一 campaign 内按 case × rep
-   交错执行。
+```bash
+cd D:\xubao\code\AI4SE\ReviewAgent-pi\ReviewAgent-pi       # eval/bench 主检出
+git worktree add ..\ReviewAgent-pi-baseline eval-e-baseline-2026-11-11
+cd ..\ReviewAgent-pi-baseline
 
-runner 已支持 `armKernels`，但 `scripts/run-campaign.ts` 的真实装配默认两臂共用
-当前 checkout；`--baseline-ref` / `--candidate-ref` 只是身份标签。**当前需要调用方
-自行提供 baseline kernel（子进程 / 独立构建）并在自定义装配中注入**；仓库尚无一键
-CLI。
+pnpm install
+pnpm build:pi
+pnpm --filter review-llm build
+pnpm --filter review-pi build
+```
 
-在补齐之前，可用以下**不完整**替代：
+- HEAD 必须正好是 `eval-e-baseline-2026-11-11`；`--baseline-repo` 会校验。
+- baseline worktree 不需要 `.env.local`；reviewer key 经 stdin 传给子进程。
+- 该 worktree 只需能 `import review-pi`（dist 已构建）。
 
-- 跑 candidate 单臂 L1 + `analyze:token`，与 baseline 快照做人工非配对对照；
-- 明确标注「诊断」，不得作为 L2 硬门 / 收益证据。
+#### 5.2.2 准备 candidate worktree
+
+candidate 臂 = **包含 main 最新代码的 eval/bench checkout**：
+
+```bash
+cd D:\xubao\code\AI4SE\ReviewAgent-pi\ReviewAgent-pi
+git worktree add -b eval/candidate-<sha> ..\ReviewAgent-pi-eval-<sha> eval/bench
+cd ..\ReviewAgent-pi-eval-<sha>
+git merge <main-sha>       # 或 cherry-pick；解决冲突，不反向合回 main
+pnpm install
+```
+
+- 复用主检出的 `.cache/datasets`（复制或 junction），否则 cases 的相对
+  `repoPath` 无法解析。
+- `.env.local` 放在 candidate worktree（reviewer + judge key）。
+
+#### 5.2.3 跑真实 L2
+
+```bash
+CAMPAIGN_REAL=1 pnpm campaign -- \
+  --campaign-id p1-l2-<date> \
+  --baseline-ref eval-e-baseline-2026-11-11 \
+  --candidate-ref <main-sha> \
+  --baseline-repo D:\xubao\code\AI4SE\ReviewAgent-pi\ReviewAgent-pi-baseline \
+  --cases data/vul4j/target-cases.json \
+  --model deepseek-v4-flash --reps 3 --arms baseline,candidate \
+  --randomize-arms --calibration-ref p1-calibration-2026-11-12 \
+  --judge-model glm-5.2
+```
+
+- `--baseline-repo` 存在时，真实装配注入 `armKernels`：
+  `baseline` = baseline worktree 的 `review-pi` 子进程；`candidate` = 当前
+  candidate checkout 的 `review-pi`。
+- 两臂按 case × rep 交错，随机臂序；同模型 / 同 provider / 同 judge。
+- 未提供 `--baseline-repo` 时两臂共用当前 checkout，只作同代码诊断。
+
+#### 5.2.4 限制
+
+- baseline 与 candidate 的工具面 / 预算可能不同（如 extended-7 → core-5），
+  这是本次 treatment；报告必须显式记录，不能把差异归因到单一机制。
+- 30 案功效不足时报告为 `underpowered/diagnostic`；CARC 约需 ≥43 案、
+  3pp 质量约需 ≈220 案。
 
 ### 5.3 L2 读什么
 
@@ -225,15 +268,14 @@ comparability / quality / cost / cache / coverage / environment / signOff 全过
   截断，不静默丢样。
 - **样本量不足**：30 案 L2 只作诊断；扩样或由产品 ADR 修订目标线，不能用
   签字/例外绕过质量门。
-- **跨 commit 双 arm**：当前需调用方提供 baseline kernel；这是 L2 正式化的
-  最后装配缺口。
+- **跨 commit 双 arm**：必须提供 `--baseline-repo <baseline-worktree>` 且该
+  worktree 已构建 `review-pi`；否则两臂共用当前 checkout，只能作同代码诊断。
 
 ## 10. 相关文档
 
-- [评测基准方案](<./ReviewAgent Token 优化评测基准方案——三层对照体系与 Claude Code 外部参照.md>)
-- [评测 RUNBOOK](../../report/token-eval/RUNBOOK.md)
-- [治理 runbook](../../report/token-eval/GOVERNANCE.md)
+- [测评基准方案](<./ReviewAgent Token 优化评测基准方案——三层对照体系与 Claude Code 外部参照.md>)
+- [评测 RUNBOOK（eval/bench）](https://github.com/MustacheXb/ReviewAgent-pi/blob/eval/bench/docs/report/token-eval/RUNBOOK.md)
+- [治理 runbook（eval/bench）](https://github.com/MustacheXb/ReviewAgent-pi/blob/eval/bench/docs/report/token-eval/GOVERNANCE.md)
 - [ADR-0016 评测面隔离](../../adr/0016-evaluation-plane-isolation.md)
 - [ADR-0017 Token 优化判据](../../adr/0017-token-optimization-gates.md)
-- ADR-0018 Token 控制面语义（在 `main` 线；`eval/bench` 分支不携带该文件，
-  需要时从 `main` 查看 `docs/adr/0018-token-control-plane-semantics.md`）
+- ADR-0018 Token 控制面语义（在 `main` 线；`docs/adr/0018-token-control-plane-semantics.md`）
