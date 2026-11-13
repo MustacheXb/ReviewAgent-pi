@@ -173,6 +173,12 @@ candidate: <commit>
      44.7k。ceiling 用于「能力上限 + token/时延代价」，bounded 5 轮单列，
      不混入质量排名。报告：
      [`claude-code-ceiling-2026-11-13/`](claude-code-ceiling-2026-11-13/REPORT.md)。
+   - **ceiling 10×2 试点**（2026-11-13）：20 runs / 10 cases，0 截断；
+     case 等权 Recall 0.318 / Precision 0.492，zero-finding 0.200，
+     avg 22.15 turns / 436.8s / run，总 145.6 min、CLI $34.72；同 10 案 E
+     warm 为 Recall 0.463 / Precision 0.454 / CARC 47.4k / totalTokens
+     100.3k，Claude totalTokens ≈7.7×、CARC ≈2.5×。报告：
+     [`claude-code-ceiling-10x2-2026-11-13/`](claude-code-ceiling-10x2-2026-11-13/REPORT.md)。
 
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s

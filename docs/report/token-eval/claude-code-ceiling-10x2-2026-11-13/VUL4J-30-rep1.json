@@ -1,0 +1,12 @@
+{
+  "caseId": "VUL4J-30",
+  "rep": 1,
+  "ref": "claude-code",
+  "status": "judged",
+  "counts": {
+    "tp": 0,
+    "fp": 1,
+    "fn": 1
+  },
+  "anomalies": []
+}

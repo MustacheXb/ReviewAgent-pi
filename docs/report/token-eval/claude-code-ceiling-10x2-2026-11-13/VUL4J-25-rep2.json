@@ -1,0 +1,92 @@
+{
+  "kind": "claude-code-reference",
+  "schemaVersion": 1,
+  "evalOnly": true,
+  "caseId": "VUL4J-25",
+  "rep": 2,
+  "maxTurns": null,
+  "allowedTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "cliVersion": "2.1.241",
+  "requestedModel": "deepseek-v4-flash",
+  "actualModels": [
+    "deepseek-v4-flash"
+  ],
+  "numTurns": 15,
+  "totalCostUsd": 1.375956,
+  "usage": {
+    "inputTokens": 55960,
+    "cacheCreationInputTokens": 0,
+    "cacheReadInputTokens": 314112,
+    "outputTokens": 37564
+  },
+  "modelUsage": {
+    "deepseek-v4-flash": {
+      "inputTokens": 55960,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 314112,
+      "outputTokens": 37564
+    }
+  },
+  "permissionDenials": 0,
+  "durationMs": 451003,
+  "error": null,
+  "truncated": false,
+  "findings": [
+    {
+      "id": "1",
+      "severity": "P1",
+      "category": "Error Handling",
+      "file": "src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java",
+      "line": 232,
+      "title": "getValidHref now throws uncaught IllegalArgumentException on malformed/double-decoded percent-escapes (crash/DoS regression)",
+      "description": "The new URLDecoder.decode(url, StandardCharsets.UTF_8.name()) call introduces an uncaught RuntimeException path. URLDecoder.decode throws IllegalArgumentException (unchecked) for an incomplete trailing escape or invalid hex (e.g. 'http://x/%', 'http://x/%zz'). The surrounding try/catch only catches UnsupportedEncodingException, which can never be thrown for the hard-coded UTF-8 charset, so the catch is dead code and the real failure escapes. Worse, the double-decode makes this trigger on benign, common input: getValidHref decodes 'test?discount=25%25' to 'test?discount=25%' and then passes that to xssFilter.isValidHref, whose own URLDecoder.decode then throws IllegalArgumentException on the trailing '%'. Before this change getValidHref never threw and returned '' for any input, so any caller feeding untrusted hrefs (the method's purpose) can now be crashed, and the existing test case 'test?discount=25%25' -> 'test?discount=25%25' would start failing.",
+      "evidence": [
+        "String unescapedURL = URLDecoder.decode(url, StandardCharsets.UTF_8.name());",
+        "} catch (UnsupportedEncodingException e) { LOGGER.error(\"Unable to decode url: {}\", url); }",
+        "URLDecoder.decode throws IllegalArgumentException (\"Incomplete trailing escape (%) pattern\") for a trailing '%'; \"test?discount=25%25\" -> first decode \"test?discount=25%\" -> xssFilter.isValidHref decodes again and throws",
+        "StandardCharsets.UTF_8.name() is always supported, making the UnsupportedEncodingException catch unreachable"
+      ],
+      "rule": "CWE-248 Uncaught Exception / CWE-20 Improper Input Validation",
+      "confidence": 0.9
+    },
+    {
+      "id": "2",
+      "severity": "P1",
+      "category": "Cross-site Scripting",
+      "file": "src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java",
+      "line": 237,
+      "title": "XSS bypass survives the fix: commons-lang3 unescapeXml does not decode HTML5 named character references such as &colon;",
+      "description": "The new StringEscapeUtils.unescapeXml step only decodes the five predefined XML entities (&lt; &gt; &amp; &quot; &apos;) plus numeric character references. Browsers also decode the full HTML5 named-character-reference set, including &colon; (U+003A), &Tab; and &NewLine;. A payload such as 'javascript&colon;alert(1)' is left unchanged by unescapeXml, triggers none of the 6-character re-encoding rules, and passes xssFilter.isValidHref because the policy 'onsiteURL' regexp (config.xml line 70) allows '&', ';', letters, '(' and ')'. getValidHref therefore returns 'javascript&colon;alert(1)'; when emitted into an href attribute the HTML parser decodes &colon; to ':', producing javascript:alert(1), so the CVE-2017-15717 fix is incomplete.",
+      "evidence": [
+        "unescapedURL = StringEscapeUtils.unescapeXml(unescapedURL);",
+        "config.xml onsiteURL = \"([\\p{L}\\p{M}*+\\p{N}\\\\.\\#@\\$%\\+&;;\\-_~,\\?=/!\\*\\(\\)]*|\\#(\\w)+)\" matches \"javascript&colon;alert(1)\" verbatim",
+        "commons-lang3 UNESCAPE_XML lookup table contains only < > & \" ' plus NumericEntityUnescaper; named HTML5 refs like &colon; and &Tab; pass through unchanged",
+        "browser href attribute tokenization decodes &colon; -> ':', so javascript&colon;alert(1) becomes javascript:alert(1)"
+      ],
+      "rule": "CWE-79 Improper Neutralization of Input During Web Page Generation / CWE-116 Incomplete Encoding",
+      "confidence": 0.6
+    },
+    {
+      "id": "3",
+      "severity": "P3",
+      "category": "Input Validation",
+      "file": "src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java",
+      "line": 232,
+      "title": "URLDecoder.decode round-trip is lossy: '+' maps to space and percent-escapes are collapsed, corrupting valid hrefs",
+      "description": "URLDecoder.decode turns '+' into a space and decodes every percent-escape, but the re-encoding afterwards only covers 6 characters (\" ' > < ` space) plus ':' after '?'. Legitimate URLs are therefore returned in an altered form: '+' becomes '%20' ('https://example.com/a+b' is returned as 'https://example.com/a%20b'), and reserved escapes such as '%2F', '%23', '%3F' are collapsed to '/', '#', '?' without being re-encoded, changing path segmentation/fragment/query boundaries. E.g. '%2Fscripts%2Ftest.js' is returned as '/scripts/test.js' while the pre-existing test expects the original encoded form to be preserved. This breaks getValidHref's contract of returning a valid, usable href.",
+      "evidence": [
+        "String unescapedURL = URLDecoder.decode(url, StandardCharsets.UTF_8.name()); ... String encodedUrl = unescapedURL.replaceAll(\"\\\"\", \"%22\").replaceAll(\"'\", \"%27\")... (only 6 chars re-encoded)",
+        "URLDecoder.decode maps '+' to ' '; 'https://example.com/a+b' -> decode 'https://example.com/a b' -> re-encoded 'https://example.com/a%20b'",
+        "existing test case {\"%2Fscripts%2Ftest.js\", \"%2Fscripts%2Ftest.js\"} is violated: new code returns \"/scripts/test.js\""
+      ],
+      "rule": "CWE-20 Improper Input Validation (non-canonical, lossy URL round-trip)",
+      "confidence": 0.8
+    }
+  ],
+  "anomalies": [],
+  "resultText": "Based on my analysis of the change (the `ec6764d165` fix for CVE-2017-15717), I traced the new `getValidHref` decoding path against the current `XSSFilterImpl.isValidHref` (which itself re-decodes), the AntiSamy policy regexps in `config.xml`, commons-lang3 3.6's `unescapeXml` entity table, and the existing test expectations. Three concrete defects are present in the change.\n\n```json\n[\n  {\n    \"id\": \"1\",\n    \"severity\": \"P1\",\n    \"category\": \"Error Handling\",\n    \"file\": \"src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\",\n    \"line\": 232,\n    \"title\": \"getValidHref now throws uncaught IllegalArgumentException on malformed/double-decoded percent-escapes (crash/DoS regression)\",\n    \"description\": \"The new URLDecoder.decode(url, StandardCharsets.UTF_8.name()) call introduces an uncaught RuntimeException path. URLDecoder.decode throws IllegalArgumentException (unchecked) for an incomplete trailing escape or invalid hex (e.g. 'http://x/%', 'http://x/%zz'). The surrounding try/catch only catches UnsupportedEncodingException, which can never be thrown for the hard-coded UTF-8 charset, so the catch is dead code and the real failure escapes. Worse, the double-decode makes this trigger on benign, common input: getValidHref decodes 'test?discount=25%25' to 'test?discount=25%' and then passes that to xssFilter.isValidHref, whose own URLDecoder.decode then throws IllegalArgumentException on the trailing '%'. Before this change getValidHref never threw and returned '' for any input, so any caller feeding untrusted hrefs (the method's purpose) can now be crashed, and the existing test case 'test?discount=25%25' -> 'test?discount=25%25' would start failing.\",\n    \"evidence\": [\n      \"String unescapedURL = URLDecoder.decode(url, StandardCharsets.UTF_8.name());\",\n      \"} catch (UnsupportedEncodingException e) { LOGGER.error(\\\"Unable to decode url: {}\\\", url); }\",\n      \"URLDecoder.decode throws IllegalArgumentException (\\\"Incomplete trailing escape (%) pattern\\\") for a trailing '%'; \\\"test?discount=25%25\\\" -> first decode \\\"test?discount=25%\\\" -> xssFilter.isValidHref decodes again and throws\",\n      \"StandardCharsets.UTF_8.name() is always supported, making the UnsupportedEncodingException catch unreachable\"\n    ],\n    \"rule\": \"CWE-248 Uncaught Exception / CWE-20 Improper Input Validation\",\n    \"confidence\": 0.9\n  },\n  {\n    \"id\": \"2\",\n    \"severity\": \"P1\",\n    \"category\": \"Cross-site Scripting\",\n    \"file\": \"src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\",\n    \"line\": 237,\n    \"title\": \"XSS bypass survives the fix: commons-lang3 unescapeXml does not decode HTML5 named character references such as &colon;\",\n    \"description\": \"The new StringEscapeUtils.unescapeXml step only decodes the five predefined XML entities (&lt; &gt; &amp; &quot; &apos;) plus numeric character references. Browsers also decode the full HTML5 named-character-reference set, including &colon; (U+003A), &Tab; and &NewLine;. A payload such as 'javascript&colon;alert(1)' is left unchanged by unescapeXml, triggers none of the 6-character re-encoding rules, and passes xssFilter.isValidHref because the policy 'onsiteURL' regexp (config.xml line 70) allows '&', ';', letters, '(' and ')'. getValidHref therefore returns 'javascript&colon;alert(1)'; when emitted into an href attribute the HTML parser decodes &colon; to ':', producing javascript:alert(1), so the CVE-2017-15717 fix is incomplete.\",\n    \"evidence\": [\n      \"unescapedURL = StringEscapeUtils.unescapeXml(unescapedURL);\",\n      \"config.xml onsiteURL = \\\"([\\\\p{L}\\\\p{M}*+\\\\p{N}\\\\\\\\.\\\\#@\\\\$%\\\\+&;;\\\\-_~,\\\\?=/!\\\\*\\\\(\\\\)]*|\\\\#(\\\\w)+)\\\" matches \\\"javascript&colon;alert(1)\\\" verbatim\",\n      \"commons-lang3 UNESCAPE_XML lookup table contains only < > & \\\" ' plus NumericEntityUnescaper; named HTML5 refs like &colon; and &Tab; pass through unchanged\",\n      \"browser href attribute tokenization decodes &colon; -> ':', so javascript&colon;alert(1) becomes javascript:alert(1)\"\n    ],\n    \"rule\": \"CWE-79 Improper Neutralization of Input During Web Page Generation / CWE-116 Incomplete Encoding\",\n    \"confidence\": 0.6\n  },\n  {\n    \"id\": \"3\",\n    \"severity\": \"P3\",\n    \"category\": \"Input Validation\",\n    \"file\": \"src/main/java/org/apache/sling/xss/impl/XSSAPIImpl.java\",\n    \"line\": 232,\n    \"title\": \"URLDecoder.decode round-trip is lossy: '+' maps to space and percent-escapes are collapsed, corrupting valid hrefs\",\n    \"description\": \"URLDecoder.decode turns '+' into a space and decodes every percent-escape, but the re-encoding afterwards only covers 6 characters (\\\" ' > < ` space) plus ':' after '?'. Legitimate URLs are therefore returned in an altered form: '+' becomes '%20' ('https://example.com/a+b' is returned as 'https://example.com/a%20b'), and reserved escapes such as '%2F', '%23', '%3F' are collapsed to '/', '#', '?' without being re-encoded, changing path segmentation/fragment/query boundaries. E.g. '%2Fscripts%2Ftest.js' is returned as '/scripts/test.js' while the pre-existing test expects the original encoded form to be preserved. This breaks getValidHref's contract of returning a valid, usable href.\",\n    \"evidence\": [\n      \"String unescapedURL = URLDecoder.decode(url, StandardCharsets.UTF_8.name()); ... String encodedUrl = unescapedURL.replaceAll(\\\"\\\\\\\"\\\", \\\"%22\\\").replaceAll(\\\"'\\\", \\\"%27\\\")... (only 6 chars re-encoded)\",\n      \"URLDecoder.decode maps '+' to ' '; 'https://example.com/a+b' -> decode 'https://example.com/a b' -> re-encoded 'https://example.com/a%20b'\",\n      \"existing test case {\\\"%2Fscripts%2Ftest.js\\\", \\\"%2Fscripts%2Ftest.js\\\"} is violated: new code returns \\\"/scripts/test.js\\\"\"\n    ],\n    \"rule\": \"CWE-20 Improper Input Validation (non-canonical, lossy URL round-trip)\",\n    \"confidence\": 0.8\n  }\n]\n```"
+}
