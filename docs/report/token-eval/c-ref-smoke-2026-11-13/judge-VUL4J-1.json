@@ -1,0 +1,11 @@
+{
+  "caseId": "VUL4J-1",
+  "ref": "C_ref",
+  "status": "judged",
+  "counts": {
+    "tp": 1,
+    "fp": 2,
+    "fn": 0
+  },
+  "anomalies": []
+}

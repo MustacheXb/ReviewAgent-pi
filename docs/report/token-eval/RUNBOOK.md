@@ -147,6 +147,25 @@ candidate: <commit>
    正式校准仍为 30×3（并扩到 ≥43 案）。报告：
    [`p1-armorder-recheck-2026-11-12/`](p1-armorder-recheck-2026-11-12/REPORT.md)。
 
+   ### 2.4 Reference smoke（#43 / #44）
+
+   ```bash
+   CAMPAIGN_REAL=1 pnpm reference-smoke -- --kind c-ref \
+     --case-count 1 --out runs/eval/c-ref-smoke-<date>
+   CAMPAIGN_REAL=1 pnpm reference-smoke -- --kind claude-code \
+     --case-count 3 --out runs/eval/claude-code-smoke-<date>
+   ```
+
+   - C_ref：真实 pi 内核 + 全仓包装；`fullRepo` sidecar 在
+     `eval-sidecar/full-repo/<case>/C/rep-<n>.json`，不写生产 `RunAudit.fullRepo`。
+     2026-11-13 单案 `VUL4J-1` 已跑通（3 findings，judge 1/2/0），报告
+     [`c-ref-smoke-2026-11-13/`](c-ref-smoke-2026-11-13/REPORT.md)。
+   - Claude Code：跑前必须核对 `modelUsage` 实际模型是 `claude-*`。当前本机
+     `ANTHROPIC_*` 把 CLI 固定到 `glm-5.3` 网关；2026-11-13 冒烟因此无效并
+     停止，记录见
+     [`claude-code-smoke-2026-11-13/`](claude-code-smoke-2026-11-13/REPORT.md)。
+     未取得真实 Claude 模型前不得作为 L3 跨模型参照。
+
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s
    > 超时重试），`glm-5.3-flash` 返回非法 JSON。当前缺省用 `glm-5.2`

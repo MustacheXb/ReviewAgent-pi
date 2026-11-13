@@ -1,0 +1,26 @@
+{
+  "kind": "c-ref-smoke",
+  "ref": "C_ref",
+  "evalOnly": true,
+  "caseId": "VUL4J-1",
+  "model": "deepseek-v4-flash",
+  "fullRepo": {
+    "budgetChars": 80000,
+    "contentChars": 81322,
+    "truncated": true,
+    "totalFiles": 2035,
+    "shownFiles": 7,
+    "partialFile": "src/main/java/com/alibaba/fastjson/JSONPath.java",
+    "omittedFileCount": 2028
+  },
+  "findings": 3,
+  "judge": {
+    "status": "judged",
+    "counts": {
+      "tp": 1,
+      "fp": 2,
+      "fn": 0
+    },
+    "anomalies": []
+  }
+}

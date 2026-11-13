@@ -1,0 +1,198 @@
+{
+  "source": "vul4j",
+  "caseId": "VUL4J-1",
+  "configId": "E",
+  "rep": 1,
+  "model": "deepseek-v4-flash",
+  "verifier": "off",
+  "completedAt": "2026-11-13T03:35:02.987Z",
+  "baseline": {
+    "findings": [
+      {
+        "id": "F001",
+        "severity": "P2",
+        "category": "CORRECTNESS",
+        "file": "src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java",
+        "line": 177,
+        "title": "Passing raw componentClass drops parameterized component type for generic arrays",
+        "description": "In the `GenericArrayType` branch, `componentType` is the *declared* generic component type (e.g. `List<String>` for a `List<String>[]` field), while `componentClass` is reduced to the raw class via `TypeUtils.getClass(componentType)` (line 170). After this change the raw class is handed to `DefaultJSONParser.parseArray`, so element deserialization no longer receives the parameterized type. For a field declared as `List<String>[]` or `Map<String,Bean>[]`, elements will now be deserialized using the raw `List`/`Map` type, i.e. nested values become untyped `JSONObject`/`JSONArray`/`Integer` instances instead of the declared element types (`String`, `Bean`, ...). Consumers that later read those typed values will observe changed runtime types and can hit `ClassCastException`. The pre-change code preserved the full `Type` for element parsing (`parser.parseArray(componentType, array, fieldName)`); only the `TypeVariable` sub-case benefits from the substitution (the resolved `Class` is a valid parser input there).",
+        "evidence": [
+          "ObjectArrayCodec.java:143-145 - `if (type instanceof GenericArrayType) { GenericArrayType clazz = (GenericArrayType) type; componentType = clazz.getGenericComponentType();` (componentType keeps the declared generic component type)",
+          "ObjectArrayCodec.java:169-171 - `} else { componentClass = TypeUtils.getClass(componentType); }` (componentClass is the raw class, losing type arguments of a ParameterizedType)",
+          "ObjectArrayCodec.java:174 - `componentType = componentClass = clazz.getComponentType();` (only in the plain-Class branch are the two values identical, so this branch is unaffected)",
+          "ObjectArrayCodec.java:177 (changed line) - `parser.parseArray(componentClass, array, fieldName);` now uses the raw class instead of the declared `Type` for element parsing",
+          "ObjectArrayCodec.java:179 - `return (T) toObjectArray(parser, componentClass, array);` shows the array is cast using the raw class as well, so generic information is discarded end-to-end"
+        ],
+        "rule": "CORRECTNESS-001",
+        "confidence": 0.6
+      },
+      {
+        "id": "F002",
+        "severity": "P2",
+        "category": "SECURITY",
+        "file": "src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java",
+        "line": 177,
+        "title": "Change only rewires the component type argument; no input validation added for the CVE-2017-18349 (CWE-20) surface",
+        "description": "The MR is the only change in the diff and it merely swaps which `Type`/`Class` object is passed to `DefaultJSONParser.parseArray`. It adds no validation or rejection of untrusted input and does not alter any class-instantiation/autoType gate (no changes in `ParserConfig` or `DefaultJSONParser`). For the ordinary array cases the change is a no-op because `componentType` and `componentClass` are the same object (line 174), so `Object[]` and concrete bean arrays follow exactly the same deserialization path as before. Worse, in the `TypeVariable` branch the resolved type falls back to `Object.class` whenever the actual type argument is not itself a `Class` (line 164), so elements are then parsed with the least-restrictive component type. Therefore this hunk does not by itself constitute a mitigation for the autoType-driven arbitrary-instantiation weakness described by CVE-2017-18349; reviewers should confirm that the actual autoType restriction lives elsewhere (e.g. a `ParserConfig` allow/deny check), which is absent from this diff.",
+        "evidence": [
+          "Diff contains exactly one hunk, in ObjectArrayCodec.java line 177; no other file is modified, so no validation/autoType policy code is added",
+          "ObjectArrayCodec.java:174 - `componentType = componentClass = clazz.getComponentType();` proves the new argument is identical to the old one for the plain-Class array case, so that path is not hardened",
+          "ObjectArrayCodec.java:161-165 - `if (actualType instanceof Class) { componentClass = (Class) actualType; } else { componentClass = Object.class; }` falls back to `Object.class`, the most permissive component type",
+          "Symbol lookup for `checkAutoType` over all Java sources returns 0 matches, indicating no autoType guard is reachable from this code path in the snapshot"
+        ],
+        "rule": "SECURITY-001",
+        "confidence": 0.4
+      },
+      {
+        "id": "F003",
+        "severity": "P3",
+        "category": "MAINTAINABILITY",
+        "file": "src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java",
+        "line": 177,
+        "title": "`componentType` becomes a dead assignment in the plain-Class branch",
+        "description": "After the change, both `parser.parseArray(...)` (line 177) and `toObjectArray(...)` (line 179) use `componentClass`. In the non-generic branch the statement `componentType = componentClass = clazz.getComponentType();` (line 174) therefore assigns `componentType` a value that is never read on that path, which obscures the actual data flow and makes the distinction between the two variables (declared `Type` vs resolved `Class`) easy to get wrong in future edits.",
+        "evidence": [
+          "ObjectArrayCodec.java:142 - `Type componentType;` declared and only needed for the GenericArrayType branch after this change",
+          "ObjectArrayCodec.java:174 - `componentType = componentClass = clazz.getComponentType();` assigns componentType which is no longer consumed in this branch",
+          "ObjectArrayCodec.java:177 and 179 - both consumers now take `componentClass`, leaving `componentType` unused on the plain-Class path"
+        ],
+        "rule": "MAINTAINABILITY-001",
+        "confidence": 0.55
+      }
+    ],
+    "usage": {
+      "inputTokens": 68337,
+      "outputTokens": 13652,
+      "cacheReadTokens": 208512
+    },
+    "rounds": 1,
+    "toolCalls": 6,
+    "audit": {
+      "toolCallLog": [
+        {
+          "name": "review.get_file",
+          "argumentsJson": "{\"path\":\"src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\"}",
+          "resultSummary": "File: src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\nLines 1-242 of 242\n  1 | /*\n  2 |  * Copyright 1999-2101 Alibaba Group.\n  3 |  *\n  4 |  * Licensed under the Apache License, Version 2.0 (the \"License\");\n  5 |  * you may not use this file except in compliance with the License.\n  6 |  * You may obtain a copy of the License at\n  7 |  *\n  8 |  *      http://www.apache.org/licenses/LICENSE-2.0\n  9 |  *\n 10 |  * Unless required by applicable law or agreed to in writing, software\n 11 |  * distributed under the License is distributed on an \"AS IS\" BASIS,\n 12 |  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n 13 |  * See the License for the specific language governing permissions and\n 14 |  * limitations under the License.\n 15 |  */\n 16 | package com.alibaba.fastjson.serializer;\n 17 | \n 18 | import java.io.IOException;\n 19 | import java.lang.reflect.Array;\n 20 | import java.lang.reflect.GenericArrayType;\n 21 | import java.lang.reflect.ParameterizedType;\n 22 | import java.lang.reflect.Type;\n 23 | import java.lang.reflect.TypeVariable;\n 24 | \n 25 | import com.alibaba.fastjson.JSONArray;\n 26 | import com.alibaba.fastjson.parser.DefaultJSONParser;\n 27 | import com.alibaba.fastjson.parser.JSONLexer;\n 28 | import com.alibaba.fastjson.parser.JSONToken;\n 29 | import com.alibaba.fastjson.parser.deserializer.ObjectDeserializer;\n 30 | import com.alibaba.fastjson.util.TypeUtils;\n 31 | \n 32 | /**\n 33 |  * @author wenshao[szujobs@hotmail.com]\n 34 |  */\n 35 | public class ObjectArrayCodec implements ObjectSerializer, ObjectDeserializer {\n 36 | \n 37 |     public static final ObjectArrayCodec instance = new ObjectArrayCodec();\n 38 | \n 39 |     public ObjectArrayCodec(){\n 40 |     }\n 41 | \n 42 |     public final void write(JSONSerializer serializer, Object object, Object fieldName, Type fieldType, int features)\n 43 |                                                                                                        throws IOException {\n 44 |         SerializeWriter out = serializer.out;\n 45 | \n 46 |         Object[] array = (Object[]) object;\n 47 | \n 48 |         if (object == null) {\n 49 |             out.writeNull(SerializerFeature.WriteNullListAsEmpty);\n 50 |             return;\n 51 |         }\n 52 | \n 53 |         int size = array.length;\n 54 | \n 55 |         int end = size - 1;\n 56 | \n 57 |         if (end == -1) {\n 58 |             out.append(\"[]\");\n 59 |             return;\n 60 |         }\n 61 | \n 62 |         SerialContext context = serializer.context;\n 63 |         serializer.setContext(context, object, fieldName, 0);\n 64 | \n 65 |         try {\n 66 |             Class<?> preClazz = null;\n 67 |             ObjectSerializer preWriter = null;\n 68 |             out.append('[');\n 69 | \n 70 |             if (out.isEnabled(SerializerFeature.PrettyFormat)) {\n 71 |                 serializer.incrementIndent();\n 72 |                 serializer.println();\n 73 |                 for (int i = 0; i < size; ++i) {\n 74 |                     if (i != 0) {\n 75 |                         out.write(',');\n 76 |                         serializer.println();\n 77 |                     }\n 78 |                     serializer.write(array[i]);\n 79 |                 }\n 80 |                 serializer.decrementIdent();\n 81 |                 serializer.println();\n 82 |                 out.write(']');\n 83 |                 return;\n 84 |             }\n 85 | \n 86 |             for (int i = 0; i < end; ++i) {\n 87 |                 Object item = array[i];\n 88 | \n 89 |                 if (item == null) {\n 90 |                     out.append(\"null,\");\n 91 |                 } else {\n 92 |                     if (serializer.containsReference(item)) {\n 93 |                         serializer.writeReference(item);\n 94 |                     } else {\n 95 |                         Class<?> clazz = item.getClass();\n 96 | \n 97 |                         if (clazz == preClazz) {\n 98 |                             preWriter.write(serializer, item, null, null, 0);\n 99 |                         } else {\n100 |                             preClazz = clazz;\n101 |                             preWriter = serializer.getObjectWriter(clazz);\n102 | \n103 |                             preWriter.write(serializer, item, null, null, 0);\n104 |                         }\n105 |                     }\n106 |                     out.append(',');\n107 |                 }\n108 |             }\n109 | \n110 |             Object item = array[end];\n111 | \n112 |             if (item == null) {\n113 |                 out.append(\"null]\");\n114 |             } else {\n115 |                 if (serializer.containsReference(item)) {\n116 |                     serializer.writeReference(item);\n117 |                 } else {\n118 |                     serializer.writeWithFieldName(item, end);\n119 |                 }\n120 |                 out.append(']');\n121 |             }\n122 |         } finally {\n123 |             serializer.context = context;\n124 |         }\n125 |     }\n126 |     \n127 |     @SuppressWarnings({ \"unchecked\", \"rawtypes\" })\n128 |     public <T> T deserialze(DefaultJSONParser parser, Type type, Object fieldName) {\n129 |         final JSONLexer lexer = parser.lexer;\n130 |         if (lexer.token() == JSONToken.NULL) {\n131 |             lexer.nextToken(JSONToken.COMMA);\n132 |             return null;\n133 |         }\n134 | \n135 |         if (lexer.token() == JSONToken.LITERAL_STRING) {\n136 |             byte[] bytes = lexer.bytesValue();\n137 |             lexer.nextToken(JSONToken.COMMA);\n138 |             return (T) bytes;\n139 |         }\n140 | \n141 |         Class componentClass;\n142 |         Type componentType;\n143 |         if (type instanceof GenericArrayType) {\n144 |             GenericArrayType clazz = (GenericArrayType) type;\n145 |             componentType = clazz.getGenericComponentType();\n146 |             if (componentType instanceof TypeVariable) {\n147 |                 TypeVariable typeVar = (TypeVariable) componentType;\n148 |                 Type objType = parser.getContext().type;\n149 |                 if (objType instanceof ParameterizedType) {\n150 |                     ParameterizedType objParamType = (ParameterizedType) objType;\n151 |                     Type objRawType = objParamType.getRawType();\n152 |                     Type actualType = null;\n153 |                     if (objRawType instanceof Class) {\n154 |                         TypeVariable[] objTypeParams = ((Class) objRawType).getTypeParameters();\n155 |                         for (int i = 0; i < objTypeParams.length; ++i) {\n156 |                             if (objTypeParams[i].getName().equals(typeVar.getName())) {\n157 |                                 actualType = objParamType.getActualTypeArguments()[i];\n158 |                             }\n159 |                         }\n160 |                     }\n161 |                     if (actualType instanceof Class) {\n162 |                         componentClass = (Class) actualType;\n163 |                     } else {\n164 |                         componentClass = Object.class;\n165 |                     }\n166 |                 } else {\n167 |                     componentClass = TypeUtils.getClass(typeVar.getBounds()[0]);\n168 |                 }\n169 |             } else {\n170 |                 componentClass = TypeUtils.getClass(componentType);\n171 |             }\n172 |         } else {\n173 |             Class clazz = (Class) type;\n174 |             componentType = componentClass = clazz.getComponentType();\n175 |         }\n176 |         JSONArray array = new JSONArray();\n177 |         parser.parseArray(componentType, array, fieldName);\n178 | \n179 |         return (T) toObjectArray(parser, componentClass, array);\n180 |     }\n181 | \n182 |     @SuppressWarnings(\"unchecked\")\n183 |     private <T> T toObjectArray(DefaultJSONParser parser, Class<?> componentType, JSONArray array) {\n184 |         if (array == null) {\n185 |             return null;\n186 |         }\n187 | \nTool result truncated: showing 189 of 244 result lines (tool result budget 8000 chars exceeded); request a narrower range with startLine/endLine."
+        },
+        {
+          "name": "review.get_symbol",
+          "argumentsJson": "{\"symbol\":\"deserialze\"}",
+          "resultSummary": "Symbol \"deserialze\": 54 match(es) across 2035 Java file(s)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/AbstractDateDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L18 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\n  L22 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName, String format, int features)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/ContextObjectDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L8 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\n  L12 public abstract T deserialze(DefaultJSONParser parser, Type type, Object fieldName, String format, int features)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/EnumDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L71 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/JavaBeanDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L183 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\n  L187 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName, int features)\n  L265 protected T deserialze(DefaultJSONParser parser, // Type type, // Object fieldName, // Object object, // int features)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/JavaObjectDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L18 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/Jdk8DateCodec.java (package com.alibaba.fastjson.parser.deserializer)\n  L55 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName, String format, int feature)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/MapDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L25 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\n  L49 protected Object deserialze(DefaultJSONParser parser, Type type, Object fieldName, Map map)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/NumberDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L16 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/ObjectDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L63 T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/OptionalCodec.java (package com.alibaba.fastjson.parser.deserializer)\n  L21 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/StackTraceElementDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L16 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/ThrowableDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L23 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/TimeDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L15 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/AtomicCodec.java (package com.alibaba.fastjson.serializer)\n  L93 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/AwtCodec.java (package com.alibaba.fastjson.serializer)\n  L94 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/BigDecimalCodec.java (package com.alibaba.fastjson.serializer)\n  L57 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\n  L62 public static T deserialze(DefaultJSONParser parser)\nsrc/main/java/com/alibaba/fastjson/serializer/BigIntegerCodec.java (package com.alibaba.fastjson.serializer)\n  L47 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\n  L52 public static T deserialze(DefaultJSONParser parser)\nsrc/main/java/com/alibaba/fastjson/serializer/BooleanCodec.java (package com.alibaba.fastjson.serializer)\n  L51 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/CalendarCodec.java (package com.alibaba.fastjson.serializer)\n  L101 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/CharArrayCodec.java (package com.alibaba.fastjson.serializer)\n  L17 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\n  L22 public static T deserialze(DefaultJSONParser parser)\nsrc/main/java/com/alibaba/fastjson/serializer/CharacterCodec.java (package com.alibaba.fastjson.serializer)\n  L50 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/CollectionCodec.java (package com.alibaba.fastjson.serializer)\n  L104 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/FloatCodec.java (package com.alibaba.fastjson.serializer)\n  L66 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\n  L71 public static T deserialze(DefaultJSONParser parser)\nsrc/main/java/com/alibaba/fastjson/serializer/IntegerCodec.java (package com.alibaba.fastjson.serializer)\n  L63 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/LongCodec.java (package com.alibaba.fastjson.serializer)\n  L52 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/MiscCodec.java (package com.alibaba.fastjson.serializer)\n  L169 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java (package com.alibaba.fastjson.serializer)\n  L127 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/ReferenceCodec.java (package com.alibaba.fastjson.serializer)\n  L49 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/serializer/StringCodec.java (package com.alibaba.fastjson.serializer)\n  L49 public T deserialze(DefaultJSONParser parser, Type clazz, Object fieldName)\n  L90 public static T deserialze(DefaultJSONParser parser)\nsrc/test/java/com/alibaba/json/bvt/annotation/CustomDeserializerTest.java (package com.alibaba.json.bvt.annotation)\n  L28 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/test/java/com/alibaba/json/bvt/annotation/DeserializeUsingTest.java (package com.alibaba.json.bvt.annotation)\n  L40 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/test/java/com/alibaba/json/bvt/annotation/SerializeUsingTest.java (package com.alibaba.json.bvt.annotation)\n  L47 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/test/java/com/alibaba/json/bvt/bug/Bug_for_Issue_603.java (package com.alibaba.json.bvt.bug)\n  L34 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/test/java/com/alibaba/json/bvt/bug/Bug_for_issue_457.java (package com.alibaba.json.bvt.bug)\n  L25 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/test/java/com/alibaba/json/bvt/bug/Issue963.java (package com.alibaba.json.bvt.bug)\n  L49 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nsrc/test/java/com/alibaba/json/bvt/serializer/AbstractTest.java (package com.alibaba.json.bvt.serializer)\n  L33 public T deserialze(DefaultJSONParser parser, Type type, Object fieldName)\nTool result truncated: showing 83 of 99 result lines (tool result budget 8000 chars exceeded)."
+        },
+        {
+          "name": "review.get_file",
+          "argumentsJson": "{\"path\":\"src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\",\"startLine\":176,\"endLine\":242}",
+          "resultSummary": "File: src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\nLines 176-242 of 242\n176 |         JSONArray array = new JSONArray();\n177 |         parser.parseArray(componentType, array, fieldName);\n178 | \n179 |         return (T) toObjectArray(parser, componentClass, array);\n180 |     }\n181 | \n182 |     @SuppressWarnings(\"unchecked\")\n183 |     private <T> T toObjectArray(DefaultJSONParser parser, Class<?> componentType, JSONArray array) {\n184 |         if (array == null) {\n185 |             return null;\n186 |         }\n187 | \n188 |         int size = array.size();\n189 | \n190 |         Object objArray = Array.newInstance(componentType, size);\n191 |         for (int i = 0; i < size; ++i) {\n192 |             Object value = array.get(i);\n193 | \n194 |             if (value == array) {\n195 |                 Array.set(objArray, i, objArray);\n196 |                 continue;\n197 |             }\n198 | \n199 |             if (componentType.isArray()) {\n200 |                 Object element;\n201 |                 if (componentType.isInstance(value)) {\n202 |                     element = value;\n203 |                 } else {\n204 |                     element = toObjectArray(parser, componentType, (JSONArray) value);\n205 |                 }\n206 | \n207 |                 Array.set(objArray, i, element);\n208 |             } else {\n209 |                 Object element = null;\n210 |                 if (value instanceof JSONArray) {\n211 |                     boolean contains = false;\n212 |                     JSONArray valueArray = (JSONArray) value;\n213 |                     int valueArraySize = valueArray.size();\n214 |                     for (int y = 0; y < valueArraySize; ++y) {\n215 |                         Object valueItem = valueArray.get(y);\n216 |                         if (valueItem == array) {\n217 |                             valueArray.set(i, objArray);\n218 |                             contains = true;\n219 |                         }\n220 |                     }\n221 |                     if (contains) {\n222 |                         element = valueArray.toArray();\n223 |                     }\n224 |                 }\n225 | \n226 |                 if (element == null) {\n227 |                     element = TypeUtils.cast(value, componentType, parser.getConfig());\n228 |                 }\n229 |                 Array.set(objArray, i, element);\n230 | \n231 |             }\n232 |         }\n233 | \n234 |         array.setRelatedArray(objArray);\n235 |         array.setComponentType(componentType);\n236 |         return (T) objArray; // TODO\n237 |     }\n238 | \n239 |     public int getFastMatchToken() {\n240 |         return JSONToken.LBRACKET;\n241 |     }\n242 | }"
+        },
+        {
+          "name": "review.search_rule",
+          "argumentsJson": "{\"query\":\"autoType\"}",
+          "resultSummary": "Rule search \"autoType\" (case-insensitive substring): rule corpus is empty (0 entries configured for this run)"
+        },
+        {
+          "name": "review.get_symbol",
+          "argumentsJson": "{\"symbol\":\"parseArray\"}",
+          "resultSummary": "Symbol \"parseArray\": 12 match(es) across 2035 Java file(s)\nsrc/main/java/com/alibaba/fastjson/JSON.java (package com.alibaba.fastjson)\n  L459 public static JSONArray parseArray(String text)\n  L486 public static List<T> parseArray(String text, Class<T> clazz)\n  L513 public static List<Object> parseArray(String text, Type[] types)\nsrc/main/java/com/alibaba/fastjson/parser/DefaultJSONParser.java (package com.alibaba.fastjson.parser)\n  L647 public List<T> parseArray(Class<T> clazz)\n  L653 public void parseArray(Class<?> clazz, @SuppressWarnings(\"rawtypes\") Collection array)\n  L657 public void parseArray(Type type, Collection array)\n  L662 public void parseArray(Type type, Collection array, Object fieldName)\n  L741 public Object[] parseArray(Type[] types)\n  L1085 public final void parseArray(final Collection array)\n  L1090 public final void parseArray(final Collection array, Object fieldName)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/ArrayListTypeFieldDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L72 public final void parseArray(DefaultJSONParser parser, Type objectType, Collection array)\nsrc/main/java/com/alibaba/fastjson/parser/deserializer/JavaBeanDeserializer.java (package com.alibaba.fastjson.parser.deserializer)\n  L952 protected static void parseArray(Collection collection, // ObjectDeserializer deser, // DefaultJSONParser parser, // Type type, // Object fieldName)"
+        },
+        {
+          "name": "review.get_symbol",
+          "argumentsJson": "{\"symbol\":\"checkAutoType\"}",
+          "resultSummary": "Symbol \"checkAutoType\": 0 match(es) across 2035 Java file(s)"
+        },
+        {
+          "name": "review.get_call_chain",
+          "argumentsJson": "{\"symbol\":\"deserialze\"}",
+          "resultSummary": "Error: tool call budget exhausted"
+        },
+        {
+          "name": "review.get_file",
+          "argumentsJson": "{\"path\":\"src/main/java/com/alibaba/fastjson/parser/DefaultJSONParser.java\",\"startLine\":630,\"endLine\":780}",
+          "resultSummary": "Error: tool call budget exhausted"
+        },
+        {
+          "name": "review.get_symbol",
+          "argumentsJson": "{\"symbol\":\"ParserConfig\"}",
+          "resultSummary": "Error: tool call budget exhausted"
+        }
+      ],
+      "phaseLog": [
+        {
+          "round": 1,
+          "phase": "Change Understanding",
+          "requestCount": 3
+        },
+        {
+          "round": 1,
+          "phase": "Risk Classification",
+          "requestCount": 1
+        },
+        {
+          "round": 1,
+          "phase": "Context Decision",
+          "requestCount": 1
+        },
+        {
+          "round": 1,
+          "phase": "Context Retrieval",
+          "requestCount": 3,
+          "note": "3 tool call(s) skipped: budget exhausted"
+        },
+        {
+          "round": 1,
+          "phase": "Deep Reasoning",
+          "requestCount": 1
+        },
+        {
+          "round": 1,
+          "phase": "Evidence Verification",
+          "requestCount": 1
+        }
+      ],
+      "rejections": [],
+      "truncated": false,
+      "truncationReasons": [
+        "TOOL_BUDGET_EXHAUSTED"
+      ],
+      "ledger": [
+        {
+          "id": "ctx#001",
+          "kind": "file",
+          "description": "review.get_file src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java"
+        },
+        {
+          "id": "ctx#002",
+          "kind": "symbol",
+          "description": "review.get_symbol \"deserialze\""
+        },
+        {
+          "id": "ctx#003",
+          "kind": "range",
+          "description": "review.get_file src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java:176-242"
+        },
+        {
+          "id": "ctx#004",
+          "kind": "evidence",
+          "description": "review.search_rule \"autoType\""
+        },
+        {
+          "id": "ctx#005",
+          "kind": "symbol",
+          "description": "review.get_symbol \"parseArray\""
+        },
+        {
+          "id": "ctx#006",
+          "kind": "symbol",
+          "description": "review.get_symbol \"checkAutoType\""
+        }
+      ]
+    },
+    "auditPath": "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi\\runs\\eval\\c-ref-smoke-2026-11-13\\audit\\vul4j\\VUL4J-1\\E\\rep-1\\audit\\20261113T033254.240-E-VUL4J-1.json"
+  },
+  "effective": null,
+  "verifierPass": null,
+  "campaignId": "c-ref-smoke-2026-11-13",
+  "arm": "candidate",
+  "evalOnly": true,
+  "environmentRef": "environment.json",
+  "ref": "C_ref"
+}
