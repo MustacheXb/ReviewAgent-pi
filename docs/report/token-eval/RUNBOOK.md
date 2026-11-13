@@ -167,6 +167,12 @@ candidate: <commit>
      judge FN 6，说明是 turn / 收口策略差异而非模型能力；结果不进入质量排名。
      报告：[`claude-code-smoke-2026-11-13/`](claude-code-smoke-2026-11-13/REPORT.md)。
      若要质量对照，先定义公平输出预算 / 收口规则（或单独诊断 >5 turns）。
+   - **ceiling 能力上限**（`--claude-mode ceiling`，不传 `--max-turns`，30m
+     超时）：2026-11-13 同 3 案试点，2 findings / Recall 0.333 / Precision
+     1.000 / 59 turns / 740.9s / CLI $3.289；同案 E 为 Recall 0.750 / CARC
+     44.7k。ceiling 用于「能力上限 + token/时延代价」，bounded 5 轮单列，
+     不混入质量排名。报告：
+     [`claude-code-ceiling-2026-11-13/`](claude-code-ceiling-2026-11-13/REPORT.md)。
 
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s

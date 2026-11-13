@@ -58,6 +58,8 @@ export interface ClaudeCodeColumn {
   readonly zeroFindingRate: number | null;
   readonly truncatedRuns: number;
   readonly totalCostUsd: number | null;
+  readonly totalDurationMs: number | null;
+  readonly avgDurationMs: number | null;
   readonly avgTurns: number | null;
   readonly permissionDenials: number | null;
   readonly actualModels: readonly string[];
@@ -86,6 +88,8 @@ export function buildClaudeCodeColumn(
     zeroFindingRate: cases === 0 ? null : zeroFindings / cases,
     truncatedRuns: records.filter((record) => record.truncated).length,
     totalCostUsd: sumOrNull(records.map((record) => record.totalCostUsd)),
+    totalDurationMs: sumOrNull(records.map((record) => record.durationMs)),
+    avgDurationMs: meanOrNull(records.map((record) => record.durationMs)),
     avgTurns: meanOrNull(records.map((record) => record.numTurns)),
     permissionDenials: sumOrNull(records.map((record) => record.permissionDenials)),
     actualModels: [
@@ -140,6 +144,8 @@ export function renderClaudeCodeColumnMarkdown(column: ClaudeCodeColumn): string
     `| zero-finding rate | ${fmt(column.zeroFindingRate)} |`,
     `| truncated runs | ${column.truncatedRuns} |`,
     `| total cost (USD) | ${fmt(column.totalCostUsd, 6)} |`,
+    `| total duration (s) | ${column.totalDurationMs === null ? "N/A" : (column.totalDurationMs / 1000).toFixed(1)} |`,
+    `| avg duration (s) | ${column.avgDurationMs === null ? "N/A" : (column.avgDurationMs / 1000).toFixed(1)} |`,
     `| avg turns | ${fmt(column.avgTurns)} |`,
     `| permission denials | ${column.permissionDenials ?? "N/A"} |`,
     `| actual models | ${column.actualModels.length === 0 ? "N/A" : column.actualModels.join(", ")} |`,

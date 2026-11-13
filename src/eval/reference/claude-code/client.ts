@@ -92,7 +92,7 @@ export function createClaudeCodeClient(
         const reason = error instanceof Error ? error.message : String(error);
         throw new ClaudeCodeOutputError(
           `Claude Code CLI output unusable (exit ${String(result.exitCode)}): ${reason}; ` +
-            summarize(result.stderr),
+            `stdout=${summarize(result.stdout)}; stderr=${summarize(result.stderr)}`,
         );
       }
       // CLI 在 max-turns / 权限拒绝等 is_error 情况下可能非零退出，但 stdout 仍

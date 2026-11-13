@@ -1,0 +1,59 @@
+{
+  "kind": "claude-code-reference",
+  "schemaVersion": 1,
+  "evalOnly": true,
+  "caseId": "VUL4J-12",
+  "rep": 1,
+  "maxTurns": null,
+  "allowedTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "cliVersion": "2.1.241",
+  "requestedModel": "deepseek-v4-flash",
+  "actualModels": [
+    "deepseek-v4-flash"
+  ],
+  "numTurns": 14,
+  "totalCostUsd": 0.7800019999999999,
+  "usage": {
+    "inputTokens": 36990,
+    "cacheCreationInputTokens": 0,
+    "cacheReadInputTokens": 175104,
+    "outputTokens": 20300
+  },
+  "modelUsage": {
+    "deepseek-v4-flash": {
+      "inputTokens": 36990,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 175104,
+      "outputTokens": 20300
+    }
+  },
+  "permissionDenials": 0,
+  "durationMs": 196662,
+  "error": null,
+  "truncated": false,
+  "findings": [
+    {
+      "id": "CVE-2018-17202-reintro-infinite-loop",
+      "severity": "P1",
+      "category": "security",
+      "file": "src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java",
+      "line": 403,
+      "title": "extend() `if` changed to `while` reintroduces CVE-2018-17202 unbounded loop (CWE-835)",
+      "description": "The change replaces the JPEG EXTEND step (ITU-T T.81 Figure F.12) `if (v < vt)` with `while (v < vt)`. EXTEND must apply the offset once; a `while` loop re-executes indefinitely when the initial `v` is at or below the re-assigned bound. After the first iteration vt is fixed to (-1 << t) + 1, a negative constant, and `v += vt` makes v strictly smaller, so the condition `v < vt` never becomes false for sufficiently negative inputs (reachable via a crafted JPEG whose Huffman categories / `receive` accumulation yield large or sign-wrapped coefficient values). This is the exact inverse of the upstream fix 6a79d35d (CVE-2018-17202), and reintroduces a remotely triggerable decoder hang (DoS).",
+      "evidence": [
+        "+        while (v < vt) {",
+        "-        if (v < vt) {",
+        "private int extend(int v, final int t) { int vt = (1 << (t - 1)); if/while (v < vt) { vt = (-1 << t) + 1; v += vt; } return v; }",
+        "extend() is invoked on JPEG DC/AC coefficients at lines 327 and 352 of JpegDecoder.java"
+      ],
+      "rule": "CWE-835: Loop with Unreachable Exit Condition ('Infinite Loop'); CVE-2018-17202",
+      "confidence": 0.95
+    }
+  ],
+  "anomalies": [],
+  "resultText": "Based on my analysis, let me examine the key code section and its context thoroughly.\n\nThe change under review converts the `if` conditional in `JpegDecoder.extend()` into a `while` loop. I've verified the current state of the code at `JpegDecoder.java:400-408`, the call sites (`extend(diff, t)` at line 327 and `extend(zz[k], ssss)` at line 352), and the data flow through `receive()`/`JpegInputStream.nextBit()`.\n\nThis diff is the exact reverse of the upstream fix commit `6a79d35d` that resolved CVE-2018-17202 (CWE-835). The JPEG EXTEND algorithm (ITU-T T.81, Figure F.12) must apply the offset exactly once; replacing `if` with `while` re-introduces an unbounded loop: after the first pass `vt` becomes the fixed negative constant `(-1 << t) + 1` and `v += vt` strictly decreases `v`, so once `v` is at or below that bound the exit condition can never be satisfied. A crafted JPEG feeding negative/overflowed coefficient values (via the `receive` accumulation over many bits) reaches that state and hangs the decoder — a remotely triggerable denial of service.\n\n```json\n[\n  {\n    \"id\": \"CVE-2018-17202-reintro-infinite-loop\",\n    \"severity\": \"P1\",\n    \"category\": \"security\",\n    \"file\": \"src/main/java/org/apache/commons/imaging/formats/jpeg/decoder/JpegDecoder.java\",\n    \"line\": 403,\n    \"title\": \"extend() `if` changed to `while` reintroduces CVE-2018-17202 unbounded loop (CWE-835)\",\n    \"description\": \"The change replaces the JPEG EXTEND step (ITU-T T.81 Figure F.12) `if (v < vt)` with `while (v < vt)`. EXTEND must apply the offset once; a `while` loop re-executes indefinitely when the initial `v` is at or below the re-assigned bound. After the first iteration vt is fixed to (-1 << t) + 1, a negative constant, and `v += vt` makes v strictly smaller, so the condition `v < vt` never becomes false for sufficiently negative inputs (reachable via a crafted JPEG whose Huffman categories / `receive` accumulation yield large or sign-wrapped coefficient values). This is the exact inverse of the upstream fix 6a79d35d (CVE-2018-17202), and reintroduces a remotely triggerable decoder hang (DoS).\",\n    \"evidence\": [\n      \"+        while (v < vt) {\",\n      \"-        if (v < vt) {\",\n      \"private int extend(int v, final int t) { int vt = (1 << (t - 1)); if/while (v < vt) { vt = (-1 << t) + 1; v += vt; } return v; }\",\n      \"extend() is invoked on JPEG DC/AC coefficients at lines 327 and 352 of JpegDecoder.java\"\n    ],\n    \"rule\": \"CWE-835: Loop with Unreachable Exit Condition ('Infinite Loop'); CVE-2018-17202\",\n    \"confidence\": 0.95\n  }\n]\n```"
+}

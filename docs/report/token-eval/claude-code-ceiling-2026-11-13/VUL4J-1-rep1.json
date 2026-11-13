@@ -1,0 +1,59 @@
+{
+  "kind": "claude-code-reference",
+  "schemaVersion": 1,
+  "evalOnly": true,
+  "caseId": "VUL4J-1",
+  "rep": 1,
+  "maxTurns": null,
+  "allowedTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "cliVersion": "2.1.241",
+  "requestedModel": "deepseek-v4-flash",
+  "actualModels": [
+    "deepseek-v4-flash"
+  ],
+  "numTurns": 36,
+  "totalCostUsd": 2.004720999999999,
+  "usage": {
+    "inputTokens": 82459,
+    "cacheCreationInputTokens": 0,
+    "cacheReadInputTokens": 1066752,
+    "outputTokens": 42362
+  },
+  "modelUsage": {
+    "deepseek-v4-flash": {
+      "inputTokens": 82459,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 1066752,
+      "outputTokens": 42362
+    }
+  },
+  "permissionDenials": 0,
+  "durationMs": 426432,
+  "error": null,
+  "truncated": false,
+  "findings": [
+    {
+      "id": "REG-1",
+      "severity": "P2",
+      "category": "Regression",
+      "file": "src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java",
+      "line": 177,
+      "title": "Fix loses generic type information when deserializing arrays of parameterized types",
+      "description": "Changing parser.parseArray(componentType, ...) to parser.parseArray(componentClass, ...) causes GenericArrayType deserialization (e.g. List<Long>[], List<Bean>[], Map<String,Bean>[]) to parse each element with the raw component class instead of the full parameterized type. The element deserializer (CollectionCodec/MapDeserializer) then resolves the inner item type as Object.class (TypeUtils.getCollectionItemType returns Object.class for raw java.* classes), so inner values become Integer/JSONObject instead of Long/Bean. Previously these inputs deserialized with correct inner generic types. The resulting arrays hold elements of the wrong type, leading to ClassCastException or silently wrong data at the call site.",
+      "evidence": [
+        "parser.parseArray(componentClass, array, fieldName);  // componentClass is the raw class (e.g. List.class) while componentType was List<Long>",
+        "TypeUtils.getCollectionItemType(List.class): raw java.* classes skip the generic-superclass branch and itemType stays null -> returns Object.class (TypeUtils.java:1700-1708)",
+        "CollectionCodec.deserialze -> parser.parseArray(itemType=Object.class, ...) deserializes inner elements as Integer/JSONObject instead of Long/Bean",
+        "toObjectArray still uses componentClass (raw List.class/Map.class), so the produced array cannot restore the lost inner generic type"
+      ],
+      "rule": "Deserialization must preserve declared generic type information; replacing the generic Type with its raw Class drops inner type metadata for arrays of parameterized types.",
+      "confidence": 0.6
+    }
+  ],
+  "anomalies": [],
+  "resultText": "Based on my analysis of the change, I traced the deserialization paths through `ObjectArrayCodec`, `DefaultJSONParser.parseArray`, `CollectionCodec`, and `TypeUtils` to evaluate the behavioral impact of switching from `componentType` to `componentClass`.\n\nThe change only affects `GenericArrayType` deserialization. For plain `Class` arrays the two variables are identical (`componentType = componentClass = clazz.getComponentType()`), so there is no change there. The regression manifests specifically for generic arrays whose component type is a `ParameterizedType`:\n\n- `TypeReference<List<Long>[]>()`, `List<Bean>[]`, `Map<String,Bean>[]`, etc.\n- Old behavior: `parseArray(componentType, ...)` → `config.getDeserializer(List<Long>)` → `CollectionCodec` resolves item type via `TypeUtils.getCollectionItemType(ParameterizedType)` → `Long`/`Bean`, so inner elements are correctly typed.\n- New behavior: `parseArray(componentClass, ...)` passes the raw class (`List.class`). `TypeUtils.getCollectionItemType(List.class)` returns `Object.class` (line 1700–1707 in `TypeUtils.java`: raw `java.*` classes are skipped, so `itemType` stays null → `Object.class`), so inner elements are parsed as generic `Object`/`JSONObject`/`Integer` instead of the declared type. `toObjectArray` still builds the array from the raw `componentClass`, so the array is created but its inner elements no longer match the declared generic type, producing silent wrong data or `ClassCastException` at the call site.\n\nThis is a real functional regression introduced by the change (it breaks fastjson's advertised \"extensive generics support\" for arrays of parameterized types), even though the change itself is the accepted upstream mitigation for the DoS.\n\n```json\n[\n  {\n    \"id\": \"REG-1\",\n    \"severity\": \"P2\",\n    \"category\": \"Regression\",\n    \"file\": \"src/main/java/com/alibaba/fastjson/serializer/ObjectArrayCodec.java\",\n    \"line\": 177,\n    \"title\": \"Fix loses generic type information when deserializing arrays of parameterized types\",\n    \"description\": \"Changing parser.parseArray(componentType, ...) to parser.parseArray(componentClass, ...) causes GenericArrayType deserialization (e.g. List<Long>[], List<Bean>[], Map<String,Bean>[]) to parse each element with the raw component class instead of the full parameterized type. The element deserializer (CollectionCodec/MapDeserializer) then resolves the inner item type as Object.class (TypeUtils.getCollectionItemType returns Object.class for raw java.* classes), so inner values become Integer/JSONObject instead of Long/Bean. Previously these inputs deserialized with correct inner generic types. The resulting arrays hold elements of the wrong type, leading to ClassCastException or silently wrong data at the call site.\",\n    \"evidence\": [\n      \"parser.parseArray(componentClass, array, fieldName);  // componentClass is the raw class (e.g. List.class) while componentType was List<Long>\",\n      \"TypeUtils.getCollectionItemType(List.class): raw java.* classes skip the generic-superclass branch and itemType stays null -> returns Object.class (TypeUtils.java:1700-1708)\",\n      \"CollectionCodec.deserialze -> parser.parseArray(itemType=Object.class, ...) deserializes inner elements as Integer/JSONObject instead of Long/Bean\",\n      \"toObjectArray still uses componentClass (raw List.class/Map.class), so the produced array cannot restore the lost inner generic type\"\n    ],\n    \"rule\": \"Deserialization must preserve declared generic type information; replacing the generic Type with its raw Class drops inner type metadata for arrays of parameterized types.\",\n    \"confidence\": 0.6\n  }\n]\n```"
+}

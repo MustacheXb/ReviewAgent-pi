@@ -64,6 +64,8 @@ interface SmokeOptions {
   readonly rep: number;
   /** Claude Code 口径：ceiling = 不传 --max-turns；bounded = 5 轮 */
   readonly claudeMode: "ceiling" | "bounded";
+  /** case 列表起始偏移（便于分段续跑，不重复付费） */
+  readonly caseOffset: number;
 }
 
 function parseArgs(argv: readonly string[]): SmokeOptions {
@@ -102,6 +104,11 @@ function parseArgs(argv: readonly string[]): SmokeOptions {
   if (claudeMode !== "ceiling" && claudeMode !== "bounded") {
     throw new Error("--claude-mode must be ceiling or bounded");
   }
+  const caseOffsetRaw = values.get("--case-offset") ?? "0";
+  const caseOffset = Number(caseOffsetRaw);
+  if (!Number.isInteger(caseOffset) || caseOffset < 0) {
+    throw new Error("--case-offset must be a non-negative integer");
+  }
   const date = new Date().toISOString().slice(0, 10);
   return {
     kind,
@@ -115,6 +122,7 @@ function parseArgs(argv: readonly string[]): SmokeOptions {
     judgeModel: values.get("--judge-model") ?? "glm-5.2",
     rep,
     claudeMode,
+    caseOffset,
   };
 }
 
@@ -129,7 +137,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const cases = parseCampaignCases(
     readFileSync(options.casesFile, "utf8"),
     options.casesFile,
-  ).slice(0, options.caseCount);
+  ).slice(options.caseOffset, options.caseOffset + options.caseCount);
   if (cases.length === 0) {
     throw new Error("reference smoke: no cases selected");
   }

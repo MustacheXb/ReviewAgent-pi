@@ -154,8 +154,10 @@ Precision −7.6pp 方向一致），后续校准 / L2 主跑应随机化臂序�
 harness 同模型对照**——CLI 以 `--model` 使用与 E 相同的评测模型（`modelUsage`
 硬校验，不一致 fail fast），不是「Claude 模型」跨模型参照；报告中不得写
 「跨模型」或据此宣称通用 Agent。若需跨模型定位，必须另行配置真实 Claude
-模型并单独报告。同模型 5 轮上界下 harness 可能先截断（2026-11-13 三案
-3/3 `error_max_turns`、findings 0），质量对照需先定义公平输出预算。
+模型并单独报告。外部列可采用 **ceiling 模式**（不设 `--max-turns`，安全超时
+兜底）测量能力上限与 token / 时延代价；固定 5 轮的 bounded 结果单列作
+有界性 / 收敛，不混入质量排名。同模型 5 轮上界下 harness 可能先截断
+（2026-11-13 三案 3/3 `error_max_turns`、findings 0）。
 
 **补记复核（2026-11-12，臂序随机 10×3×2）**：campaign
 `p1-armorder-recheck-2026-11-12`（10 案 × 3 reps × 2 arms，`armOrder =

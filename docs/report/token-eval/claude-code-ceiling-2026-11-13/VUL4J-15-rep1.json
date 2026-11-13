@@ -1,0 +1,41 @@
+{
+  "kind": "claude-code-reference",
+  "schemaVersion": 1,
+  "evalOnly": true,
+  "caseId": "VUL4J-15",
+  "rep": 1,
+  "maxTurns": null,
+  "allowedTools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "cliVersion": "2.1.241",
+  "requestedModel": "deepseek-v4-flash",
+  "actualModels": [
+    "deepseek-v4-flash"
+  ],
+  "numTurns": 9,
+  "totalCostUsd": 0.504768,
+  "usage": {
+    "inputTokens": 33401,
+    "cacheCreationInputTokens": 0,
+    "cacheReadInputTokens": 75776,
+    "outputTokens": 11995
+  },
+  "modelUsage": {
+    "deepseek-v4-flash": {
+      "inputTokens": 33401,
+      "cacheCreationInputTokens": 0,
+      "cacheReadInputTokens": 75776,
+      "outputTokens": 11995
+    }
+  },
+  "permissionDenials": 0,
+  "durationMs": 117772,
+  "error": null,
+  "truncated": false,
+  "findings": [],
+  "anomalies": [],
+  "resultText": "The repository is checked out at the pre-fix state. The provided change is the patch under review — the genuine upstream fix for CVE-2016-8739 in `AbstractAtomProvider.java`.\n\nLet me verify the patch semantics carefully against the actual code:\n\n- **Import removals** (`javax.xml.stream.XMLStreamReader`, `org.apache.cxf.staxutils.StaxUtils`) — both are no longer referenced after the change; no dangling references remain. (Confirmed: the only uses were in the removed `readFrom` lines.)\n- **`options.setResolveEntities(false)`** — added inside the `if (options != null)` guard, so no NPE risk; disables entity resolution on Abdera's default parser options, which is the actual XXE mitigation.\n- **`parser.parse(is)`** replacing the `StaxUtils.createXMLStreamReader(is)` / `parser.parse(reader)` path — Abdera's `Parser.parse(InputStream)` uses the same default parser options (which now carry `resolveEntities=false`), so the mitigation applies; the `setAutodetectCharset` behavior is preserved.\n- Subclasses (`AtomEntryProvider`, `AtomFeedProvider`, `AtomPojoProvider`) inherit `readFrom`, so the fix covers all ATOM provider entry points.\n\nThe diff applies cleanly to the current file state, introduces no compile errors, no NPE, no behavioral regression, and correctly addresses the vulnerability (CWE-611).\n\n```json\n[]\n```"
+}

@@ -1,0 +1,25 @@
+{
+  "kind": "claude-code-column",
+  "schemaVersion": 1,
+  "cases": 3,
+  "findings": 2,
+  "zeroFindingRate": 0.3333333333333333,
+  "truncatedRuns": 0,
+  "totalCostUsd": 3.2894909999999986,
+  "totalDurationMs": 740866,
+  "avgDurationMs": 246955.33333333334,
+  "avgTurns": 19.666666666666668,
+  "permissionDenials": 0,
+  "actualModels": [
+    "deepseek-v4-flash"
+  ],
+  "judge": {
+    "tp": 2,
+    "fp": 0,
+    "fn": 4,
+    "recall": 0.3333333333333333,
+    "precision": 1,
+    "f1": 0.5
+  },
+  "anomalies": []
+}
