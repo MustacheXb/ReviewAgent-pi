@@ -1,0 +1,218 @@
+{
+  "kind": "l3-three-column-report",
+  "schemaVersion": 1,
+  "campaignId": "l3-pilot-2026-11-13",
+  "generatedAt": "2026-11-13T19:30:00.000Z",
+  "columns": {
+    "e": {
+      "key": "e",
+      "label": "E",
+      "model": "deepseek-v4-flash",
+      "cases": 10,
+      "runs": 20,
+      "coverage": {
+        "planned": 20,
+        "executed": 20,
+        "judged": 20,
+        "failed": 0,
+        "ratio": 1
+      },
+      "quality": {
+        "recall": 0.46261904761904765,
+        "precision": 0.4541666666666666,
+        "f1": 0.38722222222222225
+      },
+      "cost": {
+        "carcMean": 47392.7,
+        "totalTokensMean": 100346.3,
+        "cacheHitRateMean": 0.6073813296591892,
+        "billedCostUsd": null
+      },
+      "harness": null,
+      "failures": [],
+      "budget": "bounded"
+    },
+    "cRef": {
+      "key": "c-ref",
+      "label": "C_ref",
+      "model": "deepseek-v4-flash",
+      "cases": 1,
+      "runs": 1,
+      "coverage": {
+        "planned": 1,
+        "executed": 1,
+        "judged": 1,
+        "failed": 0,
+        "ratio": 1
+      },
+      "quality": {
+        "recall": 1,
+        "precision": 0.3333333333333333,
+        "f1": 0.5
+      },
+      "cost": {
+        "carcMean": 81989,
+        "totalTokensMean": 290501,
+        "cacheHitRateMean": 0.7531614706934104,
+        "billedCostUsd": null
+      },
+      "harness": null,
+      "failures": [],
+      "budget": "bounded"
+    },
+    "claudeCode": {
+      "key": "claude-code",
+      "label": "Claude Code",
+      "model": "deepseek-v4-flash",
+      "cases": 10,
+      "runs": 20,
+      "coverage": {
+        "planned": 20,
+        "executed": 20,
+        "judged": 19,
+        "failed": 1,
+        "ratio": 0.95
+      },
+      "quality": {
+        "recall": 0.3176190476190476,
+        "precision": 0.4916666666666667,
+        "f1": 0.3174206349206349
+      },
+      "cost": {
+        "carcMean": 118795.7,
+        "totalTokensMean": 772926.9,
+        "cacheHitRateMean": 0.8364824285386463,
+        "billedCostUsd": 34.724082
+      },
+      "harness": {
+        "turnsMean": 22.15,
+        "durationMsMean": 436819.1,
+        "permissionDenials": 0
+      },
+      "failures": [
+        "VUL4J-25/rep-2: judge max_tokens 截断（留痕，不插补）"
+      ],
+      "budget": "ceiling"
+    }
+  },
+  "environment": {
+    "complete": true,
+    "missing": []
+  },
+  "manifest": {
+    "campaignId": "l3-pilot-2026-11-13",
+    "evaluation": {
+      "branch": "eval/bench",
+      "campaign": "l3-pilot-2026-11-13",
+      "calibrationRef": "p1-calibration-2026-11-12"
+    },
+    "git": {
+      "branch": "eval/bench",
+      "commit": "c4e5e5f8f595079b26738ac788163496fd32853d",
+      "tag": null
+    },
+    "runtime": {
+      "node": "v24.13.0",
+      "os": "win32-x64",
+      "machine": "GDD-ITTools-XA"
+    },
+    "model": {
+      "requestedId": "deepseek-v4-flash",
+      "actualDeployment": null,
+      "providerClass": "volcengine",
+      "baseUrlClass": "gateway-endpoint"
+    },
+    "gateway": {
+      "cacheProbeBefore": null,
+      "cacheProbeAfter": null
+    },
+    "judge": {
+      "model": "glm-5.2",
+      "promptVersion": "mcr-bench-llm-hit-judge-2026-09-03+poc1-ext-1",
+      "temperature": 0.2,
+      "topP": 0.95
+    },
+    "prompts": {
+      "zoneA": "sha256:38f7fc349cbaa096e97747ec0d7779a2c4c897269aeb925174009da187ece05f",
+      "toolsSchema": "sha256:3140c719b6b87541ead09608bf9093d99d932e90ebd8ec6ba7a6eae1434e449a"
+    },
+    "claudeCode": {
+      "cliVersion": "2.1.241",
+      "requestedModel": "deepseek-v4-flash",
+      "actualModels": [
+        "deepseek-v4-flash"
+      ],
+      "maxTurns": null
+    },
+    "window": {
+      "start": "2026-11-11T23:42:45.782Z",
+      "end": "2026-11-13T18:23:56.047Z",
+      "timezone": "Asia/Shanghai"
+    },
+    "dataset": {
+      "casesFile": "data/vul4j/p1-smoke-cases.json",
+      "caseCount": 10,
+      "hash": "31a326bd1722042a1790d4bffbc05c02086098a212bedd785e6f51dbb4fcd8ba"
+    }
+  },
+  "referenceDenominator": {
+    "eOverCRefTotalTokens": 0.34542497271954314,
+    "note": "C_ref totalTokens 仅作 L3 参考分母；不进入任何门，不单独构成结论。"
+  },
+  "gates": {
+    "comparability": {
+      "pass": false,
+      "rule": "same cases >= 30 / reps >= 3 / models / E-vs-Claude harness budget",
+      "detail": "cases differ (10 / 1 / 10); cases below minCases 30 (10 / 1 / 10); reps/run ratio differ (2.000 / 1.000 / 2.000); reps below minReps 3 (2.000 / 1.000 / 2.000); harness budget differs (bounded vs ceiling)"
+    },
+    "quality": {
+      "pass": false,
+      "rule": "E recall >= Claude x0.9 && precision >= Claude x1",
+      "detail": "recall ratio 1.457 (0.463 vs 0.318), precision ratio 0.924 (0.454 vs 0.492)"
+    },
+    "cost": {
+      "pass": false,
+      "rule": "E billed USD <= Claude x0.3",
+      "detail": "USD N/A（E N/A / Claude $34.724）；不能以 totalTokens 代替成本结论"
+    },
+    "cache": {
+      "pass": false,
+      "rule": "E cacheHitRate >= 0.85",
+      "detail": "E cacheHitRate 0.607"
+    },
+    "coverage": {
+      "pass": true,
+      "rule": "all columns coverage >= 0.9",
+      "detail": "E 1.000, C_ref 1.000, Claude Code 0.950"
+    },
+    "environment": {
+      "pass": true,
+      "rule": "environment.json complete",
+      "detail": "all required fields present"
+    },
+    "signOff": {
+      "pass": false,
+      "rule": "product sign-off present",
+      "detail": "no sign-off"
+    }
+  },
+  "claimsAllowed": false,
+  "allowedClaim": null,
+  "limitations": [
+    "三列只作 L3 定位 / 宣称，不进入 S/A/B 主判定。",
+    "C_ref totalTokens 仅参考分母，不进入任何门。",
+    "E 与 Claude Code 使用同一模型，token 口径可对照；不得外推跨模型结论。",
+    "原始 runs / audit / wireBody 外置；摘要报告才入库。",
+    "三列样本量不一致（E 10 / C_ref 1 / Claude Code 10），不作严格配对结论。",
+    "存在列级 failures，逐项见 coverage / failures；不静默丢弃。"
+  ],
+  "thresholds": {
+    "recallVsClaude": 0.9,
+    "precisionVsClaude": 1,
+    "costVsClaude": 0.3,
+    "minCacheHitRate": 0.85,
+    "minCoverage": 0.9,
+    "minCases": 30,
+    "minReps": 3
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "campaignId": "l3-pilot-2026-11-13",
+  "evaluation": {
+    "branch": "eval/bench",
+    "campaign": "l3-pilot-2026-11-13",
+    "calibrationRef": "p1-calibration-2026-11-12"
+  },
+  "git": {
+    "branch": "eval/bench",
+    "commit": "c4e5e5f8f595079b26738ac788163496fd32853d",
+    "tag": null
+  },
+  "runtime": {
+    "node": "v24.13.0",
+    "os": "win32-x64",
+    "machine": "GDD-ITTools-XA"
+  },
+  "model": {
+    "requestedId": "deepseek-v4-flash",
+    "actualDeployment": null,
+    "providerClass": "volcengine",
+    "baseUrlClass": "gateway-endpoint"
+  },
+  "gateway": {
+    "cacheProbeBefore": null,
+    "cacheProbeAfter": null
+  },
+  "judge": {
+    "model": "glm-5.2",
+    "promptVersion": "mcr-bench-llm-hit-judge-2026-09-03+poc1-ext-1",
+    "temperature": 0.2,
+    "topP": 0.95
+  },
+  "prompts": {
+    "zoneA": "sha256:38f7fc349cbaa096e97747ec0d7779a2c4c897269aeb925174009da187ece05f",
+    "toolsSchema": "sha256:3140c719b6b87541ead09608bf9093d99d932e90ebd8ec6ba7a6eae1434e449a"
+  },
+  "claudeCode": {
+    "cliVersion": "2.1.241",
+    "requestedModel": "deepseek-v4-flash",
+    "actualModels": [
+      "deepseek-v4-flash"
+    ],
+    "maxTurns": null
+  },
+  "window": {
+    "start": "2026-11-11T23:42:45.782Z",
+    "end": "2026-11-13T18:23:56.047Z",
+    "timezone": "Asia/Shanghai"
+  },
+  "dataset": {
+    "casesFile": "data/vul4j/p1-smoke-cases.json",
+    "caseCount": 10,
+    "hash": "31a326bd1722042a1790d4bffbc05c02086098a212bedd785e6f51dbb4fcd8ba"
+  }
+}

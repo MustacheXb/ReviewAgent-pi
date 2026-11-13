@@ -1,0 +1,153 @@
+{
+  "campaignId": "l3-pilot-2026-11-13",
+  "generatedAt": "2026-11-13T19:30:00.000Z",
+  "environment": {
+    "campaignId": "l3-pilot-2026-11-13",
+    "evaluation": {
+      "branch": "eval/bench",
+      "campaign": "l3-pilot-2026-11-13",
+      "calibrationRef": "p1-calibration-2026-11-12"
+    },
+    "git": {
+      "branch": "eval/bench",
+      "commit": "c4e5e5f8f595079b26738ac788163496fd32853d",
+      "tag": null
+    },
+    "runtime": {
+      "node": "v24.13.0",
+      "os": "win32-x64",
+      "machine": "GDD-ITTools-XA"
+    },
+    "model": {
+      "requestedId": "deepseek-v4-flash",
+      "actualDeployment": null,
+      "providerClass": "volcengine",
+      "baseUrlClass": "gateway-endpoint"
+    },
+    "gateway": {
+      "cacheProbeBefore": null,
+      "cacheProbeAfter": null
+    },
+    "judge": {
+      "model": "glm-5.2",
+      "promptVersion": "mcr-bench-llm-hit-judge-2026-09-03+poc1-ext-1",
+      "temperature": 0.2,
+      "topP": 0.95
+    },
+    "prompts": {
+      "zoneA": "sha256:38f7fc349cbaa096e97747ec0d7779a2c4c897269aeb925174009da187ece05f",
+      "toolsSchema": "sha256:3140c719b6b87541ead09608bf9093d99d932e90ebd8ec6ba7a6eae1434e449a"
+    },
+    "claudeCode": {
+      "cliVersion": "2.1.241",
+      "requestedModel": "deepseek-v4-flash",
+      "actualModels": [
+        "deepseek-v4-flash"
+      ],
+      "maxTurns": null
+    },
+    "window": {
+      "start": "2026-11-11T23:42:45.782Z",
+      "end": "2026-11-13T18:23:56.047Z",
+      "timezone": "Asia/Shanghai"
+    },
+    "dataset": {
+      "casesFile": "data/vul4j/p1-smoke-cases.json",
+      "caseCount": 10,
+      "hash": "31a326bd1722042a1790d4bffbc05c02086098a212bedd785e6f51dbb4fcd8ba"
+    }
+  },
+  "columns": {
+    "e": {
+      "key": "e",
+      "label": "E",
+      "model": "deepseek-v4-flash",
+      "cases": 10,
+      "runs": 20,
+      "coverage": {
+        "planned": 20,
+        "executed": 20,
+        "judged": 20,
+        "failed": 0,
+        "ratio": 1
+      },
+      "quality": {
+        "recall": 0.46261904761904765,
+        "precision": 0.4541666666666666,
+        "f1": 0.38722222222222225
+      },
+      "cost": {
+        "carcMean": 47392.7,
+        "totalTokensMean": 100346.3,
+        "cacheHitRateMean": 0.6073813296591892,
+        "billedCostUsd": null
+      },
+      "harness": null,
+      "failures": [],
+      "budget": "bounded"
+    },
+    "cRef": {
+      "key": "c-ref",
+      "label": "C_ref",
+      "model": "deepseek-v4-flash",
+      "cases": 1,
+      "runs": 1,
+      "coverage": {
+        "planned": 1,
+        "executed": 1,
+        "judged": 1,
+        "failed": 0,
+        "ratio": 1
+      },
+      "quality": {
+        "recall": 1,
+        "precision": 0.3333333333333333,
+        "f1": 0.5
+      },
+      "cost": {
+        "carcMean": 81989,
+        "totalTokensMean": 290501,
+        "cacheHitRateMean": 0.7531614706934104,
+        "billedCostUsd": null
+      },
+      "harness": null,
+      "failures": [],
+      "budget": "bounded"
+    },
+    "claudeCode": {
+      "key": "claude-code",
+      "label": "Claude Code",
+      "model": "deepseek-v4-flash",
+      "cases": 10,
+      "runs": 20,
+      "coverage": {
+        "planned": 20,
+        "executed": 20,
+        "judged": 19,
+        "failed": 1,
+        "ratio": 0.95
+      },
+      "quality": {
+        "recall": 0.3176190476190476,
+        "precision": 0.4916666666666667,
+        "f1": 0.3174206349206349
+      },
+      "cost": {
+        "carcMean": 118795.7,
+        "totalTokensMean": 772926.9,
+        "cacheHitRateMean": 0.8364824285386463,
+        "billedCostUsd": 34.724082
+      },
+      "harness": {
+        "turnsMean": 22.15,
+        "durationMsMean": 436819.1,
+        "permissionDenials": 0
+      },
+      "failures": [
+        "VUL4J-25/rep-2: judge max_tokens 截断（留痕，不插补）"
+      ],
+      "budget": "ceiling"
+    }
+  },
+  "signOff": null
+}

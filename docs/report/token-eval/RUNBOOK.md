@@ -180,6 +180,21 @@ candidate: <commit>
      100.3k，Claude totalTokens ≈7.7×、CARC ≈2.5×。报告：
      [`claude-code-ceiling-10x2-2026-11-13/`](claude-code-ceiling-10x2-2026-11-13/REPORT.md)。
 
+   ### 2.5 L3 三列报告 / 宣称门（#45）
+
+   ```bash
+   pnpm l3-report -- \
+     --input docs/report/token-eval/<id>/input.json \
+     --out docs/report/token-eval/<id>
+   ```
+
+   纯函数输入三列 + environment + 签字；输出 `l3-report.json` /
+   `L3-REPORT.md`。`claimsAllowed` 需三列报告 + 完整 environment + 产品
+   签字 + 全门通过；C_ref `totalTokens` 只进参考分母，不进任何门。首个试点
+   [`l3-pilot-2026-11-13/`](l3-pilot-2026-11-13/L3-REPORT.md)：environment
+   complete，claimsAllowed **false**（comparability：样本量 / reps / bounded-vs-ceiling；
+   quality precision 0.924 <1；cost USD N/A；cache 0.607 <0.85；无签字）。
+
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s
    > 超时重试），`glm-5.3-flash` 返回非法 JSON。当前缺省用 `glm-5.2`
@@ -208,6 +223,7 @@ candidate: <commit>
 | `eval/bench` `src/eval/l2/` | L2 配对统计 + bootstrap + 四门判定 + `l2-report.json` 装配（纯函数） |
 | `eval/bench` `src/eval/ref/` | C_ref eval-only 全仓注入（80k 预算 / 排序 / 行级截断）+ kernel 适配 + fullRepo sidecar（#43；不写生产 `RunAudit.fullRepo`） |
 | `eval/bench` `src/eval/reference/claude-code/` | Claude Code 外部参照 client / 输出归一化 / 同一 judge 链 / 单列报告（#44；fake 默认离线，真实 CLI 冒烟环境变量门控） |
+| `eval/bench` `src/eval/l3/` | L3 三列报告 + 宣称门（#45；纯函数；三列不进 S/A/B，C_ref totalTokens 仅参考分母；claimsAllowed 需完整 environment + 产品签字） |
 | `eval/bench` `src/eval/judge/` | LLM-as-judge 链（prompt / parse / resolve / HTTP 客户端；离线可测） |
 | `eval/bench` `src/eval/assembly/` | 真实装配（pi 内核 + judge + `environment.json` provenance；`CAMPAIGN_REAL=1` 门控） |
 | `eval/bench` | campaign harness、judge 链、`C_ref`、Claude Code 参照、空对照校准、配对统计 |

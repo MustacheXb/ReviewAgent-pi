@@ -14,7 +14,11 @@
     "sourceMap": false,
     "outDir": ".tmp-gen"
   },
-  "files": ["scripts/run-campaign.ts", "scripts/run-reference-smokes.ts"],
+  "files": [
+    "scripts/run-campaign.ts",
+    "scripts/run-reference-smokes.ts",
+    "scripts/build-l3-report.ts"
+  ],
   "include": [],
   "exclude": ["node_modules", "dist", ".tmp-gen"]
 }

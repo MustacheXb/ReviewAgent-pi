@@ -23,6 +23,7 @@ const JUDGE_DIR = path.join(EVAL_DIR, "judge");
 const ASSEMBLY_DIR = path.join(EVAL_DIR, "assembly");
 const REF_DIR = path.join(EVAL_DIR, "ref");
 const REFERENCE_DIR = path.join(EVAL_DIR, "reference");
+const L3_DIR = path.join(EVAL_DIR, "l3");
 
 const FORBIDDEN_ANALYSIS_RUNTIME = [
   "node:http",
@@ -152,6 +153,14 @@ describe("评测面边界", () => {
     assertImportShape(REFERENCE_DIR, true);
   });
 
+  it("L3 三列报告源码零网络 / 零文件系统 / 零 LLM", () => {
+    assertNoRuntime(L3_DIR, FORBIDDEN_ANALYSIS_RUNTIME);
+  });
+
+  it("L3 三列报告 import 只允许相对模块与 review-pi type-only", () => {
+    assertImportShape(L3_DIR, false);
+  });
+
   it("campaign 核心不得 import judge / assembly（真实装配只在进程入口）", () => {
     const specifierPattern = /(?:from|import)\s+"([^"]+)"/g;
     for (const file of listTsFiles(CAMPAIGN_DIR)) {
@@ -196,6 +205,7 @@ describe("评测面边界", () => {
           "eval/assembly",
           "eval/ref",
           "eval/reference",
+          "eval/l3",
         ]) {
           expect(source, `${relative} imports ${plane}`).not.toContain(plane);
         }
