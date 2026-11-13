@@ -150,6 +150,13 @@ Precision −7.6pp 方向一致），后续校准 / L2 主跑应随机化臂序�
 （`VUL4J-75/baseline/rep-1`），不插补；judge 版本变更后按 §5 重做校准。
 空对照结果只用于阈值复核，不用于判定优化收益；对外宣称仍按 §4 执行。
 
+**Claude Code 口径澄清（2026-11-13）**：Claude Code 外部列用于 **Agent
+harness 同模型对照**——CLI 以 `--model` 使用与 E 相同的评测模型（`modelUsage`
+硬校验，不一致 fail fast），不是「Claude 模型」跨模型参照；报告中不得写
+「跨模型」或据此宣称通用 Agent。若需跨模型定位，必须另行配置真实 Claude
+模型并单独报告。同模型 5 轮上界下 harness 可能先截断（2026-11-13 三案
+3/3 `error_max_turns`、findings 0），质量对照需先定义公平输出预算。
+
 **补记复核（2026-11-12，臂序随机 10×3×2）**：campaign
 `p1-armorder-recheck-2026-11-12`（10 案 × 3 reps × 2 arms，`armOrder =
 randomized`，seed `20261112`；60/60 executed、59/60 judged）。warm 结果：
