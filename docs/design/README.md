@@ -48,6 +48,7 @@
 |---|---|
 | [VUL4J 评测方案与数据复制指南](<./05-evaluation/VUL4J 评测方案与数据复制指南.md>) | 数据集、实验矩阵、判定链与复现方式 |
 | [ReviewAgent Token 优化评测基准方案](<./05-evaluation/ReviewAgent Token 优化评测基准方案——三层对照体系与 Claude Code 外部参照.md>) | L1/L2/L3 三层对照、E 前后配对与 Claude Code 外部参照 |
+| [main 分支开发评测使用指南](<./05-evaluation/main 分支开发评测使用指南——L1、L2、L3 操作手册.md>) | main/feature 开发后如何跑 L1 / L2 / L3、当前可执行边界与已知缺口 |
 
 ## 6. 项目策略
 
