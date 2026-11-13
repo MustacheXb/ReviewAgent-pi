@@ -19,6 +19,7 @@
     "build:presentation": "pnpm exec tsc -p tsconfig.presentation.json",
     "migration-gate": "pnpm exec tsc -p tsconfig.migration-gate.json && node .tmp-gen/scripts/run-migration-gate.js",
     "campaign": "pnpm exec tsc -p tsconfig.campaign.json && node .tmp-gen/scripts/run-campaign.js",
+    "reference-smoke": "pnpm exec tsc -p tsconfig.campaign.json && node .tmp-gen/scripts/run-reference-smokes.js",
     "demo:http-server": "pnpm --filter review-pi build && pnpm exec tsc -p tsconfig.demo-http-server.json && node .tmp-gen/scripts/demo-http-server.js"
   },
   "devDependencies": {

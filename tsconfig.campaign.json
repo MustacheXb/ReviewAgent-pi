@@ -14,7 +14,7 @@
     "sourceMap": false,
     "outDir": ".tmp-gen"
   },
-  "files": ["scripts/run-campaign.ts"],
+  "files": ["scripts/run-campaign.ts", "scripts/run-reference-smokes.ts"],
   "include": [],
   "exclude": ["node_modules", "dist", ".tmp-gen"]
 }
