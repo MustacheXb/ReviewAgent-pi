@@ -2,10 +2,12 @@ import type { Finding } from "../../../instrument/contracts/finding.js";
 import type { MRCase } from "../../../instrument/contracts/mr-case.js";
 
 /**
- * Claude Code 外部参照契约（#44，eval-only）：跨模型外部参照单列报告。
+ * Claude Code 外部 harness 参照契约（#44，eval-only）：单列报告。
  *
- * 定位（ADR-0017 §4）：Claude Code 只作 L3 定位 / 宣称的跨模型参照，单列
- * 报告，不进 S/A/B 主判定；token 语义跨模型不作等价，成本以 USD 记录。
+ * 口径（2026-11-13 用户澄清）：本参照用于比较 **Agent harness** 差异——Claude
+ * Code CLI 使用与 ReviewAgent-pi 评测相同的模型（由调用方通过 `--model` 指定），
+ * 不是「Claude 模型」跨模型参照；实际模型以 `modelUsage` 为准，不一致必须
+ * fail fast。若使用不同模型，需在报告中显式标注，不能把 harness 差异当模型差异。
  *
  * 硬上界（设计 §7.2）：`--max-turns 5`；只允许 `Read / Grep / Glob`；CLI
  * 以 stdin 注入提示词、`--output-format json`；记录 CLI 版本、实际模型、

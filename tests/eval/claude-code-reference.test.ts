@@ -180,7 +180,7 @@ describe("buildClaudeCodeColumn", () => {
     });
     const first = renderClaudeCodeColumnMarkdown(column);
     expect(renderClaudeCodeColumnMarkdown(column)).toBe(first);
-    expect(first).toContain("# Claude Code 外部参照（单列）");
+    expect(first).toContain("# Claude Code harness 同模型参照（单列）");
     expect(first).toContain("不进 S/A/B 主判定");
   });
 });

@@ -211,16 +211,28 @@ async function main(argv: readonly string[]): Promise<number> {
     }
   } else {
     const cliVersion = await detectClaudeCodeVersion();
-    // options.model 是 E / judge 的对照模型，不是 Claude CLI 的模型——不传
-    // --model，让 Claude Code 使用其当前登录默认模型，并以 modelUsage 记实际值。
+    // Harness 同模型对照（用户口径）：Claude Code 必须使用与 ReviewAgent-pi
+    // 评测相同的模型 id；不允许回落到 CLI 默认模型（可能是 glm/其它网关模型）。
     const client = createClaudeCodeClient({
       ...(cliVersion !== null ? { cliVersion } : {}),
+      model: options.model,
     });
     const records: ClaudeCodeReferenceRecord[] = [];
     for (const rawCase of cases) {
       const mrCase = resolveCase(rawCase);
       try {
         const outcome = await client.run({ caseId: mrCase.caseId, mrCase, rep: options.rep });
+        // 同模型对照硬校验：实际模型必须与 ReviewAgent-pi 评测模型一致；
+        // 模型被网关 / CLI 配置改写时 fail fast，不产生「harness 差异」假结论。
+        if (
+          outcome.actualModels === null ||
+          !outcome.actualModels.includes(options.model)
+        ) {
+          throw new Error(
+            `Claude Code model mismatch: expected ${JSON.stringify(options.model)}, ` +
+              `actual ${JSON.stringify(outcome.actualModels)}`,
+          );
+        }
         const record = toClaudeCodeReferenceRecord(
           { caseId: mrCase.caseId, mrCase, rep: options.rep },
           outcome,

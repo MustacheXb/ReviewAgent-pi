@@ -160,11 +160,13 @@ candidate: <commit>
      `eval-sidecar/full-repo/<case>/C/rep-<n>.json`，不写生产 `RunAudit.fullRepo`。
      2026-11-13 单案 `VUL4J-1` 已跑通（3 findings，judge 1/2/0），报告
      [`c-ref-smoke-2026-11-13/`](c-ref-smoke-2026-11-13/REPORT.md)。
-   - Claude Code：跑前必须核对 `modelUsage` 实际模型是 `claude-*`。当前本机
-     `ANTHROPIC_*` 把 CLI 固定到 `glm-5.3` 网关；2026-11-13 冒烟因此无效并
-     停止，记录见
-     [`claude-code-smoke-2026-11-13/`](claude-code-smoke-2026-11-13/REPORT.md)。
-     未取得真实 Claude 模型前不得作为 L3 跨模型参照。
+   - Claude Code：**同模型 harness 对照**（用户 2026-11-13 口径）——CLI 必须
+     以 `--model` 使用与 ReviewAgent-pi 相同的评测模型，并以 `modelUsage`
+     硬校验；不一致 fail fast，不产生 harness 差异假结论。2026-11-13 三案
+     `deepseek-v4-flash` 冒烟：3/3 在 `--max-turns 5` 截断、findings 0、
+     judge FN 6，说明是 turn / 收口策略差异而非模型能力；结果不进入质量排名。
+     报告：[`claude-code-smoke-2026-11-13/`](claude-code-smoke-2026-11-13/REPORT.md)。
+     若要质量对照，先定义公平输出预算 / 收口规则（或单独诊断 >5 turns）。
 
    > judge 模型 id 漂移（2026-11-11 实测）：历史 `glm-5-3-260814` 已从网关
    > 下线（HTTP 404）；`glm-5.3` 在该网关上单次裁定超 10 分钟（触发 300s

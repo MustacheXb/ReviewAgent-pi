@@ -5,11 +5,11 @@ import type { JudgeClient, MatchConfidenceThreshold } from "../../judge/contract
 import type { ClaudeCodeReferenceRecord } from "./contracts.js";
 
 /**
- * Claude Code 外部参照的 judge / 单列报告（#44）。
+ * Claude Code 外部 harness 参照的 judge / 单列报告（#44）。
  *
- * 定位（ADR-0017 §4）：跨模型外部参照只单列；不进 S/A/B 主判定；token 语义
- * 跨模型不作等价，成本以 USD 记录。judge 复用与 E 相同的 judge 链（同一
- * judge 模型 / 阈值），确保质量口径一致。
+ * 口径：同模型 harness 对照（调用方指定与 E 相同的模型）；单列报告，不进
+ * S/A/B 主判定。judge 复用与 E 相同的 judge 链（同一 judge 模型 / 阈值）。
+ * `totalCostUsd` 是 CLI 报告值（CLI 价目），不必然等于网关实际账单。
  */
 
 export interface JudgeClaudeCodeInput {
@@ -126,9 +126,10 @@ export function renderClaudeCodeColumnMarkdown(column: ClaudeCodeColumn): string
   const fmt = (value: number | null, digits = 3): string =>
     value === null ? "N/A" : value.toFixed(digits);
   const lines = [
-    "# Claude Code 外部参照（单列）",
+    "# Claude Code harness 同模型参照（单列）",
     "",
-    "> 单列报告，不进 S/A/B 主判定；跨模型 token 语义不作等价，成本以 USD 记录。",
+    "> 单列报告，不进 S/A/B 主判定；同模型 harness 对照；成本为 CLI 报告 USD，" +
+      "不必然等于网关账单。",
     "",
     "| 指标 | 值 |",
     "|---|---:|",

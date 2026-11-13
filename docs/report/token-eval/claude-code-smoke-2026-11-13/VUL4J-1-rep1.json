@@ -11,28 +11,28 @@
     "Glob"
   ],
   "cliVersion": "2.1.241",
-  "requestedModel": null,
+  "requestedModel": "deepseek-v4-flash",
   "actualModels": [
-    "glm-5.3"
+    "deepseek-v4-flash"
   ],
   "numTurns": 6,
-  "totalCostUsd": 0.8673620000000001,
+  "totalCostUsd": 0.399309,
   "usage": {
-    "inputTokens": 40294,
+    "inputTokens": 24831,
     "cacheCreationInputTokens": 0,
-    "cacheReadInputTokens": 112384,
-    "outputTokens": 24388
+    "cacheReadInputTokens": 62208,
+    "outputTokens": 9762
   },
   "modelUsage": {
-    "glm-5.3": {
-      "inputTokens": 40294,
+    "deepseek-v4-flash": {
+      "inputTokens": 24831,
       "cacheCreationInputTokens": 0,
-      "cacheReadInputTokens": 112384,
-      "outputTokens": 24388
+      "cacheReadInputTokens": 62208,
+      "outputTokens": 9762
     }
   },
   "permissionDenials": 0,
-  "durationMs": 394442,
+  "durationMs": 94218,
   "error": "error_max_turns",
   "truncated": true,
   "findings": [],

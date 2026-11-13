@@ -1,0 +1,26 @@
+{
+  "kind": "claude-code-column",
+  "schemaVersion": 1,
+  "cases": 3,
+  "findings": 0,
+  "zeroFindingRate": 1,
+  "totalCostUsd": 2.01487,
+  "avgTurns": 6,
+  "permissionDenials": 0,
+  "actualModels": [
+    "deepseek-v4-flash"
+  ],
+  "judge": {
+    "tp": 0,
+    "fp": 0,
+    "fn": 6,
+    "recall": 0,
+    "precision": null,
+    "f1": null
+  },
+  "anomalies": [
+    "CLI reported error (subtype \"error_max_turns\"); run truncated at max turns",
+    "CLI reported error (subtype \"error_max_turns\"); run truncated at max turns",
+    "CLI reported error (subtype \"error_max_turns\"); run truncated at max turns"
+  ]
+}
