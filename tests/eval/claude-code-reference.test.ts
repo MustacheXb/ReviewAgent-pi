@@ -152,6 +152,7 @@ describe("buildClaudeCodeColumn", () => {
 
   it("空记录 → 可观测字段记 N/A，不写 0", () => {
     expect(buildClaudeCodeColumn([])).toMatchObject({
+      runs: 0,
       cases: 0,
       findings: 0,
       zeroFindingRate: null,
@@ -159,6 +160,25 @@ describe("buildClaudeCodeColumn", () => {
       avgTurns: null,
       permissionDenials: null,
       judge: null,
+    });
+  });
+
+  it("同 case 多 rep：cases 去重，零 finding 率按 case 先跨 rep 再等权", () => {
+    const records = [
+      record({ totalCostUsd: 0.01, numTurns: 2 }, { caseId: "VUL4J-1", rep: 1 }),
+      record(
+        { findings: [], totalCostUsd: 0.02, numTurns: 4 },
+        { caseId: "VUL4J-1", rep: 2 },
+      ),
+    ];
+    const column = buildClaudeCodeColumn(records);
+    expect(column).toMatchObject({
+      runs: 2,
+      cases: 1,
+      findings: 1,
+      zeroFindingRate: 0.5,
+      totalCostUsd: 0.03,
+      avgTurns: 3,
     });
   });
 

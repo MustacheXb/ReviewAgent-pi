@@ -53,6 +53,9 @@ export interface ClaudeCodeColumnJudge {
 export interface ClaudeCodeColumn {
   readonly kind: "claude-code-column";
   readonly schemaVersion: 1;
+  /** 运行单元数（case × reps） */
+  readonly runs: number;
+  /** 去重 case 数 */
   readonly cases: number;
   readonly findings: number;
   readonly zeroFindingRate: number | null;
@@ -77,15 +80,31 @@ export function buildClaudeCodeColumn(
   records: readonly ClaudeCodeReferenceRecord[],
   options: BuildClaudeCodeColumnOptions = {},
 ): ClaudeCodeColumn {
-  const cases = records.length;
+  const runs = records.length;
+  const byCase = new Map<string, readonly ClaudeCodeReferenceRecord[]>();
+  for (const record of records) {
+    byCase.set(record.caseId, [...(byCase.get(record.caseId) ?? []), record]);
+  }
+  const cases = byCase.size;
   const findings = records.reduce((sum, record) => sum + record.findings.length, 0);
-  const zeroFindings = records.filter((record) => record.findings.length === 0).length;
+  // 零 finding 率：先 case 内跨 rep 求比例，再跨 case 等权平均（不把 rep 当独立 case）
+  const zeroFindingRate =
+    cases === 0
+      ? null
+      : [...byCase.values()].reduce(
+          (sum, caseRecords) =>
+            sum +
+            caseRecords.filter((record) => record.findings.length === 0).length /
+              caseRecords.length,
+          0,
+        ) / cases;
   return {
     kind: "claude-code-column",
     schemaVersion: 1,
+    runs,
     cases,
     findings,
-    zeroFindingRate: cases === 0 ? null : zeroFindings / cases,
+    zeroFindingRate,
     truncatedRuns: records.filter((record) => record.truncated).length,
     totalCostUsd: sumOrNull(records.map((record) => record.totalCostUsd)),
     totalDurationMs: sumOrNull(records.map((record) => record.durationMs)),
@@ -139,6 +158,7 @@ export function renderClaudeCodeColumnMarkdown(column: ClaudeCodeColumn): string
     "",
     "| 指标 | 值 |",
     "|---|---:|",
+    `| runs | ${column.runs} |`,
     `| cases | ${column.cases} |`,
     `| findings | ${column.findings} |`,
     `| zero-finding rate | ${fmt(column.zeroFindingRate)} |`,

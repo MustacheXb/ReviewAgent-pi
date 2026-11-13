@@ -61,7 +61,7 @@ interface SmokeOptions {
   readonly outDir: string;
   readonly model: string;
   readonly judgeModel: string;
-  readonly rep: number;
+  readonly reps: number;
   /** Claude Code 口径：ceiling = 不传 --max-turns；bounded = 5 轮 */
   readonly claudeMode: "ceiling" | "bounded";
   /** case 列表起始偏移（便于分段续跑，不重复付费） */
@@ -95,10 +95,10 @@ function parseArgs(argv: readonly string[]): SmokeOptions {
   if (!Number.isInteger(caseCount) || caseCount <= 0) {
     throw new Error("--case-count must be a positive integer");
   }
-  const repRaw = values.get("--rep") ?? "1";
-  const rep = Number(repRaw);
-  if (!Number.isInteger(rep) || rep <= 0) {
-    throw new Error("--rep must be a positive integer");
+  const repRaw = values.get("--reps") ?? values.get("--rep") ?? "1";
+  const reps = Number(repRaw);
+  if (!Number.isInteger(reps) || reps <= 0) {
+    throw new Error("--reps must be a positive integer");
   }
   const claudeMode = values.get("--claude-mode") ?? "ceiling";
   if (claudeMode !== "ceiling" && claudeMode !== "bounded") {
@@ -120,7 +120,7 @@ function parseArgs(argv: readonly string[]): SmokeOptions {
     ),
     model: values.get("--model") ?? "deepseek-v4-flash",
     judgeModel: values.get("--judge-model") ?? "glm-5.2",
-    rep,
+    reps,
     claudeMode,
     caseOffset,
   };
@@ -154,75 +154,87 @@ async function main(argv: readonly string[]): Promise<number> {
     const kernel = createCRefKernel({ baseKernel: setup.deps.kernel });
     for (const rawCase of cases) {
       const mrCase = resolveCase(rawCase);
-      try {
-        const request = {
-          unit: {
-            source: "vul4j" as const,
+      for (let rep = 1; rep <= options.reps; rep += 1) {
+        try {
+          const request = {
+            unit: {
+              source: "vul4j" as const,
+              caseId: mrCase.caseId,
+              configId: "E" as const,
+              rep,
+            },
+            mrCase,
+            model: options.model,
+            experimentRoot: options.outDir,
+          };
+          const result = await kernel.execute(request);
+          const plan: CampaignPlan = {
+            campaignId: path.basename(options.outDir),
+            baselineRef: BASELINE_REF,
+            candidateRef: "C_ref",
+            casesFile: options.casesFile,
+            reps: options.reps,
+            model: options.model,
+            arms: ["candidate"],
+            outputDir: options.outDir,
+          };
+          const record = toEvalRunRecord({
+            plan,
+            unit: { ...request.unit, arm: "candidate" },
+            result,
+            completedAt: new Date().toISOString(),
+          });
+          await writeJsonFile(campaignRecordPath(options.outDir, record), {
+            ...record,
+            ref: "C_ref",
+            evalOnly: true,
+          });
+          const judged = await judgeFindings({
             caseId: mrCase.caseId,
-            configId: "E" as const,
-            rep: options.rep,
-          },
-          mrCase,
-          model: options.model,
-          experimentRoot: options.outDir,
-        };
-        const result = await kernel.execute(request);
-        const plan: CampaignPlan = {
-          campaignId: path.basename(options.outDir),
-          baselineRef: BASELINE_REF,
-          candidateRef: "C_ref",
-          casesFile: options.casesFile,
-          reps: options.rep,
-          model: options.model,
-          arms: ["candidate"],
-          outputDir: options.outDir,
-        };
-        const record = toEvalRunRecord({
-          plan,
-          unit: { ...request.unit, arm: "candidate" },
-          result,
-          completedAt: new Date().toISOString(),
-        });
-        await writeJsonFile(campaignRecordPath(options.outDir, record), {
-          ...record,
-          ref: "C_ref",
-          evalOnly: true,
-        });
-        const judged = await judgeFindings({
-          caseId: mrCase.caseId,
-          findings: result.findings,
-          truth: mrCase.truth,
-          issueDescription: mrCase.issueDescription,
-          diff: mrCase.diff,
-          client: judgeClient,
-        });
-        judgeCounts.push(judged.counts);
-        await writeJsonFile(path.join(options.outDir, "judge", `${mrCase.caseId}.json`), {
-          caseId: mrCase.caseId,
-          ref: "C_ref",
-          status: judged.status,
-          counts: judged.counts,
-          anomalies: judged.anomalies,
-        });
-        await writeJsonFile(path.join(options.outDir, "summary.json"), {
-          kind: "c-ref-smoke",
-          ref: "C_ref",
-          evalOnly: true,
-          caseId: mrCase.caseId,
-          sidecarPath: result.cRefSidecarPath,
-          fullRepo: result.fullRepo,
-          findings: result.findings.length,
-          judge: judged,
-        });
-        console.info(
-          `[reference-smoke] c-ref ${mrCase.caseId}: findings=${result.findings.length} ` +
-            `judge=${judged.status} tp/fp/fn=${judged.counts.tp}/${judged.counts.fp}/${judged.counts.fn} ` +
-            `sidecar=${result.cRefSidecarPath}`,
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        failures.push({ caseId: mrCase.caseId, error: message });
-        console.error(`[reference-smoke] c-ref ${mrCase.caseId} FAILED: ${message}`);
+            findings: result.findings,
+            truth: mrCase.truth,
+            issueDescription: mrCase.issueDescription,
+            diff: mrCase.diff,
+            client: judgeClient,
+          });
+          judgeCounts.push(judged.counts);
+          await writeJsonFile(
+            path.join(options.outDir, "judge", `${mrCase.caseId}-rep${rep}.json`),
+            {
+              caseId: mrCase.caseId,
+              rep,
+              ref: "C_ref",
+              status: judged.status,
+              counts: judged.counts,
+              anomalies: judged.anomalies,
+            },
+          );
+          await writeJsonFile(
+            path.join(options.outDir, "summary", `${mrCase.caseId}-rep${rep}.json`),
+            {
+              kind: "c-ref-smoke",
+              ref: "C_ref",
+              evalOnly: true,
+              caseId: mrCase.caseId,
+              rep,
+              sidecarPath: result.cRefSidecarPath,
+              fullRepo: result.fullRepo,
+              findings: result.findings.length,
+              judge: judged,
+            },
+          );
+          console.info(
+            `[reference-smoke] c-ref ${mrCase.caseId}/rep-${rep}: findings=${result.findings.length} ` +
+              `judge=${judged.status} tp/fp/fn=${judged.counts.tp}/${judged.counts.fp}/${judged.counts.fn} ` +
+              `sidecar=${result.cRefSidecarPath}`,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failures.push({ caseId: mrCase.caseId, rep, error: message });
+          console.error(
+            `[reference-smoke] c-ref ${mrCase.caseId}/rep-${rep} FAILED: ${message}`,
+          );
+        }
       }
     }
   } else {
@@ -240,54 +252,62 @@ async function main(argv: readonly string[]): Promise<number> {
     const records: ClaudeCodeReferenceRecord[] = [];
     for (const rawCase of cases) {
       const mrCase = resolveCase(rawCase);
-      try {
-        const outcome = await client.run({ caseId: mrCase.caseId, mrCase, rep: options.rep });
-        // 同模型对照硬校验：实际模型必须与 ReviewAgent-pi 评测模型一致；
-        // 模型被网关 / CLI 配置改写时 fail fast，不产生「harness 差异」假结论。
-        if (
-          outcome.actualModels === null ||
-          !outcome.actualModels.includes(options.model)
-        ) {
-          throw new Error(
-            `Claude Code model mismatch: expected ${JSON.stringify(options.model)}, ` +
-              `actual ${JSON.stringify(outcome.actualModels)}`,
+      for (let rep = 1; rep <= options.reps; rep += 1) {
+        try {
+          const outcome = await client.run({ caseId: mrCase.caseId, mrCase, rep });
+          // 同模型对照硬校验：实际模型必须与 ReviewAgent-pi 评测模型一致；
+          // 模型被网关 / CLI 配置改写时 fail fast，不产生「harness 差异」假结论。
+          if (
+            outcome.actualModels === null ||
+            !outcome.actualModels.includes(options.model)
+          ) {
+            throw new Error(
+              `Claude Code model mismatch: expected ${JSON.stringify(options.model)}, ` +
+                `actual ${JSON.stringify(outcome.actualModels)}`,
+            );
+          }
+          const record = toClaudeCodeReferenceRecord(
+            { caseId: mrCase.caseId, mrCase, rep },
+            outcome,
+          );
+          records.push(record);
+          await writeJsonFile(
+            path.join(options.outDir, "records", `${mrCase.caseId}-rep${rep}.json`),
+            record,
+          );
+          const judged = await judgeFindings({
+            caseId: mrCase.caseId,
+            findings: outcome.findings,
+            truth: mrCase.truth,
+            issueDescription: mrCase.issueDescription,
+            diff: mrCase.diff,
+            client: judgeClient,
+          });
+          judgeCounts.push(judged.counts);
+          await writeJsonFile(
+            path.join(options.outDir, "judge", `${mrCase.caseId}-rep${rep}.json`),
+            {
+              caseId: mrCase.caseId,
+              rep,
+              ref: "claude-code",
+              status: judged.status,
+              counts: judged.counts,
+              anomalies: judged.anomalies,
+            },
+          );
+          console.info(
+            `[reference-smoke] claude-code ${mrCase.caseId}/rep-${rep}: ` +
+              `findings=${outcome.findings.length} turns=${outcome.numTurns ?? "N/A"} ` +
+              `cost=${outcome.totalCostUsd ?? "N/A"} denials=${outcome.permissionDenials ?? "N/A"} ` +
+              `judge=${judged.status} tp/fp/fn=${judged.counts.tp}/${judged.counts.fp}/${judged.counts.fn}`,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failures.push({ caseId: mrCase.caseId, rep, error: message });
+          console.error(
+            `[reference-smoke] claude-code ${mrCase.caseId}/rep-${rep} FAILED: ${message}`,
           );
         }
-        const record = toClaudeCodeReferenceRecord(
-          { caseId: mrCase.caseId, mrCase, rep: options.rep },
-          outcome,
-        );
-        records.push(record);
-        await writeJsonFile(
-          path.join(options.outDir, "records", `${mrCase.caseId}-rep${options.rep}.json`),
-          record,
-        );
-        const judged = await judgeFindings({
-          caseId: mrCase.caseId,
-          findings: outcome.findings,
-          truth: mrCase.truth,
-          issueDescription: mrCase.issueDescription,
-          diff: mrCase.diff,
-          client: judgeClient,
-        });
-        judgeCounts.push(judged.counts);
-        await writeJsonFile(path.join(options.outDir, "judge", `${mrCase.caseId}.json`), {
-          caseId: mrCase.caseId,
-          ref: "claude-code",
-          status: judged.status,
-          counts: judged.counts,
-          anomalies: judged.anomalies,
-        });
-        console.info(
-          `[reference-smoke] claude-code ${mrCase.caseId}: findings=${outcome.findings.length} ` +
-            `turns=${outcome.numTurns ?? "N/A"} cost=${outcome.totalCostUsd ?? "N/A"} ` +
-            `denials=${outcome.permissionDenials ?? "N/A"} judge=${judged.status} ` +
-            `tp/fp/fn=${judged.counts.tp}/${judged.counts.fp}/${judged.counts.fn}`,
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        failures.push({ caseId: mrCase.caseId, error: message });
-        console.error(`[reference-smoke] claude-code ${mrCase.caseId} FAILED: ${message}`);
       }
     }
     const column = buildClaudeCodeColumn(records, { judgeCounts });
