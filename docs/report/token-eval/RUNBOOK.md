@@ -134,9 +134,9 @@ candidate: <commit>
    --calibration-ref p1-calibration-2026-11-12
    ```
 
-   已知限制：数据集无 clean MR（阴性对照阈值 N/A）；固定臂序
-   baseline→candidate 可能引入顺序偏差，后续主跑建议随机化臂序；judge
-   `VUL4J-75/baseline/rep-1` 持续非法 JSON（已留痕，不插补）。
+   已知限制：数据集无 clean MR（阴性对照阈值 N/A）；固定臂序会引入顺序偏差，
+   后续 L2 主跑 / 校准必须使用**随机臂序**（`--randomize-arms`，seed 入
+   plan.json）；judge `VUL4J-75/baseline/rep-1` 持续非法 JSON（已留痕，不插补）。
 
    ### 2.3 臂序随机复核（2026-11-12）
 
@@ -208,8 +208,15 @@ candidate: <commit>
    > 全阶段有界，`progress.log` 记录阶段事件，CLI 40m 无进度看门狗兜底；失败留痕
    > 逐单元落盘。真实主跑前复核 `progress.log`，事故与续跑细节见
    > [p1-smoke-2026-11-11/REPORT.md](p1-smoke-2026-11-11/REPORT.md)。
-4. **主跑**：30 case × 3 reps（Vul4J 30 案），同 case × rep 两臂相邻或按 case 随机化臂顺序；同一 ≤48h 窗口。
-5. **判定**：L1 质量门（judge Recall / Precision 非劣、零 finding 率、阴性对照 FP、coverage）+ L2 成本门（CARC 主门、uncached / output 分解、attemptedToolCalls / requests 有界性、可复现）。判定结果读取 `l2-report.json` 的 `gates` / `claimsAllowed`；阈值 provisional，先跑空对照校准（ADR-0017 §5）。
+4. **主跑**：同 case × rep 双 arm，**随机臂序**（`--randomize-arms`，seed 入
+   plan.json），同一 ≤48h 窗口。样本功效：CARC 约需 ≥43 案、质量 3pp 约需
+   ≈220 案；30×3 仅作诊断，不得作为 L2 硬门通过证据（ADR-0017 2026-11-12
+   补记）。
+5. **判定**：L1 质量门（judge Recall / Precision 非劣、零 finding 率、阴性对照
+   FP、coverage）+ L2 成本门（CARC 主门、uncached / output 分解、
+   attemptedToolCalls / requests 有界性、可复现）。空对照校准已于 2026-11-12
+   完成，阈值按 ADR-0017 补记（仅更新有界性上界；成本 / 质量门保留）；30 案下
+   报告标 `underpowered/diagnostic`，不得宣称 L2 通过。
 6. **归档**：报表写本目录（`docs/report/token-eval/<campaign-id>/`），原始 `runs/` / `audit/` / `wireBody` 外置；报告不得含 key。
 7. **复测**：运行后再跑一次缓存探针；窗口内网关策略变化必须在报告标注，必要时重跑。
 
@@ -243,6 +250,10 @@ C_ref（#43）当前为 eval-only 模块（`src/eval/ref/`）：全仓注入 + k
 
 ## 5. 相关文档
 
+- [治理 runbook（L2 合并门 / 例外 / L3 宣称审批）](GOVERNANCE.md)
+- [L2 硬合并门 PR 清单](templates/l2-pr-checklist.md)
+- [L2 成本门例外模板](templates/l2-cost-exception.md)
+- [L3 宣称审批清单](templates/l3-claim-approval.md)
 - [ADR-0016 评测面隔离](../../adr/0016-evaluation-plane-isolation.md)
 - [ADR-0017 Token 优化判据](../../adr/0017-token-optimization-gates.md)
 - [评测基准方案](<../../design/05-evaluation/ReviewAgent Token 优化评测基准方案——三层对照体系与 Claude Code 外部参照.md>)
