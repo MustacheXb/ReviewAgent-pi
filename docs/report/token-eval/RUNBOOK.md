@@ -62,6 +62,8 @@ candidate: <commit>
      --candidate-ref <commit> \
      --cases data/vul4j/p1-smoke-cases.json \
      --model deepseek-v4-flash --reps 2 --arms baseline,candidate \
+     --randomize-arms --arm-seed <seed> \
+     --baseline-repo <baseline-worktree> \
      [--judge-model glm-5.2]
    ```
 
@@ -78,7 +80,8 @@ candidate: <commit>
      judge 失败计入 `coverage.failed` 并在质量门 fail，不静默丢样本。
    - 跨 commit 双 arm：runner 支持按 arm 注入内核（`armKernels`）；真实
      assembly 默认两臂共用当前 checkout 的 pi 内核，因此非空对照的真实跑
-     需调用方提供 baseline 运行器，否则只作同代码校准。
+     需调用方提供 baseline 运行器（`--baseline-repo <worktree>`，该 worktree
+     检出冻结 baseline ref 并已构建 `review-pi`），否则只作同代码校准。
 
    ### 2.1 空对照校准（#42，P1-0）
 

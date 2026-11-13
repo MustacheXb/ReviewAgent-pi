@@ -76,8 +76,8 @@ export function piKernel(deps: PiKernelDeps): ReviewKernel {
   };
 }
 
-/** pi RunRecord.baseline → root RunResult（映射纪律见模块注释） */
-function toRootRunResult(request: UnitReviewRequest, result: ReviewRunResult): RunResult {
+/** pi RunRecord.baseline → root RunResult（映射纪律见模块注释；baseline 子进程复用） */
+export function toRootRunResult(request: UnitReviewRequest, result: ReviewRunResult): RunResult {
   const snapshot = result.record.baseline;
   return {
     caseId: request.unit.caseId,

@@ -1,5 +1,6 @@
 import { piKernel } from "../../gate/pi-kernel.js";
 import type { EnvLookup } from "review-llm";
+import { baselineSubprocessKernel } from "./baseline-kernel.js";
 import { DEFAULT_IO_TIMEOUT_MS } from "../campaign/contracts.js";
 import type { CampaignDeps } from "../campaign/contracts.js";
 import {
@@ -70,6 +71,13 @@ export interface RealCampaignDepsOptions {
   /** 记录 / judge 留痕落盘超时（毫秒；缺省 60s） */
   readonly ioTimeoutMs?: number;
   readonly now?: () => string;
+  /**
+   * baseline 臂独立 worktree（冻结 ref 检出，须已构建 review-pi）。
+   * 提供时按 arm 注入 baseline 子进程内核；缺省两臂共用当前 checkout。
+   */
+  readonly baselineRepoPath?: string;
+  /** 期望的 baseline commit/tag（提供时校验 baselineRepoPath HEAD） */
+  readonly baselineRef?: string;
 }
 
 export function createRealCampaignDeps(options: RealCampaignDepsOptions): CampaignDeps {
@@ -95,6 +103,15 @@ export function createRealCampaignDeps(options: RealCampaignDepsOptions): Campai
     ...(reviewerBaseUrl !== null ? { baseUrl: reviewerBaseUrl } : {}),
     fetch: fetchFn,
   });
+  const baselineKernel =
+    options.baselineRepoPath !== undefined
+      ? baselineSubprocessKernel({
+          repoPath: options.baselineRepoPath,
+          apiKey: options.reviewerApiKey,
+          baseUrl: reviewerBaseUrl,
+          ...(options.baselineRef !== undefined ? { expectedRef: options.baselineRef } : {}),
+        })
+      : undefined;
   const judgeClient = new GptJudgeClient({
     model: options.judgeModel,
     apiKey: options.judgeApiKey,
@@ -106,6 +123,9 @@ export function createRealCampaignDeps(options: RealCampaignDepsOptions): Campai
   });
   return {
     kernel,
+    ...(baselineKernel !== undefined
+      ? { armKernels: { baseline: baselineKernel, candidate: kernel } }
+      : {}),
     judge: createCampaignJudgeClient({ client: judgeClient }),
     kernelTimeoutMs: options.kernelTimeoutMs ?? DEFAULT_KERNEL_TIMEOUT_MS,
     judgeTimeoutMs: options.judgeTimeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS,

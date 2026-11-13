@@ -33,6 +33,10 @@ export interface PrepareRealCampaignOptions {
   readonly fetchFn?: typeof fetch;
   readonly kernelTimeoutMs?: number;
   readonly judgeTimeoutMs?: number;
+  /** baseline 臂独立 worktree（跨 commit L2）；缺省两臂同代码 */
+  readonly baselineRepoPath?: string;
+  /** 期望的 baseline commit/tag（用于校验 baseline worktree HEAD） */
+  readonly baselineRef?: string;
 }
 
 export interface RealCampaignSetup {
@@ -61,6 +65,10 @@ export function prepareRealCampaign(options: PrepareRealCampaignOptions): RealCa
     ...(options.fetchFn !== undefined ? { fetchFn: options.fetchFn } : {}),
     ...(options.kernelTimeoutMs !== undefined ? { kernelTimeoutMs: options.kernelTimeoutMs } : {}),
     ...(options.judgeTimeoutMs !== undefined ? { judgeTimeoutMs: options.judgeTimeoutMs } : {}),
+    ...(options.baselineRepoPath !== undefined
+      ? { baselineRepoPath: options.baselineRepoPath }
+      : {}),
+    ...(options.baselineRef !== undefined ? { baselineRef: options.baselineRef } : {}),
   });
   const environment = collectCampaignEnvironment({
     model: options.model,

@@ -16,6 +16,10 @@ export {
 } from "./deps.js";
 export { extractValueFlag, type ExtractValueFlagResult } from "./args.js";
 export {
+  baselineSubprocessKernel,
+  type BaselineSubprocessKernelOptions,
+} from "./baseline-kernel.js";
+export {
   classifyBaseUrl,
   classifyProvider,
   collectCampaignEnvironment,

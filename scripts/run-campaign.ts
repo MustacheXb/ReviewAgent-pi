@@ -14,7 +14,8 @@
  *   CAMPAIGN_REAL=1 pnpm campaign -- --campaign-id p1-smoke-2026-11-11 \
  *     --baseline-ref eval-e-baseline-2026-11-11 --candidate-ref <sha> \
  *     --cases data/vul4j/p1-smoke-cases.json --model deepseek-v4-flash \
- *     --reps 2 --arms baseline [--judge-model glm-5.2]
+ *     --reps 2 --arms baseline [--judge-model glm-5.2] \
+ *     [--baseline-repo /path/to/baseline-worktree]
  *   pnpm campaign -- --report-only --out runs/eval/p1-smoke-2026-11-11
  *
  * `.env.local` 由本入口装载（显式环境变量优先，文件只补缺；值绝不回显）。
@@ -67,17 +68,20 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   let judgeModel: string | null;
-  let withoutJudgeModel: readonly string[];
+  let baselineRepoPath: string | null;
+  let withoutExtras: readonly string[];
   try {
-    const extracted = extractValueFlag(argv, "--judge-model");
-    judgeModel = extracted.value;
-    withoutJudgeModel = extracted.argv;
+    const judge = extractValueFlag(argv, "--judge-model");
+    judgeModel = judge.value;
+    const baseline = extractValueFlag(judge.argv, "--baseline-repo");
+    baselineRepoPath = baseline.value;
+    withoutExtras = baseline.argv;
   } catch (error) {
     console.error(`[campaign] ${errorMessage(error)}`);
     return 2;
   }
-  const withFake = withoutJudgeModel.includes("--fake");
-  const parsed = parseCampaignArgs(withoutJudgeModel.filter((token) => token !== "--fake"));
+  const withFake = withoutExtras.includes("--fake");
+  const parsed = parseCampaignArgs(withoutExtras.filter((token) => token !== "--fake"));
   if (!parsed.ok) {
     console.error(`${parsed.message}\n${parsed.usage}`);
     return 2;
@@ -91,6 +95,10 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     if (judgeModel !== null) {
       console.error("[campaign] --judge-model is only meaningful for run mode");
+      return 2;
+    }
+    if (baselineRepoPath !== null) {
+      console.error("[campaign] --baseline-repo is only meaningful for run mode");
       return 2;
     }
     const outDir = path.resolve(options.outDir);
@@ -139,6 +147,10 @@ async function main(argv: readonly string[]): Promise<number> {
         console.error("[campaign] --judge-model is only meaningful for real run mode");
         return 2;
       }
+      if (baselineRepoPath !== null) {
+        console.error("[campaign] --baseline-repo is only meaningful for real run mode");
+        return 2;
+      }
       console.warn(
         "[campaign] --fake: synthetic records for the harness tracer bullet — not a real measurement.",
       );
@@ -154,6 +166,8 @@ async function main(argv: readonly string[]): Promise<number> {
       model: options.model,
       judgeModel: resolvedJudgeModel,
       repoRoot: REPO_ROOT,
+      ...(baselineRepoPath !== null ? { baselineRepoPath } : {}),
+      baselineRef: options.baselineRef,
     });
     console.log(
       `[campaign] real run: model=${options.model} judge=${resolvedJudgeModel} ` +
