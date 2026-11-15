@@ -1,0 +1,15 @@
+{
+  "campaignId": "p0-l2-diagnostic2-2026-11-14",
+  "baselineRef": "eval-e-baseline-2026-11-11",
+  "candidateRef": "e61e43c",
+  "casesFile": "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi-candidate\\data\\vul4j\\target-cases.json",
+  "reps": 3,
+  "model": "deepseek-v4-flash",
+  "arms": [
+    "baseline",
+    "candidate"
+  ],
+  "outputDir": "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi-candidate\\runs\\eval\\p0-l2-diagnostic2-2026-11-14",
+  "armOrder": "randomized",
+  "armOrderSeed": 20261114
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "campaignId": "p0-l2-diagnostic2-2026-11-14",
+    "source": "vul4j",
+    "caseId": "VUL4J-58",
+    "arm": "baseline",
+    "rep": 1,
+    "stage": "kernel",
+    "error": "baseline kernel exited with code 1: file:///D:/xubao/code/AI4SE/ReviewAgent-pi/ReviewAgent-pi-baseline/packages/review-pi/dist/loop/agent-review-loop.js:155\r\n        throw new Error(`review turn failed: ${failed.errorMessage ?? \"provider returned an error stop reason\"}`);\r\n              ^\r\n\r\nError: review turn failed: terminated\r\n    at runAgentReviewLoop (file:///D:/xubao/code/AI4SE/ReviewAgent-pi/ReviewAgent-pi-baseline/packages/review-pi/dist/loop/agent-review-loop.js:155:15)\r\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\r\n    at async runReview (file:///D:/xubao/code/AI4SE/ReviewAgent-pi/ReviewAgent-pi-baseline/packages/review-pi/dist/run/review-run.js:40:21)\r\n    at async file:///D:/xubao/code/AI4SE/ReviewAgent-pi/ReviewAgent-pi-baseline/.tmp-gen/baseline-kernel-runner.mjs:10:16\r\n\r\nNode.js v24.13.0",
+    "at": "2026-11-15T02:33:49.761Z"
+  },
+  {
+    "campaignId": "p0-l2-diagnostic2-2026-11-14",
+    "source": "vul4j",
+    "caseId": "VUL4J-75",
+    "arm": "baseline",
+    "rep": 1,
+    "stage": "judge",
+    "error": "judge response is not valid JSON: {` - TRUTH-6 (line 71): Revert of render method removing masking logic Model defects: - F001: Describes the security vul…",
+    "at": "2026-11-15T03:29:00.286Z"
+  },
+  {
+    "campaignId": "p0-l2-diagnostic2-2026-11-14",
+    "source": "vul4j",
+    "caseId": "VUL4J-75",
+    "arm": "candidate",
+    "rep": 2,
+    "stage": "judge",
+    "error": "judge response is not valid JSON: {` placeholders and prevent recursive SpEL evaluation 2. The \"Code Diff\" shows the REVERT of that fix - removing the ran…",
+    "at": "2026-11-15T03:30:14.435Z"
+  },
+  {
+    "campaignId": "p0-l2-diagnostic2-2026-11-14",
+    "source": "vul4j",
+    "caseId": "VUL4J-75",
+    "arm": "baseline",
+    "rep": 2,
+    "stage": "judge",
+    "error": "judge response is not valid JSON: {...}` in model values. This is fundamentally about the render method change (line 70/71) where `replacePlaceholders` is…",
+    "at": "2026-11-15T03:34:36.133Z"
+  },
+  {
+    "campaignId": "p0-l2-diagnostic2-2026-11-14",
+    "source": "vul4j",
+    "caseId": "VUL4J-75",
+    "arm": "baseline",
+    "rep": 3,
+    "stage": "judge",
+    "error": "judge response is not valid JSON: {\", \"}\")` approach. The ground truth defects (all with N/A descriptions but located at specific lines in SpelView.java) …",
+    "at": "2026-11-15T03:40:56.146Z"
+  }
+]

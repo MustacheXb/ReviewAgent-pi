@@ -1,0 +1,861 @@
+{
+  "kind": "l2-token-bench",
+  "schemaVersion": 3,
+  "campaignId": "p0-l2-diagnostic2-2026-11-14",
+  "campaignType": "formal",
+  "calibrationRef": null,
+  "outputDir": "runs/eval/p0-l2-diagnostic2-2026-11-14",
+  "baseline": {
+    "ref": "eval-e-baseline-2026-11-11",
+    "model": "deepseek-v4-flash"
+  },
+  "candidate": {
+    "ref": "e61e43c",
+    "model": "deepseek-v4-flash"
+  },
+  "dataset": {
+    "cases": 30,
+    "negativeControl": 0,
+    "hash": "6586cd2d8db478f4d24729e91a6f068aa9042b3068c79a7a4876b20531b881d9"
+  },
+  "environmentRef": "environment.json",
+  "sampling": {
+    "cases": 30,
+    "reps": 3,
+    "arms": 2,
+    "planned": 180,
+    "armOrder": "randomized",
+    "armOrderSeed": 20261114
+  },
+  "coverage": {
+    "planned": 180,
+    "executed": 179,
+    "judged": 175,
+    "failed": 5,
+    "ratio": 0.9722222222222222,
+    "note": "30 case × 3 reps × 2 arms"
+  },
+  "bounds": {
+    "maxAttemptedToolCalls": 23,
+    "maxRequests": 36,
+    "maxOutputTokens": 54559,
+    "truncatedRuns": 1
+  },
+  "metrics": {
+    "baseline": {
+      "warm": {
+        "runs": 60,
+        "cases": 30,
+        "cost": {
+          "cachedInputTokens": {
+            "count": 30,
+            "mean": 61269.333333333336,
+            "std": 26080.518322188746
+          },
+          "uncachedInputTokens": {
+            "count": 30,
+            "mean": 35129.15,
+            "std": 9991.198053140022
+          },
+          "cacheWriteTokens": null,
+          "outputTokens": {
+            "count": 30,
+            "mean": 16400.5,
+            "std": 7515.541968893986
+          },
+          "totalInputTokens": {
+            "count": 30,
+            "mean": 96398.48333333334,
+            "std": 33266.0535807288
+          },
+          "totalTokens": {
+            "count": 30,
+            "mean": 112798.98333333334,
+            "std": 39002.79000884232
+          },
+          "cacheHitRate": {
+            "count": 30,
+            "mean": 0.6160966658555967,
+            "std": 0.06370644454854517
+          },
+          "carc": {
+            "count": 30,
+            "mean": 51529.65,
+            "std": 16816.81701716449
+          }
+        },
+        "loop": {
+          "requests": {
+            "count": 30,
+            "mean": 9.616666666666667,
+            "std": 1.149837569738269
+          },
+          "rounds": {
+            "count": 30,
+            "mean": 1.0166666666666666,
+            "std": 0.09128709291752765
+          },
+          "attemptedToolCalls": {
+            "count": 30,
+            "mean": 11.333333333333334,
+            "std": 1.9928031432673154
+          },
+          "executedToolCalls": {
+            "count": 30,
+            "mean": 6,
+            "std": 0
+          }
+        },
+        "quality": {
+          "judgeRecall": {
+            "count": 29,
+            "mean": 0.5569720324169712,
+            "std": 0.322744044700479
+          },
+          "judgePrecision": {
+            "count": 29,
+            "mean": 0.5560344827586207,
+            "std": 0.25302629176437075
+          },
+          "judgeF1": {
+            "count": 29,
+            "mean": 0.5189557336109061,
+            "std": 0.24686124161009615
+          },
+          "ruleRecall": {
+            "count": 30,
+            "mean": 0.23121223758320533,
+            "std": 0.24385584150760178
+          },
+          "rulePrecision": {
+            "count": 30,
+            "mean": 0.23472222222222222,
+            "std": 0.2233076341936037
+          },
+          "zeroFindingRate": {
+            "count": 30,
+            "mean": 0.016666666666666666,
+            "std": 0.09128709291752768
+          },
+          "negativeControlFpPerCase": null
+        }
+      },
+      "cold": {
+        "runs": 29,
+        "cases": 29,
+        "cost": {
+          "cachedInputTokens": {
+            "count": 29,
+            "mean": 63580.68965517241,
+            "std": 72548.3557050564
+          },
+          "uncachedInputTokens": {
+            "count": 29,
+            "mean": 37852.206896551725,
+            "std": 15521.48733985823
+          },
+          "cacheWriteTokens": null,
+          "outputTokens": {
+            "count": 29,
+            "mean": 15347.655172413793,
+            "std": 7760.282369107187
+          },
+          "totalInputTokens": {
+            "count": 29,
+            "mean": 101432.89655172414,
+            "std": 80157.84554701376
+          },
+          "totalTokens": {
+            "count": 29,
+            "mean": 116780.55172413793,
+            "std": 82562.9587066683
+          },
+          "cacheHitRate": {
+            "count": 29,
+            "mean": 0.5776018402509251,
+            "std": 0.11094238048724932
+          },
+          "carc": {
+            "count": 29,
+            "mean": 53199.862068965514,
+            "std": 22215.993115842306
+          }
+        },
+        "loop": {
+          "requests": {
+            "count": 29,
+            "mean": 10.137931034482758,
+            "std": 5.068982272684348
+          },
+          "rounds": {
+            "count": 29,
+            "mean": 1.1379310344827587,
+            "std": 0.7427813527082077
+          },
+          "attemptedToolCalls": {
+            "count": 29,
+            "mean": 11.137931034482758,
+            "std": 2.545642466353526
+          },
+          "executedToolCalls": {
+            "count": 29,
+            "mean": 6,
+            "std": 0
+          }
+        },
+        "quality": {
+          "judgeRecall": {
+            "count": 28,
+            "mean": 0.5054504059688392,
+            "std": 0.3516317472729251
+          },
+          "judgePrecision": {
+            "count": 28,
+            "mean": 0.5152210884353742,
+            "std": 0.3437392748035347
+          },
+          "judgeF1": {
+            "count": 28,
+            "mean": 0.45970160791589365,
+            "std": 0.2784784803931816
+          },
+          "ruleRecall": {
+            "count": 29,
+            "mean": 0.2761904761904762,
+            "std": 0.3550055092032036
+          },
+          "rulePrecision": {
+            "count": 29,
+            "mean": 0.2549261083743842,
+            "std": 0.31987400023489343
+          },
+          "zeroFindingRate": {
+            "count": 29,
+            "mean": 0,
+            "std": 0
+          },
+          "negativeControlFpPerCase": null
+        }
+      }
+    },
+    "candidate": {
+      "warm": {
+        "runs": 60,
+        "cases": 30,
+        "cost": {
+          "cachedInputTokens": {
+            "count": 30,
+            "mean": 65841.06666666667,
+            "std": 24978.546224963608
+          },
+          "uncachedInputTokens": {
+            "count": 30,
+            "mean": 37816.316666666666,
+            "std": 8479.740830948636
+          },
+          "cacheWriteTokens": null,
+          "outputTokens": {
+            "count": 30,
+            "mean": 16631.85,
+            "std": 7509.498127256964
+          },
+          "totalInputTokens": {
+            "count": 30,
+            "mean": 103657.38333333333,
+            "std": 31139.352168001446
+          },
+          "totalTokens": {
+            "count": 30,
+            "mean": 120289.23333333334,
+            "std": 35546.97196152344
+          },
+          "cacheHitRate": {
+            "count": 30,
+            "mean": 0.6171942567385214,
+            "std": 0.06665079784912153
+          },
+          "carc": {
+            "count": 30,
+            "mean": 54448.166666666664,
+            "std": 15178.977424745039
+          }
+        },
+        "loop": {
+          "requests": {
+            "count": 30,
+            "mean": 9.683333333333334,
+            "std": 0.9780640037350821
+          },
+          "rounds": {
+            "count": 30,
+            "mean": 1.0166666666666666,
+            "std": 0.09128709291752767
+          },
+          "attemptedToolCalls": {
+            "count": 30,
+            "mean": 9.75,
+            "std": 1.6802606530145747
+          },
+          "executedToolCalls": {
+            "count": 30,
+            "mean": 5.983333333333333,
+            "std": 0.09128709291752762
+          }
+        },
+        "quality": {
+          "judgeRecall": {
+            "count": 30,
+            "mean": 0.5145797064345452,
+            "std": 0.3119687513300016
+          },
+          "judgePrecision": {
+            "count": 30,
+            "mean": 0.4938888888888889,
+            "std": 0.21850385257189672
+          },
+          "judgeF1": {
+            "count": 30,
+            "mean": 0.47006756756756757,
+            "std": 0.2234004876642639
+          },
+          "ruleRecall": {
+            "count": 30,
+            "mean": 0.22254821641918415,
+            "std": 0.312195022834649
+          },
+          "rulePrecision": {
+            "count": 30,
+            "mean": 0.22083333333333333,
+            "std": 0.2631025287089176
+          },
+          "zeroFindingRate": {
+            "count": 30,
+            "mean": 0.03333333333333333,
+            "std": 0.12685406585123124
+          },
+          "negativeControlFpPerCase": null
+        }
+      },
+      "cold": {
+        "runs": 30,
+        "cases": 30,
+        "cost": {
+          "cachedInputTokens": {
+            "count": 30,
+            "mean": 60309.333333333336,
+            "std": 32256.754597997027
+          },
+          "uncachedInputTokens": {
+            "count": 30,
+            "mean": 36170.333333333336,
+            "std": 13047.881364112489
+          },
+          "cacheWriteTokens": null,
+          "outputTokens": {
+            "count": 30,
+            "mean": 15274.1,
+            "std": 8174.8636321010445
+          },
+          "totalInputTokens": {
+            "count": 30,
+            "mean": 96479.66666666667,
+            "std": 43778.51732444164
+          },
+          "totalTokens": {
+            "count": 30,
+            "mean": 111753.76666666666,
+            "std": 51092.319589275285
+          },
+          "cacheHitRate": {
+            "count": 30,
+            "mean": 0.6040014853221933,
+            "std": 0.07899092379224341
+          },
+          "carc": {
+            "count": 30,
+            "mean": 51444.433333333334,
+            "std": 20463.89220854597
+          }
+        },
+        "loop": {
+          "requests": {
+            "count": 30,
+            "mean": 9.566666666666666,
+            "std": 1.040004420857094
+          },
+          "rounds": {
+            "count": 30,
+            "mean": 1,
+            "std": 0
+          },
+          "attemptedToolCalls": {
+            "count": 30,
+            "mean": 9.533333333333333,
+            "std": 1.8888663510036974
+          },
+          "executedToolCalls": {
+            "count": 30,
+            "mean": 6,
+            "std": 0
+          }
+        },
+        "quality": {
+          "judgeRecall": {
+            "count": 30,
+            "mean": 0.5776984126984127,
+            "std": 0.371062344888843
+          },
+          "judgePrecision": {
+            "count": 28,
+            "mean": 0.5910714285714286,
+            "std": 0.31382684220771284
+          },
+          "judgeF1": {
+            "count": 28,
+            "mean": 0.5482838589981447,
+            "std": 0.26710599880985963
+          },
+          "ruleRecall": {
+            "count": 30,
+            "mean": 0.15507936507936507,
+            "std": 0.2334671153402928
+          },
+          "rulePrecision": {
+            "count": 28,
+            "mean": 0.2214285714285714,
+            "std": 0.30431928837471994
+          },
+          "zeroFindingRate": {
+            "count": 30,
+            "mean": 0.06666666666666667,
+            "std": 0.2537081317024625
+          },
+          "negativeControlFpPerCase": null
+        }
+      }
+    },
+    "paired": {
+      "warm": {
+        "carcRatio": {
+          "pairs": 30,
+          "mean": 1.07158337289133,
+          "median": 1.034949010708396,
+          "std": 0.3080731951725792,
+          "ci95": [
+            0.9738670691195552,
+            1.1761006772605298
+          ],
+          "absoluteDiff": {
+            "pairs": 30,
+            "mean": 2918.516666666667,
+            "median": 2329.5,
+            "std": 14507.560050850143,
+            "ci95": [
+              -2273.544166666666,
+              7785.693333333333
+            ]
+          }
+        },
+        "uncachedRatio": {
+          "pairs": 30,
+          "mean": 1.0923357473245072,
+          "median": 1.0670971352762009,
+          "std": 0.31706285583181026,
+          "ci95": [
+            0.9958858965853821,
+            1.1975201327308391
+          ],
+          "absoluteDiff": {
+            "pairs": 30,
+            "mean": 2687.1666666666665,
+            "median": 2303.5,
+            "std": 9657.300892225969,
+            "ci95": [
+              -766.8974999999988,
+              5976.478749999998
+            ]
+          }
+        },
+        "outputRatio": {
+          "pairs": 30,
+          "mean": 1.0234787262903264,
+          "median": 0.987081120262715,
+          "std": 0.3396682155839882,
+          "ci95": [
+            0.9155037351043062,
+            1.1423658466655584
+          ],
+          "absoluteDiff": {
+            "pairs": 30,
+            "mean": 231.35,
+            "median": -300,
+            "std": 5725.05089293747,
+            "ci95": [
+              -1770.7341666666666,
+              2207.139166666667
+            ]
+          }
+        },
+        "totalTokensRatio": {
+          "pairs": 30,
+          "mean": 1.0803979226107474,
+          "median": 1.074055654603311,
+          "std": 0.442001860018864,
+          "ci95": [
+            0.9557366908503544,
+            1.2197152456017148
+          ],
+          "absoluteDiff": {
+            "pairs": 30,
+            "mean": 7490.25,
+            "median": 6851.25,
+            "std": 43846.879197865856,
+            "ci95": [
+              -8295.18,
+              22650.405833333327
+            ]
+          }
+        },
+        "cachedInputRatio": {
+          "pairs": 30,
+          "mean": 1.0811747887853882,
+          "median": 1.132499177360974,
+          "std": 0.6068411461519625,
+          "ci95": [
+            0.9180725166290398,
+            1.270270134673501
+          ],
+          "absoluteDiff": {
+            "pairs": 30,
+            "mean": 4571.733333333334,
+            "median": 5920,
+            "std": 33126.230147550836,
+            "ci95": [
+              -7471.519999999995,
+              16006.4
+            ]
+          }
+        },
+        "attemptsRatio": {
+          "pairs": 30,
+          "mean": 0.860324918514786,
+          "median": 0.8544973544973544,
+          "std": 0.14495193582003452,
+          "ci95": [
+            0.8128182682543761,
+            0.9122471664520456
+          ],
+          "absoluteDiff": {
+            "pairs": 30,
+            "mean": -1.5833333333333333,
+            "median": -1.5,
+            "std": 1.786362772233845,
+            "ci95": [
+              -2.2,
+              -0.95
+            ]
+          }
+        },
+        "requestsRatio": {
+          "pairs": 30,
+          "mean": 1.0086388433445164,
+          "median": 1,
+          "std": 0.15445430399458032,
+          "ci95": [
+            0.9602828721201008,
+            1.0618008826051941
+          ],
+          "absoluteDiff": {
+            "pairs": 30,
+            "mean": 0.06666666666666667,
+            "median": 0,
+            "std": 1.518468678121739,
+            "ci95": [
+              -0.45,
+              0.6166666666666667
+            ]
+          }
+        },
+        "cacheHitRateDiff": {
+          "pairs": 30,
+          "mean": 0.0010975908829246668,
+          "median": 0.020279491364082802,
+          "std": 0.08238622570921837,
+          "ci95": [
+            -0.029143980904894774,
+            0.028851008814974707
+          ]
+        },
+        "judgeRecallDiff": {
+          "pairs": 29,
+          "mean": -0.030395324611119934,
+          "median": 0,
+          "std": 0.18731530391938223,
+          "ci95": [
+            -0.09719165474866251,
+            0.03827974645549728
+          ]
+        },
+        "judgePrecisionDiff": {
+          "pairs": 29,
+          "mean": -0.06235632183908047,
+          "median": -0.08333333333333337,
+          "std": 0.21061395382996997,
+          "ci95": [
+            -0.135632183908046,
+            0.014655172413793093
+          ]
+        },
+        "zeroFindingRateDiff": {
+          "pairs": 30,
+          "mean": 0.016666666666666666,
+          "median": 0,
+          "std": 0.15992095748737298,
+          "ci95": [
+            -0.03333333333333333,
+            0.08333333333333333
+          ]
+        },
+        "negativeControlFpDiff": {
+          "pairs": 0,
+          "mean": null,
+          "median": null,
+          "std": null,
+          "ci95": null
+        }
+      },
+      "cold": {
+        "carcRatio": {
+          "pairs": 29,
+          "mean": 0.9521495108147748,
+          "median": 1.036976104428502,
+          "std": 0.37210668438744005,
+          "ci95": [
+            0.8150493825932936,
+            1.1004019081069751
+          ],
+          "absoluteDiff": {
+            "pairs": 29,
+            "mean": -2423.7241379310344,
+            "median": 1483,
+            "std": 23691.201523676846,
+            "ci95": [
+              -11132.396551724134,
+              6002.531896551718
+            ]
+          }
+        },
+        "uncachedRatio": {
+          "pairs": 29,
+          "mean": 0.954015550282796,
+          "median": 0.9948585362987338,
+          "std": 0.3829138417626319,
+          "ci95": [
+            0.8153997980562291,
+            1.1047384902090513
+          ],
+          "absoluteDiff": {
+            "pairs": 29,
+            "mean": -1925.5172413793102,
+            "median": -175,
+            "std": 17434.144486406738,
+            "ci95": [
+              -8351.606034482755,
+              4262.390517241377
+            ]
+          }
+        },
+        "outputRatio": {
+          "pairs": 29,
+          "mean": 0.9440570435397254,
+          "median": 0.953553866785874,
+          "std": 0.41027509507138504,
+          "ci95": [
+            0.7933112768167547,
+            1.1040010565676757
+          ],
+          "absoluteDiff": {
+            "pairs": 29,
+            "mean": -498.2068965517241,
+            "median": -599,
+            "std": 7250.033676667156,
+            "ci95": [
+              -3135.0327586206886,
+              2061.599137931034
+            ]
+          }
+        },
+        "totalTokensRatio": {
+          "pairs": 29,
+          "mean": 0.9754329746138893,
+          "median": 1.0531630690318443,
+          "std": 0.47023124142892747,
+          "ci95": [
+            0.774516145271938,
+            1.1844971822115844
+          ],
+          "absoluteDiff": {
+            "pairs": 29,
+            "mean": -7428.9655172413795,
+            "median": 4091,
+            "std": 98004.85191869792,
+            "ci95": [
+              -46475.23793103446,
+              21410.62672413791
+            ]
+          }
+        },
+        "cachedInputRatio": {
+          "pairs": 29,
+          "mean": 1.037196463468058,
+          "median": 0.9811320754716981,
+          "std": 0.8705727264059114,
+          "ci95": [
+            0.7732167779615281,
+            1.3535219667027707
+          ],
+          "absoluteDiff": {
+            "pairs": 29,
+            "mean": -5005.241379310345,
+            "median": -768,
+            "std": 82687.30893883777,
+            "ci95": [
+              -38560.110344827575,
+              18462.896551724138
+            ]
+          }
+        },
+        "attemptsRatio": {
+          "pairs": 29,
+          "mean": 0.8543766184743795,
+          "median": 0.8333333333333334,
+          "std": 0.16559976407267463,
+          "ci95": [
+            0.7957454267508697,
+            0.9166011544645084
+          ],
+          "absoluteDiff": {
+            "pairs": 29,
+            "mean": -1.6896551724137931,
+            "median": -2,
+            "std": 2.253623245795567,
+            "ci95": [
+              -2.5172413793103448,
+              -0.896551724137931
+            ]
+          }
+        },
+        "requestsRatio": {
+          "pairs": 29,
+          "mean": 0.988687747200254,
+          "median": 1,
+          "std": 0.21676052450742303,
+          "ci95": [
+            0.8684171094198541,
+            1.0842581652661212
+          ],
+          "absoluteDiff": {
+            "pairs": 29,
+            "mean": -0.5862068965517241,
+            "median": 0,
+            "std": 5.4347903191206814,
+            "ci95": [
+              -2.7586206896551726,
+              0.7586206896551724
+            ]
+          }
+        },
+        "cacheHitRateDiff": {
+          "pairs": 29,
+          "mean": 0.02243649511429498,
+          "median": 0.038594035639306856,
+          "std": 0.13332757351871893,
+          "ci95": [
+            -0.0237265280381347,
+            0.07098456799723955
+          ]
+        },
+        "judgeRecallDiff": {
+          "pairs": 28,
+          "mean": 0.10755979811279351,
+          "median": 0,
+          "std": 0.39930865504589863,
+          "ci95": [
+            -0.038945578231292514,
+            0.25008530831687503
+          ]
+        },
+        "judgePrecisionDiff": {
+          "pairs": 26,
+          "mean": 0.1009157509157509,
+          "median": 0,
+          "std": 0.31854763732293767,
+          "ci95": [
+            -0.020244963369963304,
+            0.22454212454212452
+          ]
+        },
+        "zeroFindingRateDiff": {
+          "pairs": 29,
+          "mean": 0.06896551724137931,
+          "median": 0,
+          "std": 0.25788071477756375,
+          "ci95": [
+            0,
+            0.1724137931034483
+          ]
+        },
+        "negativeControlFpDiff": {
+          "pairs": 0,
+          "mean": null,
+          "median": null,
+          "std": null,
+          "ci95": null
+        }
+      }
+    }
+  },
+  "gates": {
+    "cost": {
+      "pass": false,
+      "rule": "carcRatio <= 0.900 && ci95 upper < 1.000 && uncached <= 1.000 && output <= 1.050 && attempts <= 1.000 && requests <= 1.000",
+      "detail": "CARC ratio 1.072 > maxCarcRatio 0.900; CARC ci95 upper 1.176 not < 1.000; uncached ratio 1.092 > 1.000; requests ratio 1.009 > 1.000"
+    },
+    "quality": {
+      "pass": false,
+      "rule": "judgeRecall/Precision ci95 lower >= -3.0pp && zero-finding <= +2.0pp && negativeControlFp <= baseline + 1.000σ && coverage >= 0.950",
+      "detail": "judgeRecall ci95 lower -9.7pp < -3.0pp; judgePrecision ci95 lower -13.6pp < -3.0pp"
+    },
+    "boundedness": {
+      "pass": true,
+      "rule": "attemptedToolCalls <= 24 && requests <= 46 && outputTokens <= 65441 && truncated => truncationReasons non-empty",
+      "detail": "179 runs within bounds"
+    },
+    "reproducibility": {
+      "pass": true,
+      "rule": "auditPath present && cacheBreaks == 0 (audit replay / golden bytes covered by report-only round-trip test)",
+      "detail": "179 records with audit references, 0 cache breaks"
+    }
+  },
+  "claimsAllowed": false,
+  "bootstrap": {
+    "iterations": 10000,
+    "seed": 20261111,
+    "confidence": 0.95
+  },
+  "thresholds": {
+    "maxCarcRatio": 0.9,
+    "maxCarcRatioCiUpper": 1,
+    "maxUncachedRatio": 1,
+    "maxOutputRatio": 1.05,
+    "maxAttemptsRatio": 1,
+    "maxRequestsRatio": 1,
+    "qualityNonInferiorityPp": 0.03,
+    "maxZeroFindingRateIncreasePp": 0.02,
+    "maxNegativeControlFpSigma": 1,
+    "minCoverage": 0.95,
+    "maxAttemptedToolCalls": 24,
+    "maxRequests": 46,
+    "maxOutputTokens": 65441
+  }
+}
