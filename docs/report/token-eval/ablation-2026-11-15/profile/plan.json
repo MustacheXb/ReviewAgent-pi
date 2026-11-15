@@ -1,0 +1,15 @@
+{
+  "campaignId": "ablate-profile-2026-11-15",
+  "baselineRef": "d9e6f8e",
+  "candidateRef": "e61e43c",
+  "casesFile": "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi-candidate\\data\\vul4j\\p1-smoke-cases.json",
+  "reps": 2,
+  "model": "deepseek-v4-flash",
+  "arms": [
+    "baseline",
+    "candidate"
+  ],
+  "outputDir": "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi-candidate\\runs\\eval\\ablate-profile-2026-11-15",
+  "armOrder": "randomized",
+  "armOrderSeed": 20261115
+}
