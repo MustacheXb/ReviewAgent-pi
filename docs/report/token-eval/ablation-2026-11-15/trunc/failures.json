@@ -1,0 +1,12 @@
+[
+  {
+    "campaignId": "ablate-trunc-2026-11-15",
+    "source": "vul4j",
+    "caseId": "VUL4J-15",
+    "arm": "candidate",
+    "rep": 2,
+    "stage": "judge",
+    "error": "OpenAI API returned finish_reason \"length\": the judge response was truncated by max_tokens; not retried automatically",
+    "at": "2026-11-15T10:40:22.382Z"
+  }
+]
