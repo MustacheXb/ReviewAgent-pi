@@ -1,0 +1,15 @@
+{
+  "campaignId": "fix-profile-2026-11-16",
+  "baselineRef": "eval-e-baseline-2026-11-11",
+  "candidateRef": "231fb05",
+  "casesFile": "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi-ablate-fix\\data\\vul4j\\p1-smoke-cases.json",
+  "reps": 2,
+  "model": "deepseek-v4-flash",
+  "arms": [
+    "baseline",
+    "candidate"
+  ],
+  "outputDir": "D:\\xubao\\code\\AI4SE\\ReviewAgent-pi\\ReviewAgent-pi-ablate-fix\\runs\\eval\\fix-profile-2026-11-16",
+  "armOrder": "randomized",
+  "armOrderSeed": 20261118
+}

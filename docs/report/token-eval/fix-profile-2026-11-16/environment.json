@@ -1,0 +1,54 @@
+{
+  "campaignId": "fix-profile-2026-11-16",
+  "evaluation": {
+    "branch": "ablate/fix-profile",
+    "campaign": "fix-profile-2026-11-16",
+    "calibrationRef": null
+  },
+  "git": {
+    "branch": "ablate/fix-profile",
+    "commit": "231fb056998d72778b72abaa4b7cfe17d4736555",
+    "tag": null
+  },
+  "runtime": {
+    "node": "v24.13.0",
+    "os": "win32-x64",
+    "machine": "GDD-ITTools-XA"
+  },
+  "model": {
+    "requestedId": "deepseek-v4-flash",
+    "actualDeployment": null,
+    "providerClass": "volcengine",
+    "baseUrlClass": "gateway-endpoint"
+  },
+  "gateway": {
+    "cacheProbeBefore": null,
+    "cacheProbeAfter": null
+  },
+  "judge": {
+    "model": "glm-5.2",
+    "promptVersion": "mcr-bench-llm-hit-judge-2026-09-03+poc1-ext-1",
+    "temperature": 0.2,
+    "topP": 0.95
+  },
+  "prompts": {
+    "zoneA": null,
+    "toolsSchema": null
+  },
+  "claudeCode": {
+    "cliVersion": null,
+    "requestedModel": null,
+    "actualModels": null,
+    "maxTurns": null
+  },
+  "window": {
+    "start": "2026-11-16T01:32:58.746Z",
+    "end": "2026-11-16T04:01:28.809Z",
+    "timezone": "Asia/Shanghai"
+  },
+  "dataset": {
+    "casesFile": "data/vul4j/p1-smoke-cases.json",
+    "caseCount": 10,
+    "hash": "01ed1c9a7e3df5c29dfcde980e7de14df7bc5efe42e2c8ab56dc309b45f64aa5"
+  }
+}
