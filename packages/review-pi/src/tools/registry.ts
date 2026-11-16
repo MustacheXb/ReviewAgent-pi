@@ -71,7 +71,9 @@ export function deriveToolProfile(knowledge?: KnowledgeCorpus): ToolProfile {
   if (hasHistory) {
     return "core-5+history";
   }
-  return "core-5";
+  // #49 诊断后的窄回滚：无语料的生产入口不再默认 core-5（CARC/质量回退），
+  // 恢复 extended-7；core-5 仍可经 toolProfileOverride 用于评测消融。
+  return "extended-7";
 }
 
 /** 注册表投影：按 profile 过滤完整 schema 集（单工具字节不变、顺序不变） */

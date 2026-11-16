@@ -25,8 +25,8 @@ import type { ReviewToolHandler, ToolRunContext } from "./toolkit-types.js";
 /**
  * review.* 工具箱装配（#6 P3a：工具驱动内核的工具面；#32 / ADR-0014 起唯一形态）。
  *
- * - schema 面（Zone A）：按 Tool Profile 从注册表投影（#52；生产缺省 core-5，
- *   语料存在时增补检索工具），字节稳定；
+ * - schema 面（Zone A）：按 Tool Profile 从注册表投影（#52；#49 诊断后生产缺省 extended-7，
+ *   core-5 仅评测 override），字节稳定；
  * - 执行面（Zone C）：懒加载 RepoContext memoize——模型不调用工具的 run 不产生
  *   仓库读取成本；首次调用失败成为有界的工具错误（进审计 toolCallLog），不静默；
  * - Profile：由可用知识语料派生、run 内固定；非 profile 工具按 unknown tool
@@ -72,7 +72,7 @@ export interface ReviewToolkitOptions {
   readonly knowledge?: KnowledgeCorpus;
   /**
    * Tool Profile 覆盖（#52 / ADR-0018 §3）：内核内部输入，评测消融专用；
-   * 不进入协议、CLI 或环境变量。缺省按 knowledge 派生（生产缺省 core-5）。
+   * 不进入协议、CLI 或环境变量。缺省按 knowledge 派生（生产缺省 extended-7；core-5 仅评测 override）。
    */
   readonly toolProfileOverride?: ToolProfile;
 }

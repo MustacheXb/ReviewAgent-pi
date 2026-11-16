@@ -99,11 +99,11 @@ test("pi-ai Tool 定义（name/description/parameters）与 wire 真源 function
 
 // #52 / ADR-0018 §3：Tool Profile 派生与注册表投影
 
-test("profile 派生：无语料 / 仅 rule / 仅 history / 两者皆有", () => {
-  expect(deriveToolProfile(undefined)).toBe("core-5");
-  expect(deriveToolProfile({})).toBe("core-5");
-  expect(deriveToolProfile({ rules: [] })).toBe("core-5");
-  expect(deriveToolProfile({ history: [] })).toBe("core-5");
+test("profile 派生：无语料缺省 extended-7；单语料映射；两者皆有 extended-7", () => {
+  expect(deriveToolProfile(undefined)).toBe("extended-7");
+  expect(deriveToolProfile({})).toBe("extended-7");
+  expect(deriveToolProfile({ rules: [] })).toBe("extended-7");
+  expect(deriveToolProfile({ history: [] })).toBe("extended-7");
   expect(deriveToolProfile({ rules: [RULE_ENTRY] })).toBe("core-5+rule");
   expect(deriveToolProfile({ history: [HISTORY_ENTRY] })).toBe("core-5+history");
   expect(deriveToolProfile({ rules: [RULE_ENTRY], history: [HISTORY_ENTRY] })).toBe("extended-7");

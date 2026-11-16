@@ -20,7 +20,7 @@ export { ReviewAbortedError } from "../contracts/run.js";
 export type { ReviewRunProgress } from "../contracts/run.js";
 
 // 单案全链入口（#3 P1a 离线全链；#6 P3a 起工具驱动 agentLoop）：
-// 组装（Zone A + MR）→ agentLoop（core-5 + Context Ledger + 轮次上界）→
+// 组装（Zone A + MR）→ agentLoop（extended-7 + Context Ledger + 轮次上界）→
 // 审计投影落盘。
 //
 // fake 适配器与真适配器同缝：传输层经注入的 FetchFunction——离线开发/测试
@@ -60,7 +60,7 @@ export interface ReviewRunInput {
   readonly budget?: ReviewBudgetOverride;
   /**
    * Tool Profile 覆盖（#52 / ADR-0018 §3）：内核内部输入，评测消融专用；
-   * 不进入协议、CLI 参数或环境变量。缺省按可用知识语料派生（生产 core-5）。
+   * 不进入协议、CLI 参数或环境变量。缺省按可用知识语料派生（生产 extended-7；core-5 仅评测 override）。
    */
   readonly toolProfileOverride?: ToolProfile;
   /**
@@ -113,7 +113,7 @@ export async function runReview(input: ReviewRunInput): Promise<ReviewRunResult>
     { role: "user", content: buildInitialUserMessage(input.caseId, input.issueDescription, input.diff) },
   ];
 
-  // Tool Profile 工具执行面（生产 core-5）：RepoContext 懒加载（模型不调用工具的 run 不产生仓库读取
+  // Tool Profile 工具执行面（生产 extended-7）：RepoContext 懒加载（模型不调用工具的 run 不产生仓库读取
   // 成本）；Context Ledger 功能态（E 去重面）
   const toolkit = buildReviewToolkit({
     repoPath: input.repoPath,
