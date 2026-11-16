@@ -1281,6 +1281,7 @@ flowchart LR
 - 派生 / 投影单点：`packages/review-pi/src/tools/registry.ts`。`deriveToolProfile` 按 ADR-0018 §3 四档派生（空数组等同无语料）；`toolNamesForProfile` 恒为 `REVIEW_TOOL_ORDER` 的子序列；`reviewToolSchemasForProfile` 从完整注册表投影，单工具字节与 extended-7 真源一致。
 - Toolkit：只挂载 profile 内的 schema / handler，被裁掉的工具按 unknown tool 有界拒绝；`profile` / `toolProfileSource` 随 toolkit 带出，run 内固定。内部 `toolProfileOverride`（`runReview` / `buildReviewToolkit`）供评测消融，来源记 `override`，不进入协议 / CLI / 环境变量。
 - **生产缺省 core-5 是有意的 Zone A 变更**：生产入口不注入知识语料，wire tools 从七件降为五件；质量面不在主线验证，须在评测线复核（L2）。PR 与本文档显式记录。产品侧语料来源 / 版本管理属父 spec out-of-scope（另行立项），单语料档位目前只在 toolkit 装配缝可达。
+- **窄回滚（#49 有效诊断，2026-11-16）**：有效 30×3 诊断与单机制对照显示 core-5 默认伴随 CARC 上升与质量非劣 CI 失败；生产缺省已临时改回 **extended-7**，保留 profile 机制与 `toolProfileOverride`，core-5 仅作评测消融档。证据见 `docs/report/token-eval/p0-l2-diagnostic2-2026-11-14/` 与 `ablation-2026-11-15/`。修复（而非回退）需另行立项并重跑 L2。
 - 审计：`RunAudit` / `AuditFileContent` / `AuditLight` 追加可选 `toolProfile` / `toolProfileSource` 尾键（`retry` 之后；新 run 恒写、历史缺键兼容）。
 - Golden / P1-2：现有 DSH 七工具真源保留为 extended-7，新增 `review-tools-core5.json` / `review-tools-wire-core5.json`；断言 core-5 与 extended-7 共享工具逐字节一致、工具序为注册表子序列、重复组装字节稳定。
 - 测试缝：`tools/registry.test.ts`（派生 / 投影 / 双 profile golden）、`tools/toolkit.test.ts`（缺省 core-5 / 单语料 / override / 非 profile 工具拒绝 / 重复组装）、`run/review-run.test.ts`（生产 wire core-5、override extended-7 审计留痕）、审计键序测试。

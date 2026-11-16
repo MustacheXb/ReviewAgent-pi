@@ -404,6 +404,8 @@ test("全链边界内零漂移（E 工具驱动生产入口）：护栏键全缺
     "review_get_file",
     "review_find_references",
     "review_get_call_chain",
+    "review_search_rule",
+    "review_search_history",
   ]);
   // E 恒投影 ledger 键（零工具 → 空数组）
   expect(record.baseline.audit.ledger).toEqual([]);

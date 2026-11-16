@@ -368,9 +368,9 @@ test("get_diff 截断在文件内部：提示该文件可继续完整读取", as
   expect(result).toContain("diff --git a/src/B.java");
 });
 
-test("Tool Profile：生产缺省 core-5；单语料映射；内部 override 可强制 extended-7", async () => {
+test("Tool Profile：生产缺省 extended-7；单语料映射；内部 override 可强制 core-5", async () => {
   const base = toolkit();
-  expect(base.toolProfile).toBe("core-5");
+  expect(base.toolProfile).toBe("extended-7");
   expect(base.toolProfileSource).toBe("derived");
   expect(base.schemas.map((schema) => schema.name)).toEqual([
     "review.get_diff",
@@ -378,6 +378,8 @@ test("Tool Profile：生产缺省 core-5；单语料映射；内部 override 可
     "review.get_file",
     "review.find_references",
     "review.get_call_chain",
+    "review.search_rule",
+    "review.search_history",
   ]);
 
   const rule = buildReviewToolkit({
@@ -406,21 +408,21 @@ test("Tool Profile：生产缺省 core-5；单语料映射；内部 override 可
   });
   expect(both.toolProfile).toBe("extended-7");
 
-  // 内部 override：即便无语料也可强制 extended-7（评测消融缝）
+  // 内部 override：评测消融可强制 core-5
   const override = buildReviewToolkit({
     repoPath: SAMPLE,
     diff: SAMPLE_DIFF,
-    toolProfileOverride: "extended-7",
+    toolProfileOverride: "core-5",
   });
-  expect(override.toolProfile).toBe("extended-7");
+  expect(override.toolProfile).toBe("core-5");
   expect(override.toolProfileSource).toBe("override");
-  expect(override.schemas).toHaveLength(7);
+  expect(override.schemas).toHaveLength(5);
 
   // 非 profile 工具不可执行：core-5 下 search 工具不存在
-  await expect(base.executeTool("review.search_rule", { query: "x" })).rejects.toThrow(
+  await expect(override.executeTool("review.search_rule", { query: "x" })).rejects.toThrow(
     /unknown tool "review.search_rule"/,
   );
-  await expect(override.executeTool("review.search_rule", { query: "x" })).resolves.toContain(
+  await expect(base.executeTool("review.search_rule", { query: "x" })).resolves.toContain(
     "corpus is empty",
   );
 });
@@ -617,7 +619,7 @@ test("Ledger 原语：未登记不命中；register 后命中引用格式（去�
   );
 });
 
-test("executeTool：未知名为有界错误；生产 schema 面固定 core-5", async () => {
+test("executeTool：未知名为有界错误；生产 schema 面固定 extended-7", async () => {
   const tk = toolkit();
   await expect(tk.executeTool("review.nope", {})).rejects.toThrow(
     /unknown tool "review.nope" \(available: review.get_diff, /,
@@ -628,21 +630,21 @@ test("executeTool：未知名为有界错误；生产 schema 面固定 core-5", 
     "review.get_file",
     "review.find_references",
     "review.get_call_chain",
+    "review.search_rule",
+    "review.search_history",
   ]);
-  // 内部 override 下 schema 面为 extended-7（评测消融）
-  const extended = buildReviewToolkit({
+  // 内部 override 下 schema 面为 core-5（评测消融）
+  const core = buildReviewToolkit({
     repoPath: SAMPLE,
     diff: SAMPLE_DIFF,
-    toolProfileOverride: "extended-7",
+    toolProfileOverride: "core-5",
   });
-  expect(extended.schemas.map((schema) => schema.name)).toEqual([
+  expect(core.schemas.map((schema) => schema.name)).toEqual([
     "review.get_diff",
     "review.get_symbol",
     "review.get_file",
     "review.find_references",
     "review.get_call_chain",
-    "review.search_rule",
-    "review.search_history",
   ]);
 });
 

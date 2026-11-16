@@ -172,13 +172,13 @@ test("单轮直驱 + 工具子循环：phase-2 执行 get_diff 后 recall 收尾
   expect(outcome.audit.truncationReasons).toEqual([]);
 });
 
-test("Zone A 稳定：core-5 工具面跨请求字节恒定（审计点分名 / wire 下划线名），消息前缀 append-only", async () => {
+test("Zone A 稳定：extended-7 工具面跨请求字节恒定（审计点分名 / wire 下划线名），消息前缀 append-only", async () => {
   const { run } = scriptedLoop(singleRoundScript());
   const outcome = await run();
   const requests = outcome.audit.requests;
 
-  // 审计投影：生产缺省 core-5、点分名、顺序与注册表一致（#52）
-  expect(outcome.audit.toolProfile).toBe("core-5");
+  // 审计投影：生产缺省 extended-7、点分名、顺序与注册表一致
+  expect(outcome.audit.toolProfile).toBe("extended-7");
   expect(outcome.audit.toolProfileSource).toBe("derived");
   for (const request of requests) {
     expect(request.tools.map((tool) => tool.name)).toEqual([
@@ -187,6 +187,8 @@ test("Zone A 稳定：core-5 工具面跨请求字节恒定（审计点分名 / 
       "review.get_file",
       "review.find_references",
       "review.get_call_chain",
+      "review.search_rule",
+      "review.search_history",
     ]);
   }
   // wire 体：工具名为下划线形态
@@ -199,6 +201,8 @@ test("Zone A 稳定：core-5 工具面跨请求字节恒定（审计点分名 / 
     "review_get_file",
     "review_find_references",
     "review_get_call_chain",
+    "review_search_rule",
+    "review_search_history",
   ]);
   // wire tools 字节跨请求恒定（重复读取字节稳定，P1-2）
   const toolsBytes = new Set(

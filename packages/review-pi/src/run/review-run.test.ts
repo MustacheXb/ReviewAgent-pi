@@ -58,13 +58,15 @@ function readAudit(auditPath: string): {
   };
 }
 
-/** 生产缺省 core-5 wire 名序（#52：REVIEW_TOOL_ORDER 的子序列） */
+/** 生产缺省 extended-7 wire 名序（REVIEW_TOOL_ORDER 全序） */
 const WIRE_TOOL_NAMES = [
   "review_get_diff",
   "review_get_symbol",
   "review_get_file",
   "review_find_references",
   "review_get_call_chain",
+  "review_search_rule",
+  "review_search_history",
 ];
 /** 审计投影 tools 点分名序（fromWireToolName：仅首个下划线转点分） */
 const DOTTED_TOOL_NAMES = [
@@ -73,9 +75,11 @@ const DOTTED_TOOL_NAMES = [
   "review.get_file",
   "review.find_references",
   "review.get_call_chain",
+  "review.search_rule",
+  "review.search_history",
 ];
 
-test("E 工具驱动全链:配置内核单源派生恒 E,req0 = ZoneA+MR+Phase-1 + core-5 工具面,零工具调用 complete", async () => {
+test("E 工具驱动全链:配置内核单源派生恒 E,req0 = ZoneA+MR+Phase-1 + extended-7 工具面,零工具调用 complete", async () => {
   const script = fakeFetch(sixPhaseNoToolCorpus());
   const runsRoot = tempRunsRoot();
   const { record, recordPath, auditPath, runId } = await runReview({
@@ -115,10 +119,10 @@ test("E 工具驱动全链:配置内核单源派生恒 E,req0 = ZoneA+MR+Phase-1
   const audit = readAudit(auditPath);
   expect(audit.configId).toBe("E");
   expect(audit.ledger).toEqual([]);
-  // #52：生产缺省 core-5（有意 Zone A 变更），来源 derived
-  expect(record.baseline.audit.toolProfile).toBe("core-5");
+  // #49 诊断后的窄回滚：生产缺省 extended-7，来源 derived
+  expect(record.baseline.audit.toolProfile).toBe("extended-7");
   expect(record.baseline.audit.toolProfileSource).toBe("derived");
-  expect(audit.toolProfile).toBe("core-5");
+  expect(audit.toolProfile).toBe("extended-7");
   expect(audit.toolProfileSource).toBe("derived");
 
   // req0:三条消息(system + MR + Phase-1) + 工具面(wire 下划线名;tool_choice 缺席为 pi 方言)
@@ -485,7 +489,7 @@ test(
   300_000,
 );
 
-test("toolProfileOverride（内核内部缝）：强制 extended-7 且审计记录 override", async () => {
+test("toolProfileOverride（内核内部缝）：强制 core-5 且审计记录 override", async () => {
   const script = fakeFetch(sixPhaseNoToolCorpus());
   const runsRoot = tempRunsRoot();
   const { record, auditPath } = await runReview({
@@ -498,13 +502,13 @@ test("toolProfileOverride（内核内部缝）：强制 extended-7 且审计记�
     runsRoot,
     experimentId: "phase2-smoke",
     rep: 1,
-    toolProfileOverride: "extended-7",
+    toolProfileOverride: "core-5",
   });
 
-  expect(record.baseline.audit.toolProfile).toBe("extended-7");
+  expect(record.baseline.audit.toolProfile).toBe("core-5");
   expect(record.baseline.audit.toolProfileSource).toBe("override");
   const audit = readAudit(auditPath);
-  expect(audit.toolProfile).toBe("extended-7");
+  expect(audit.toolProfile).toBe("core-5");
   expect(audit.toolProfileSource).toBe("override");
   const req0 = JSON.parse(audit.requests[0]!.wireBody) as {
     tools?: { function: { name: string } }[];
@@ -515,7 +519,5 @@ test("toolProfileOverride（内核内部缝）：强制 extended-7 且审计记�
     "review_get_file",
     "review_find_references",
     "review_get_call_chain",
-    "review_search_rule",
-    "review_search_history",
   ]);
 });
